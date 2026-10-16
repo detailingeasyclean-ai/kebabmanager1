@@ -38,10 +38,10 @@ const LOCATION_COLORS = { Opole: "bg-blue-500", Nysa: "bg-emerald-500", Kłodzko
 const DEFAULT_LOCATION_PINS = { Opole: "0525", Nysa: "0526", Kłodzko: "0527", "Kudowa-Zdrój": "0528" };
 
 const EMPLOYEES_BY_LOCATION = {
-  Opole: ["Mikołaj", "Michał", "Kacper", "Dawid", "Oliwia", "Zuzanna", "Bartek"],
-  Nysa: ["Mikołaj", "Michał", "Mateusz", "Kamil", "Natalia", "Wiktoria", "Szymon"],
-  Kłodzko: ["Mikołaj", "Michał", "Patryk", "Jakub", "Karolina", "Martyna", "Tomek"],
-  "Kudowa-Zdrój": ["Mikołaj", "Michał", "Łukasz", "Piotr", "Maja", "Aleksandra", "Filip"],
+  Opole: ["Kasia", "Aymen", "Mateusz", "Tamara", "Pracownik 1", "Pracownik 2", "Pracownik 3"],
+  Nysa: ["Ola", "Sergio", "Ula", "Pracownik 1", "Pracownik 2", "Pracownik 3"],
+  Kłodzko: ["Mikołaj", "Bruno", "Dominika", "Pracownik 1", "Pracownik 2", "Pracownik 3"],
+  "Kudowa-Zdrój": ["Szczepan", "Karol", "Daniel", "Sara", "Leon", "Pracownik 1", "Pracownik 2"],
 };
 
 const DEFAULT_AVG_ORDER_VALUE = 38;
