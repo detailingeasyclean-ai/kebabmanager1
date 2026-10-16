@@ -36,6 +36,16 @@ const LS_CATALOG_KEY = `kebab_catalog_${appId}`;
 const LOCATIONS = ["Opole", "Nysa", "Kłodzko", "Kudowa-Zdrój"];
 const LOCATION_COLORS = { Opole: "bg-blue-500", Nysa: "bg-emerald-500", Kłodzko: "bg-amber-500", "Kudowa-Zdrój": "bg-purple-500" };
 const DEFAULT_LOCATION_PINS = { Opole: "0525", Nysa: "0526", Kłodzko: "0527", "Kudowa-Zdrój": "0528" };
+
+const EMPLOYEES_BY_LOCATION = {
+  Opole: ["Mikołaj", "Michał", "Kacper", "Dawid", "Oliwia", "Zuzanna", "Bartek"],
+  Nysa: ["Mikołaj", "Michał", "Mateusz", "Kamil", "Natalia", "Wiktoria", "Szymon"],
+  Kłodzko: ["Mikołaj", "Michał", "Patryk", "Jakub", "Karolina", "Martyna", "Tomek"],
+  "Kudowa-Zdrój": ["Mikołaj", "Michał", "Łukasz", "Piotr", "Maja", "Aleksandra", "Filip"],
+};
+
+const DEFAULT_AVG_ORDER_VALUE = 38;
+
 const DEFAULT_DELIVERY_DAYS = {
   vegetables: [1, 2, 3, 4, 5, 6, 0],
   freezer: [1, 2, 3, 4, 5, 6, 0],
@@ -59,6 +69,7 @@ const DEFAULT_CATALOG = {
   customCategories: [],
   locationPins: DEFAULT_LOCATION_PINS,
   deliveryDays: DEFAULT_DELIVERY_DAYS,
+  itemLocations: {},
 };
 
 const DAYS_OF_WEEK = [
@@ -99,11 +110,21 @@ const normalizeCatalog = (raw) => {
         });
       }
       res[k] = mergedDays;
+    } else if (k === "itemLocations") {
+      res[k] = raw.itemLocations && typeof raw.itemLocations === "object" ? raw.itemLocations : {};
     } else if (Array.isArray(raw[k])) {
       res[k] = raw[k];
     }
   });
   return res;
+};
+
+const isItemAllowedForLocation = (catalog, categoryKey, itemName, location) => {
+  if (!location) return true;
+  const mapKey = `${categoryKey}__${itemName}`;
+  const assigned = catalog?.itemLocations?.[mapKey];
+  if (!Array.isArray(assigned)) return true;
+  return assigned.includes(location);
 };
 
 const formatDateObj = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
@@ -149,6 +170,19 @@ const parseSafeNumber = (val) => {
   if (val === "" || val === null || val === undefined) return 0;
   const parsed = parseFloat(String(val).replace(",", ".").trim());
   return isNaN(parsed) ? 0 : parsed;
+};
+
+const getEffectiveOrdersCount = (report, fallbackAvgOrderVal = DEFAULT_AVG_ORDER_VALUE) => {
+  const manual = parseSafeNumber(report?.ordersCount);
+  if (manual > 0) return Math.round(manual);
+  const totalRev =
+    parseSafeNumber(report?.revenue?.gotowka) +
+    parseSafeNumber(report?.revenue?.karta) +
+    parseSafeNumber(report?.revenue?.aplikacje);
+  if (totalRev > 0 && fallbackAvgOrderVal > 0) {
+    return Math.max(1, Math.round(totalRev / fallbackAvgOrderVal));
+  }
+  return 0;
 };
 
 const calculateWorkedHours = (hoursStr) => {
@@ -387,6 +421,40 @@ const PinLoginScreen = memo(({ icon: Icon, iconBgClass, title, subtitle, submitL
     </div>
   </div>
 ));
+
+const UrgentTasksBanner = memo(({ tasks, location }) => {
+  if (!Array.isArray(tasks) || tasks.length === 0) return null;
+  return (
+    <div className="w-full bg-gradient-to-r from-red-600 via-rose-600 to-amber-600 text-white p-4 sm:p-5 rounded-2xl shadow-xl border-2 border-red-300 mb-6">
+      <div className="flex items-start gap-3">
+        <div className="w-10 h-10 rounded-xl bg-white/20 flex items-center justify-center shrink-0 mt-0.5">
+          <AlertTriangle className="w-6 h-6 text-white" />
+        </div>
+        <div className="flex-1 min-w-0">
+          <div className="flex items-center justify-between gap-2 flex-wrap mb-2">
+            <span className="text-xs font-black uppercase tracking-wider bg-black/25 px-3 py-1 rounded-full">
+              Pilne zadanie dnia — Punkt: {location}
+            </span>
+            <span className="text-xs font-black bg-white text-red-700 px-2.5 py-0.5 rounded-full">
+              Niewykonane: {tasks.length}
+            </span>
+          </div>
+          <div className="space-y-2">
+            {tasks.map((t) => (
+              <div key={t.id} className="bg-black/20 p-3 rounded-xl border border-white/15 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
+                <p className="font-extrabold text-sm sm:text-base text-white break-words">{t.text}</p>
+                <span className="shrink-0 inline-flex items-center text-xs font-black bg-amber-300 text-gray-950 px-3 py-1.5 rounded-lg shadow-sm">
+                  <Clock className="w-3.5 h-3.5 mr-1.5" />
+                  Do wykonania do godziny: {t.deadlineTime || "22:00"}
+                </span>
+              </div>
+            ))}
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+});
 
 export default function App() {
   const [user, setUser] = useState(null);
@@ -702,13 +770,14 @@ export default function App() {
 
       {view === "nysaMenu" && (
         <div className="flex flex-col items-center justify-center p-6 min-h-screen max-w-lg mx-auto">
-          <div className="mb-10 text-center w-full relative">
+          <div className="mb-6 text-center w-full relative">
             <button type="button" onClick={() => setView("select")} className="absolute left-0 top-0 w-10 h-10 bg-white border border-gray-200 rounded-full flex items-center justify-center shadow-sm text-gray-600 hover:bg-gray-50">
               <ArrowLeft className="w-5 h-5" />
             </button>
             <h1 className="text-3xl font-extrabold text-gray-900 mt-1">Menu Nysa</h1>
             <p className="text-gray-500 mt-2 font-medium">Wybierz formularz docelowy ({activeGastroDate})</p>
           </div>
+          <UrgentTasksBanner tasks={currentEmployeeTasks} location="Nysa" />
           <div className="w-full flex flex-col gap-5">
             <button
               type="button"
@@ -864,6 +933,11 @@ function EmployeeForm({
   const [itemSearchQuery, setItemSearchQuery] = useState("");
 
   const [reporter, setReporter] = useState(savedDraft?.reporter ?? existingData?.reporter ?? "");
+  const [ordersCount, setOrdersCount] = useState(() => {
+    const val = savedDraft?.ordersCount ?? existingData?.ordersCount;
+    return val !== undefined && val !== null && Number(val) > 0 ? String(val) : "";
+  });
+
   const [quickNote, setQuickNote] = useState(() => {
     try { return localStorage.getItem(`note_${location}`) || ""; } catch { return ""; }
   });
@@ -903,6 +977,16 @@ function EmployeeForm({
   const [saucesNote, setSaucesNote] = useState(savedDraft?.saucesNote ?? existingData?.saucesNote ?? "");
   const [notes, setNotes] = useState(savedDraft?.notes ?? existingData?.notes ?? "");
 
+  const locationEmployeesList = useMemo(() => EMPLOYEES_BY_LOCATION[location] || [], [location]);
+
+  const estimatedOrdersFromRevenue = useMemo(() => {
+    const totalRev =
+      parseSafeNumber(revenue.gotowka) +
+      parseSafeNumber(revenue.karta) +
+      parseSafeNumber(revenue.aplikacje);
+    return totalRev > 0 ? Math.max(1, Math.round(totalRev / DEFAULT_AVG_ORDER_VALUE)) : 0;
+  }, [revenue]);
+
   const handleResetAllInventoryToZero = () => {
     setIsDirty(true);
     setHasLoadedFromPrevious(false);
@@ -923,14 +1007,14 @@ function EmployeeForm({
         localStorage.setItem(
           draftStorageKey,
           JSON.stringify({
-            reporter, revenue, expenses, employees, vegetables, farutex, freezer, meat1, meat2, otherItems, customSections, sauces, saucesNote, notes,
+            reporter, ordersCount, revenue, expenses, employees, vegetables, farutex, freezer, meat1, meat2, otherItems, customSections, sauces, saucesNote, notes,
             savedAt: new Date().toISOString(),
           })
         );
       } catch (err) { console.error("Błąd autosave szkicu:", err); }
     }, 350);
     return () => clearTimeout(timer);
-  }, [isDirty, isAdminEdit, draftStorageKey, reporter, revenue, expenses, employees, vegetables, farutex, freezer, meat1, meat2, otherItems, customSections, sauces, saucesNote, notes]);
+  }, [isDirty, isAdminEdit, draftStorageKey, reporter, ordersCount, revenue, expenses, employees, vegetables, farutex, freezer, meat1, meat2, otherItems, customSections, sauces, saucesNote, notes]);
 
   useEffect(() => {
     const handleBeforeUnload = (e) => {
@@ -958,14 +1042,35 @@ function EmployeeForm({
   };
   const handleRemoveExpenseRow = (idx) => { setIsDirty(true); setExpenses((prev) => prev.filter((_, i) => i !== idx)); };
 
-  const vegList = catalog?.vegetables || DEFAULT_CATALOG.vegetables;
-  const freezerList = catalog?.freezer || DEFAULT_CATALOG.freezer;
-  const farutexList = catalog?.farutex || DEFAULT_CATALOG.farutex;
-  const meat1List = catalog?.meat1 || DEFAULT_CATALOG.meat1;
-  const meat2List = catalog?.meat2 || DEFAULT_CATALOG.meat2;
-  const saucesList = catalog?.sauces || DEFAULT_CATALOG.sauces;
-  const otherItemsList = catalog?.otherItems || DEFAULT_CATALOG.otherItems;
-  const customCategories = Array.isArray(catalog?.customCategories) ? catalog.customCategories : [];
+  const vegList = useMemo(
+    () => (catalog?.vegetables || DEFAULT_CATALOG.vegetables).filter((item) => isItemAllowedForLocation(catalog, "vegetables", item, location)),
+    [catalog, location]
+  );
+  const freezerList = useMemo(
+    () => (catalog?.freezer || DEFAULT_CATALOG.freezer).filter((item) => isItemAllowedForLocation(catalog, "freezer", item, location)),
+    [catalog, location]
+  );
+  const farutexList = useMemo(
+    () => (catalog?.farutex || DEFAULT_CATALOG.farutex).filter((item) => isItemAllowedForLocation(catalog, "farutex", item, location)),
+    [catalog, location]
+  );
+  const meat1List = useMemo(
+    () => (catalog?.meat1 || DEFAULT_CATALOG.meat1).filter((item) => isItemAllowedForLocation(catalog, "meat1", item, location)),
+    [catalog, location]
+  );
+  const meat2List = useMemo(
+    () => (catalog?.meat2 || DEFAULT_CATALOG.meat2).filter((item) => isItemAllowedForLocation(catalog, "meat2", item, location)),
+    [catalog, location]
+  );
+  const saucesList = useMemo(
+    () => (catalog?.sauces || DEFAULT_CATALOG.sauces).filter((item) => isItemAllowedForLocation(catalog, "sauces", item, location)),
+    [catalog, location]
+  );
+  const otherItemsList = useMemo(
+    () => (catalog?.otherItems || DEFAULT_CATALOG.otherItems).filter((item) => isItemAllowedForLocation(catalog, "otherItems", item, location)),
+    [catalog, location]
+  );
+  const customCategories = useMemo(() => Array.isArray(catalog?.customCategories) ? catalog.customCategories : [], [catalog]);
 
   const filterBySearch = useCallback(
     (list) => {
@@ -1044,7 +1149,7 @@ function EmployeeForm({
     if (loading) return;
     const cleanReporter = (reporter || "").trim();
     if (!cleanReporter) {
-      onShowModal("Wpisz swoje imię w polu 'Osoba wypełniająca raport'.");
+      onShowModal("Wybierz swoje imię w polu 'Osoba wypełniająca raport'.");
       return;
     }
 
@@ -1069,10 +1174,14 @@ function EmployeeForm({
       const targetLoc = String(location || "");
       const deterministicId = isEdit && existingData?.id ? existingData.id : `${targetDate}_${targetLoc}`;
 
+      const manualOrdersNum = Math.round(parseSafeNumber(ordersCount));
+      const finalOrdersCount = manualOrdersNum > 0 ? manualOrdersNum : estimatedOrdersFromRevenue;
+
       const data = {
         date: targetDate,
         location: targetLoc,
         reporter: cleanReporter,
+        ordersCount: finalOrdersCount,
         employees: sanitizedEmployees,
         revenue: {
           gotowka: parseSafeNumber(revenue.gotowka),
@@ -1233,6 +1342,8 @@ function EmployeeForm({
       </div>
 
       <form onSubmit={handleSubmit} noValidate className="p-4 sm:p-6 max-w-4xl mx-auto space-y-6 overflow-x-hidden">
+        <UrgentTasksBanner tasks={tasks} location={location} />
+
         {inNightWindow && !isAdminEdit && onChangeGastroDate && (
           <div className="bg-indigo-950 text-white p-4 rounded-2xl border border-indigo-700 shadow-md flex flex-col sm:flex-row sm:items-center justify-between gap-3">
             <div className="flex items-center text-xs font-bold">
@@ -1327,6 +1438,9 @@ function EmployeeForm({
                           ) : (
                             <span className="text-[10px] font-black uppercase bg-blue-100 text-blue-800 px-2.5 py-0.5 rounded-full">Zadanie doraźne</span>
                           )}
+                          <span className="text-[10px] font-black uppercase bg-red-100 text-red-700 px-2.5 py-0.5 rounded-full flex items-center">
+                            <Clock className="w-3 h-3 mr-1" /> Do wykonania do godziny: {t.deadlineTime || "22:00"}
+                          </span>
                           <span className="text-xs font-semibold text-gray-400">Zlecił(a): {t.createdBy}</span>
                         </div>
                         <p className="font-extrabold text-gray-900 text-base">{t.text}</p>
@@ -1372,37 +1486,52 @@ function EmployeeForm({
             <Section title="Informacje Ogólne" icon={Users} bgClass="bg-white border-gray-200">
               <div className="space-y-5">
                 <div>
-                  <label className="text-xs font-black text-gray-500 uppercase ml-2 block mb-1">Osoba wypełniająca raport</label>
-                  <input
-                    type="text"
+                  <label className="text-xs font-black text-gray-500 uppercase ml-2 block mb-1">Osoba wypełniająca raport (Punkt: {location})</label>
+                  <select
                     required
                     value={reporter}
                     onChange={(e) => { setIsDirty(true); setReporter(e.target.value); }}
                     className="w-full p-4 bg-gray-50 border border-gray-200 focus:bg-white rounded-xl outline-none focus:ring-2 focus:ring-blue-500 font-bold text-gray-900 shadow-inner"
-                    placeholder="Wpisz swoje imię..."
-                  />
+                  >
+                    <option value="">— Wybierz pracownika z listy ({location}) —</option>
+                    {reporter && !locationEmployeesList.includes(reporter) && (
+                      <option value={reporter}>{reporter}</option>
+                    )}
+                    {locationEmployeesList.map((empName) => (
+                      <option key={empName} value={empName}>{empName}</option>
+                    ))}
+                  </select>
                 </div>
                 <div className="pt-4 border-t border-gray-100">
-                  <label className="text-xs font-black text-gray-500 uppercase ml-2 block mb-3">Godziny pracy personelu (max 3 osoby)</label>
+                  <label className="text-xs font-black text-gray-500 uppercase ml-2 block mb-3">Godziny pracy personelu (max 3 osoby z lokalu {location})</label>
                   <div className="space-y-3">
-                    {[0, 1, 2].map((i) => (
-                      <div key={i} className="flex gap-2 flex-wrap sm:flex-nowrap">
-                        <input
-                          type="text"
-                          value={employees[i]?.name || ""}
-                          onChange={(e) => updateEmployee(i, "name", e.target.value)}
-                          className="flex-[2] min-w-[150px] p-4 bg-gray-50 border border-gray-200 focus:bg-white rounded-xl outline-none focus:ring-2 focus:ring-blue-500 font-semibold text-sm shadow-inner"
-                          placeholder={`Imię pracownika ${i + 1}`}
-                        />
-                        <input
-                          type="text"
-                          value={employees[i]?.hours || ""}
-                          onChange={(e) => updateEmployee(i, "hours", e.target.value)}
-                          className="flex-1 min-w-[100px] p-4 bg-gray-50 border border-gray-200 focus:bg-white rounded-xl outline-none focus:ring-2 focus:ring-blue-500 font-semibold text-sm text-center shadow-inner"
-                          placeholder="np. 10-22 lub 10:30-22"
-                        />
-                      </div>
-                    ))}
+                    {[0, 1, 2].map((i) => {
+                      const currentEmpName = employees[i]?.name || "";
+                      return (
+                        <div key={i} className="flex gap-2 flex-wrap sm:flex-nowrap">
+                          <select
+                            value={currentEmpName}
+                            onChange={(e) => updateEmployee(i, "name", e.target.value)}
+                            className="flex-[2] min-w-[150px] p-4 bg-gray-50 border border-gray-200 focus:bg-white rounded-xl outline-none focus:ring-2 focus:ring-blue-500 font-semibold text-sm shadow-inner text-gray-900"
+                          >
+                            <option value="">{`— Pracownik ${i + 1} (${location}) —`}</option>
+                            {currentEmpName && !locationEmployeesList.includes(currentEmpName) && (
+                              <option value={currentEmpName}>{currentEmpName}</option>
+                            )}
+                            {locationEmployeesList.map((empName) => (
+                              <option key={empName} value={empName}>{empName}</option>
+                            ))}
+                          </select>
+                          <input
+                            type="text"
+                            value={employees[i]?.hours || ""}
+                            onChange={(e) => updateEmployee(i, "hours", e.target.value)}
+                            className="flex-1 min-w-[100px] p-4 bg-gray-50 border border-gray-200 focus:bg-white rounded-xl outline-none focus:ring-2 focus:ring-blue-500 font-semibold text-sm text-center shadow-inner"
+                            placeholder="np. 10-22 lub 10:30-22"
+                          />
+                        </div>
+                      );
+                    })}
                   </div>
                 </div>
               </div>
@@ -1438,6 +1567,32 @@ function EmployeeForm({
                     </div>
                   </div>
                 ))}
+
+                <div className="sm:col-span-1">
+                  <label className="block text-[11px] font-black mb-1.5 uppercase ml-2 text-blue-800">
+                    Liczba zamówień / paragonów (opcjonalnie)
+                  </label>
+                  <div className="relative">
+                    <input
+                      type="text"
+                      inputMode="numeric"
+                      value={ordersCount}
+                      onChange={(e) => {
+                        const val = e.target.value;
+                        if (val === "" || /^\d+$/.test(val)) {
+                          setIsDirty(true);
+                          setOrdersCount(val);
+                        }
+                      }}
+                      className="w-full p-4 pl-4 pr-20 bg-white border border-blue-300 focus:ring-2 focus:ring-blue-500 rounded-xl outline-none font-black text-xl text-gray-900 shadow-inner transition-colors"
+                      placeholder={estimatedOrdersFromRevenue > 0 ? `auto: ~${estimatedOrdersFromRevenue}` : "0"}
+                    />
+                    <span className="absolute right-4 top-1/2 -translate-y-1/2 text-blue-500 font-bold text-xs">ZAM.</span>
+                  </div>
+                  <span className="block text-[10px] font-bold text-gray-500 mt-1 ml-2">
+                    Jeśli puste, system wyliczy automatycznie z utargu (~{DEFAULT_AVG_ORDER_VALUE} zł / zam.{estimatedOrdersFromRevenue > 0 ? ` = ${estimatedOrdersFromRevenue} zam.` : ""})
+                  </span>
+                </div>
               </div>
 
               <div className="mt-6 pt-5 border-t border-emerald-200/70">
@@ -1504,7 +1659,7 @@ function EmployeeForm({
               type="text"
               value={itemSearchQuery}
               onChange={(e) => setItemSearchQuery(e.target.value)}
-              placeholder="Filtruj asortyment (np. kurczak, lawasz, czosnek, frytki)..."
+              placeholder="Filtruj asortyment przypisany do tego punktu..."
               className="w-full bg-transparent font-bold text-sm text-gray-900 outline-none"
             />
             {itemSearchQuery && (
@@ -1630,7 +1785,8 @@ function EmployeeForm({
             )}
 
             {customCategories.map((cat) => {
-              const catItems = Array.isArray(cat.items) ? cat.items : [];
+              const rawItems = Array.isArray(cat.items) ? cat.items : [];
+              const catItems = rawItems.filter((item) => isItemAllowedForLocation(catalog, `custom:${cat.id}`, item, location));
               if (catItems.length === 0) return null;
               const customScheduleKey = `custom_${cat.id}`;
               const isCustomDay = isDeliveryDayFor(customScheduleKey, [1, 2, 3, 4, 5, 6, 0]);
@@ -1810,8 +1966,8 @@ function NysaWarehouseForm({
   const handleFoodChange = useCallback((item, v) => { setIsDirty(true); setFood((p) => ({ ...p, [item]: v })); }, []);
   const handlePackChange = useCallback((item, v) => { setIsDirty(true); setPack((p) => ({ ...p, [item]: v })); }, []);
 
-  const nysaFoodList = catalog?.nysaFood || DEFAULT_CATALOG.nysaFood;
-  const nysaPackList = catalog?.nysaPack || DEFAULT_CATALOG.nysaPack;
+  const nysaFoodList = (catalog?.nysaFood || DEFAULT_CATALOG.nysaFood).filter((it) => isItemAllowedForLocation(catalog, "nysaFood", it, "Nysa"));
+  const nysaPackList = (catalog?.nysaPack || DEFAULT_CATALOG.nysaPack).filter((it) => isItemAllowedForLocation(catalog, "nysaPack", it, "Nysa"));
 
   const filterList = (list) => {
     const q = searchQuery.trim().toLowerCase();
@@ -1969,6 +2125,7 @@ function AdminPanel({
   const [newTaskLoc, setNewTaskLoc] = useState(isKlodzkoAdmin ? "Kłodzko" : "All");
   const [newTaskType, setNewTaskType] = useState("adhoc");
   const [newTaskDays, setNewTaskDays] = useState([1, 3, 5]);
+  const [newTaskDeadline, setNewTaskDeadline] = useState("18:00");
 
   const [selectedReportDate, setSelectedReportDate] = useState(todayStr);
 
@@ -1990,6 +2147,7 @@ function AdminPanel({
   const [hoursEndDate, setHoursEndDate] = useState(() => getWeekBounds(todayStr).end);
 
   const [inventoryLocFilter, setInventoryLocFilter] = useState(isKlodzkoAdmin ? "Kłodzko" : "All");
+  const [avgOrderFallbackVal, setAvgOrderFallbackVal] = useState(String(DEFAULT_AVG_ORDER_VALUE));
 
   const [selectedCatalogCategory, setSelectedCatalogCategory] = useState("vegetables");
   const [newItemName, setNewItemName] = useState("");
@@ -2055,7 +2213,7 @@ function AdminPanel({
   const handleDownloadCSV = () => {
     try {
       const headers = [
-        "Data", "Punkt", "Osoba raportujaca", "Gotowka (PLN)", "Karta (PLN)", "Aplikacje (PLN)",
+        "Data", "Punkt", "Osoba raportujaca", "Liczba zamowien", "Gotowka (PLN)", "Karta (PLN)", "Aplikacje (PLN)",
         "Utarg Laczny (PLN)", "Raport Fiskalny (PLN)", "Brak / Nadwyzka (PLN)", "Wydatki z kasy KW (PLN)",
         "Gotowka w kasetce po KW (PLN)", "Obsada i godziny", "Braki sosow", "Uwagi koncowe",
       ];
@@ -2065,6 +2223,7 @@ function AdminPanel({
         const kar = parseSafeNumber(r?.revenue?.karta);
         const apl = parseSafeNumber(r?.revenue?.aplikacje);
         const tot = got + kar + apl;
+        const orders = getEffectiveOrdersCount(r, parseSafeNumber(avgOrderFallbackVal) || DEFAULT_AVG_ORDER_VALUE);
         const fisk = parseSafeNumber(r?.revenue?.raportFiskalny);
         const roz = parseSafeNumber(r?.revenue?.roznica);
         const kw = calculateTotalExpenses(r?.expenses);
@@ -2075,7 +2234,7 @@ function AdminPanel({
         const saucesStr = Array.isArray(r?.sauces) ? r.sauces.join(", ") : "";
         const cleanNotes = String(r?.notes || "").replace(/[\r\n;]+/g, " ");
         return [
-          r?.date || "", r?.location || "", r?.reporter || "", got.toFixed(2), kar.toFixed(2), apl.toFixed(2),
+          r?.date || "", r?.location || "", r?.reporter || "", orders, got.toFixed(2), kar.toFixed(2), apl.toFixed(2),
           tot.toFixed(2), fisk.toFixed(2), roz.toFixed(2), kw.toFixed(2), cashNet.toFixed(2),
           `"${staffStr}"`, `"${saucesStr}"`, `"${cleanNotes}"`,
         ].join(";");
@@ -2179,16 +2338,35 @@ function AdminPanel({
   };
 
   const handleRemoveCatalogItem = async (itemToRemove) => {
+    const mapKey = `${selectedCatalogCategory}__${itemToRemove}`;
+    const nextItemLocs = { ...(catalog?.itemLocations || {}) };
+    delete nextItemLocs[mapKey];
+
     if (selectedCatalogCategory.startsWith("custom:")) {
       const catId = selectedCatalogCategory.replace("custom:", "");
       const nextCustom = customCategoriesList.map((cat) =>
         cat.id !== catId ? cat : { ...cat, items: (cat.items || []).filter((x) => x !== itemToRemove) }
       );
-      await onSaveCatalog({ ...catalog, customCategories: nextCustom }, `Usunięto pozycję "${itemToRemove}".`);
+      await onSaveCatalog({ ...catalog, customCategories: nextCustom, itemLocations: nextItemLocs }, `Usunięto pozycję "${itemToRemove}".`);
     } else {
       const currentList = Array.isArray(catalog?.[selectedCatalogCategory]) ? catalog[selectedCatalogCategory] : [];
-      await onSaveCatalog({ ...catalog, [selectedCatalogCategory]: currentList.filter((x) => x !== itemToRemove) }, `Usunięto pozycję "${itemToRemove}".`);
+      await onSaveCatalog({ ...catalog, [selectedCatalogCategory]: currentList.filter((x) => x !== itemToRemove), itemLocations: nextItemLocs }, `Usunięto pozycję "${itemToRemove}".`);
     }
+  };
+
+  const handleToggleItemLocation = async (itemName, loc) => {
+    const mapKey = `${selectedCatalogCategory}__${itemName}`;
+    const currentLocations = Array.isArray(catalog?.itemLocations?.[mapKey])
+      ? catalog.itemLocations[mapKey]
+      : [...LOCATIONS];
+    const nextLocations = currentLocations.includes(loc)
+      ? currentLocations.filter((l) => l !== loc)
+      : [...currentLocations, loc];
+    const nextItemLocations = {
+      ...(catalog?.itemLocations || {}),
+      [mapKey]: nextLocations,
+    };
+    await onSaveCatalog({ ...catalog, itemLocations: nextItemLocations });
   };
 
   const handleCreateCustomCategory = async (e) => {
@@ -2248,6 +2426,7 @@ function AdminPanel({
         location: isKlodzkoAdmin ? "Kłodzko" : newTaskLoc,
         type: newTaskType,
         daysOfWeek: newTaskType === "recurring" ? newTaskDays : [],
+        deadlineTime: newTaskDeadline || "18:00",
         completedBy: [],
         active: true,
         createdBy: name,
@@ -2278,11 +2457,12 @@ function AdminPanel({
   };
 
   const dailyNetworkSummary = useMemo(() => {
-    let sumGotowka = 0, sumKarta = 0, sumAplikacje = 0, sumFiskalny = 0, sumRoznica = 0, sumExpenses = 0;
+    let sumGotowka = 0, sumKarta = 0, sumAplikacje = 0, sumFiskalny = 0, sumRoznica = 0, sumExpenses = 0, sumOrders = 0;
+    const fallbackVal = parseSafeNumber(avgOrderFallbackVal) || DEFAULT_AVG_ORDER_VALUE;
     const perLocationMap = {};
     allowedLocations.forEach((loc) => {
       perLocationMap[loc] = {
-        location: loc, hasReport: false, gotowka: 0, karta: 0, aplikacje: 0, total: 0,
+        location: loc, hasReport: false, gotowka: 0, karta: 0, aplikacje: 0, total: 0, orders: 0,
         fiskalny: 0, roznica: 0, expenses: 0, sharePct: 0, pctGotowka: 0, pctKarta: 0, pctAplikacje: 0,
       };
     });
@@ -2294,15 +2474,16 @@ function AdminPanel({
       const f = parseSafeNumber(r?.revenue?.raportFiskalny);
       const roz = parseSafeNumber(r?.revenue?.roznica);
       const exp = calculateTotalExpenses(r?.expenses);
+      const ord = getEffectiveOrdersCount(r, fallbackVal);
       const locTot = g + k + a;
 
-      sumGotowka += g; sumKarta += k; sumAplikacje += a; sumFiskalny += f; sumRoznica += roz; sumExpenses += exp;
+      sumGotowka += g; sumKarta += k; sumAplikacje += a; sumFiskalny += f; sumRoznica += roz; sumExpenses += exp; sumOrders += ord;
 
       if (r?.location && perLocationMap[r.location]) {
         const cur = perLocationMap[r.location];
         cur.hasReport = true;
         cur.gotowka += g; cur.karta += k; cur.aplikacje += a; cur.total += locTot;
-        cur.fiskalny += f; cur.roznica += roz; cur.expenses += exp;
+        cur.fiskalny += f; cur.roznica += roz; cur.expenses += exp; cur.orders += ord;
       }
     });
 
@@ -2324,11 +2505,11 @@ function AdminPanel({
     });
 
     return {
-      sumGotowka, sumKarta, sumAplikacje, sumFiskalny, sumRoznica, sumExpenses,
+      sumGotowka, sumKarta, sumAplikacje, sumFiskalny, sumRoznica, sumExpenses, sumOrders,
       netCashInDrawer: sumGotowka - sumExpenses, totalRevenue, pctGotowka, pctKarta, pctAplikacje,
       reportedCount: reportsForSummaryPeriod.length, locationShares, perLocationMap,
     };
-  }, [reportsForSummaryPeriod, allowedLocations]);
+  }, [reportsForSummaryPeriod, allowedLocations, avgOrderFallbackVal]);
 
   const activePaymentBreakdown = useMemo(() => {
     if (paymentBreakdownLoc !== "All" && dailyNetworkSummary.perLocationMap[paymentBreakdownLoc]) {
@@ -2350,6 +2531,40 @@ function AdminPanel({
     () => allNysaWarehouse.find((n) => n?.date === selectedReportDate) || null,
     [allNysaWarehouse, selectedReportDate]
   );
+
+  const averageUsagePerOrderData = useMemo(() => {
+    const fallbackVal = parseSafeNumber(avgOrderFallbackVal) || DEFAULT_AVG_ORDER_VALUE;
+    const filteredReports = reportsForSelectedDate.filter((r) =>
+      inventoryLocFilter === "All" ? allowedLocations.includes(r?.location) : r?.location === inventoryLocFilter
+    );
+
+    let totalOrders = 0;
+    const totalsBySection = {
+      vegetables: {},
+      freezer: {},
+      farutex: {},
+      meat1: {},
+      meat2: {},
+      otherItems: {},
+    };
+
+    filteredReports.forEach((rep) => {
+      totalOrders += getEffectiveOrdersCount(rep, fallbackVal);
+      Object.keys(totalsBySection).forEach((secKey) => {
+        const secObj = rep?.[secKey];
+        if (secObj && typeof secObj === "object") {
+          Object.entries(secObj).forEach(([item, val]) => {
+            const num = parseSafeNumber(val);
+            if (num > 0) {
+              totalsBySection[secKey][item] = (totalsBySection[secKey][item] || 0) + num;
+            }
+          });
+        }
+      });
+    });
+
+    return { totalOrders, totalsBySection, reportsCount: filteredReports.length };
+  }, [reportsForSelectedDate, inventoryLocFilter, allowedLocations, avgOrderFallbackVal]);
 
   const dayStats = useMemo(() => {
     if (!hasFullAnalytics) return null;
@@ -2448,7 +2663,7 @@ function AdminPanel({
     return { entries, summaryList };
   }, [isKlodzkoAdmin, hoursLocation, roleFilteredAllReports, hoursStartDate, hoursEndDate]);
 
-  const renderInventoryGroup = (title, itemsList, recordObj, colorClass) => {
+  const renderInventoryGroup = (title, itemsList, recordObj, colorClass, ordersCountForReport = 0) => {
     const extraKeys = recordObj ? Object.keys(recordObj).filter((k) => !itemsList.includes(k)) : [];
     const combinedItems = [...itemsList, ...extraKeys];
     if (combinedItems.length === 0) return null;
@@ -2456,16 +2671,27 @@ function AdminPanel({
     return (
       <div className="bg-gray-50 p-4 rounded-2xl border border-gray-100">
         <h4 className={`text-xs font-black uppercase tracking-wider mb-3 ${colorClass}`}>{title}</h4>
-        <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
+        <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-2">
           {combinedItems.map((item) => {
             const rawVal = recordObj?.[item];
-            const isLowOrZero = rawVal === undefined || parseSafeNumber(rawVal) === 0;
+            const numVal = parseSafeNumber(rawVal);
+            const isLowOrZero = rawVal === undefined || numVal === 0;
+            const perOrderVal = ordersCountForReport > 0 && numVal > 0 ? numVal / ordersCountForReport : 0;
+            const isMint = item.toLowerCase().includes("mięta");
             return (
-              <div key={item} className={`p-2.5 rounded-xl border flex items-center justify-between text-xs ${isLowOrZero ? "bg-red-50/70 border-red-200 text-red-900" : "bg-white border-gray-200 text-gray-800"}`}>
-                <span className="font-bold truncate pr-2">{item}</span>
-                <span className={`font-black px-2 py-0.5 rounded-md shrink-0 ${isLowOrZero ? "bg-red-200/80 text-red-800" : "bg-emerald-100 text-emerald-800"}`}>
-                  {rawVal !== undefined ? rawVal : "0"}
-                </span>
+              <div key={item} className={`p-2.5 rounded-xl border flex flex-col justify-between text-xs ${isLowOrZero ? "bg-red-50/70 border-red-200 text-red-900" : "bg-white border-gray-200 text-gray-800"}`}>
+                <div className="flex items-center justify-between gap-1">
+                  <span className="font-bold truncate pr-2">{item}</span>
+                  <span className={`font-black px-2 py-0.5 rounded-md shrink-0 ${isLowOrZero ? "bg-red-200/80 text-red-800" : "bg-emerald-100 text-emerald-800"}`}>
+                    {rawVal !== undefined ? rawVal : "0"} {isMint ? "g" : ""}
+                  </span>
+                </div>
+                {ordersCountForReport > 0 && numVal > 0 && (
+                  <div className="mt-1.5 pt-1 border-t border-gray-100 flex items-center justify-between text-[10px] text-indigo-700 font-extrabold">
+                    <span>Śr. na 1 zam.:</span>
+                    <span>{perOrderVal.toFixed(3)} {isMint ? "g" : "szt./jedn."}</span>
+                  </div>
+                )}
               </div>
             );
           })}
@@ -2502,6 +2728,9 @@ function AdminPanel({
             ) : (
               <span className="text-[10px] font-black bg-blue-100 text-blue-800 px-3 py-1 rounded-full uppercase tracking-wider">Jednorazowe / Doraźne</span>
             )}
+            <span className="text-[10px] font-black bg-red-100 text-red-700 px-3 py-1 rounded-full uppercase tracking-wider flex items-center">
+              <Clock className="w-3.5 h-3.5 mr-1" /> Do wykonania do godziny: {t.deadlineTime || "22:00"}
+            </span>
             {isRecurring && (
               <span className={`text-[10px] font-black px-2.5 py-1 rounded-full uppercase ${isScheduledForToday ? "bg-emerald-100 text-emerald-800" : "bg-gray-100 text-gray-500"}`}>
                 {isScheduledForToday ? `Aktywne dziś (${todayStr})` : "Dziś poza harmonogramem"}
@@ -2561,7 +2790,7 @@ function AdminPanel({
           ...(hasFullAnalytics
             ? [
                 { id: "reports", label: "Utargi i Finanse", icon: Banknote, activeClass: "border-gray-900 text-gray-900 bg-gray-50/50", minW: "min-w-[155px]" },
-                { id: "inventory", label: "Magazyn / Braki / Uwagi", icon: Warehouse, activeClass: "border-purple-600 text-purple-700 bg-purple-50/30", minW: "min-w-[170px]" },
+                { id: "inventory", label: "Magazyn / Zużycie / Braki", icon: Warehouse, activeClass: "border-purple-600 text-purple-700 bg-purple-50/30", minW: "min-w-[170px]" },
                 { id: "stats", label: "Statystyka Dni", icon: BarChart3, activeClass: "border-emerald-600 text-emerald-700 bg-emerald-50/30", minW: "min-w-[155px]" },
               ]
             : []),
@@ -2617,7 +2846,7 @@ function AdminPanel({
                       <PieChart className="w-3.5 h-3.5 mr-1.5" />
                       {isKlodzkoAdmin ? "Podsumowanie Finansowe: Punkt Kłodzko" : "Karta Podsumowania Sieci"}
                     </span>
-                    <span className="text-xs font-bold text-gray-400">Liczba zliczonych raportów: {dailyNetworkSummary.reportedCount}</span>
+                    <span className="text-xs font-bold text-gray-400">Liczba zliczonych raportów: {dailyNetworkSummary.reportedCount} • Zamówienia: {dailyNetworkSummary.sumOrders}</span>
                   </div>
 
                   <div className="flex flex-wrap items-center gap-2 pt-1">
@@ -2824,13 +3053,16 @@ function AdminPanel({
                   const pApl = total > 0 ? Math.max(0, 100 - pGot - pKar) : 0;
                   const locExpenses = Array.isArray(report.expenses) ? report.expenses : [];
                   const locExpensesSum = calculateTotalExpenses(locExpenses);
+                  const effOrders = getEffectiveOrdersCount(report, parseSafeNumber(avgOrderFallbackVal) || DEFAULT_AVG_ORDER_VALUE);
 
                   return (
                     <div key={loc} className="bg-white rounded-[2rem] border border-gray-200 shadow-sm overflow-hidden flex flex-col hover:shadow-md transition-shadow">
                       <div className="bg-emerald-50 border-b border-emerald-100 p-5 flex justify-between items-center gap-2">
                         <div>
                           <h3 className="text-2xl font-black text-emerald-900">{loc}</h3>
-                          <span className="text-xs font-bold text-emerald-700">Zgłosił(a): {report.reporter}</span>
+                          <span className="text-xs font-bold text-emerald-700">
+                            Zgłosił(a): {report.reporter} • Zamówienia: {effOrders} {parseSafeNumber(report.ordersCount) > 0 ? "(wpisane)" : "(wyliczone z utargu)"}
+                          </span>
                         </div>
                         <button
                           type="button"
@@ -2923,10 +3155,10 @@ function AdminPanel({
             <div className="bg-white p-5 rounded-[2rem] border border-gray-200 shadow-sm flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4">
               <div>
                 <h2 className="text-2xl font-black text-gray-900 flex items-center">
-                  <Warehouse className="w-7 h-7 mr-3 text-purple-600" /> Magazyn, Braki i Uwagi Końcowe
+                  <Warehouse className="w-7 h-7 mr-3 text-purple-600" /> Magazyn, Średnie Zużycie na Zamówienie i Braki
                 </h2>
                 <p className="text-xs font-semibold text-gray-500 mt-1">
-                  Zestawienie braków sosów, notatek, uwag końcowych oraz stanów magazynowych {isKlodzkoAdmin ? "dla punktu Kłodzko" : "z podziałem na punkty"}.
+                  Zestawienie średniego zużycia produktów na 1 zamówienie, stanów magazynowych, braków sosów oraz uwag końcowych.
                 </p>
               </div>
               <div className="flex flex-wrap items-center gap-3">
@@ -2949,6 +3181,87 @@ function AdminPanel({
                   </div>
                 )}
               </div>
+            </div>
+
+            <div className="bg-indigo-950 text-white p-6 rounded-[2rem] border border-indigo-800 shadow-lg space-y-5">
+              <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4 border-b border-white/10 pb-4">
+                <div>
+                  <span className="text-[11px] font-black uppercase bg-indigo-500/30 text-indigo-200 px-3 py-1 rounded-full">
+                    Planowanie zatowarowania — Analityka na 1 zamówienie
+                  </span>
+                  <h3 className="text-xl font-black mt-2">
+                    Średnie zużycie / udział produktów na 1 zamówienie ({selectedReportDate})
+                  </h3>
+                  <p className="text-xs text-indigo-200 font-medium mt-0.5">
+                    Wyliczane przez podzielenie zaraportowanych sztuk/gramów przez łączną liczbę zamówień ({averageUsagePerOrderData.totalOrders} zam. w wybranych punktach).
+                  </p>
+                </div>
+                <div className="flex items-center gap-3 bg-white/10 p-3 rounded-2xl border border-white/15 shrink-0">
+                  <div>
+                    <label className="block text-[10px] font-black uppercase text-indigo-200">Śr. wartość koszyka (gdy brak paragonów):</label>
+                    <div className="flex items-center gap-1.5 mt-1">
+                      <input
+                        type="text"
+                        inputMode="decimal"
+                        value={avgOrderFallbackVal}
+                        onChange={(e) => {
+                          const v = e.target.value;
+                          if (v === "" || /^\d*[.,]?\d*$/.test(v)) setAvgOrderFallbackVal(v);
+                        }}
+                        className="w-20 p-1.5 text-center font-black text-sm text-gray-900 bg-white rounded-lg outline-none"
+                      />
+                      <span className="text-xs font-bold text-indigo-200">PLN / zam.</span>
+                    </div>
+                  </div>
+                  <div className="pl-3 border-l border-white/15 text-right">
+                    <span className="block text-[10px] font-black uppercase text-emerald-300">Liczba zamówień:</span>
+                    <span className="text-2xl font-black text-white">{averageUsagePerOrderData.totalOrders}</span>
+                  </div>
+                </div>
+              </div>
+
+              {averageUsagePerOrderData.totalOrders === 0 ? (
+                <p className="text-sm text-indigo-200 font-bold py-4 text-center bg-white/5 rounded-2xl">
+                  Brak raportów z liczbą zamówień lub utargiem w dniu {selectedReportDate}, aby wyliczyć średnie zużycie na zamówienie.
+                </p>
+              ) : (
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                  {[
+                    { key: "vegetables", label: "Warzywa i Inne" },
+                    { key: "freezer", label: "Stan Zamrażarek" },
+                    { key: "farutex", label: "Farutex" },
+                    { key: "meat1", label: "Dostawa Mięso 1" },
+                    { key: "meat2", label: "Dostawa Mięso 2" },
+                    { key: "otherItems", label: "Opakowania / Chemia" },
+                  ].map((sec) => {
+                    const secTotals = averageUsagePerOrderData.totalsBySection[sec.key] || {};
+                    const entries = Object.entries(secTotals).filter(([, v]) => v > 0);
+                    return (
+                      <div key={sec.key} className="bg-white/5 border border-white/10 p-4 rounded-2xl">
+                        <h4 className="text-xs font-black uppercase text-amber-300 mb-2.5">{sec.label}</h4>
+                        {entries.length === 0 ? (
+                          <p className="text-xs text-gray-400 italic">Brak pozycji powyżej 0</p>
+                        ) : (
+                          <div className="space-y-1.5">
+                            {entries.map(([itemName, sumVal]) => {
+                              const perOrder = sumVal / averageUsagePerOrderData.totalOrders;
+                              const isMint = itemName.toLowerCase().includes("mięta");
+                              return (
+                                <div key={itemName} className="flex items-center justify-between text-xs bg-white/5 px-2.5 py-1.5 rounded-lg">
+                                  <span className="font-bold text-gray-200 truncate pr-2">{itemName} (Σ {sumVal}{isMint ? "g" : ""})</span>
+                                  <span className="font-black text-emerald-300 shrink-0">
+                                    {perOrder.toFixed(3)} {isMint ? "g" : "szt."} / zam.
+                                  </span>
+                                </div>
+                              );
+                            })}
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
             </div>
 
             <div className="bg-amber-50/70 p-6 rounded-[2rem] border-2 border-amber-200 shadow-sm">
@@ -3026,12 +3339,15 @@ function AdminPanel({
                 .filter((loc) => inventoryLocFilter === "All" || loc === inventoryLocFilter)
                 .map((loc) => {
                   const rep = reportsForSelectedDate.find((r) => r?.location === loc);
+                  const repOrders = rep ? getEffectiveOrdersCount(rep, parseSafeNumber(avgOrderFallbackVal) || DEFAULT_AVG_ORDER_VALUE) : 0;
                   return (
                     <div key={loc} className="bg-white rounded-[2rem] border border-gray-200 shadow-sm overflow-hidden">
                       <div className="bg-gray-900 text-white p-5 flex flex-wrap justify-between items-center gap-3">
                         <div>
                           <h3 className="text-xl font-black flex items-center"><Store className="w-5 h-5 mr-2 text-purple-400" /> Punkt: {loc}</h3>
-                          <p className="text-xs text-gray-400 font-semibold mt-0.5">Data stanu: {selectedReportDate} {rep ? `• Raportował(a): ${rep.reporter}` : ""}</p>
+                          <p className="text-xs text-gray-400 font-semibold mt-0.5">
+                            Data stanu: {selectedReportDate} {rep ? `• Raportował(a): ${rep.reporter} • Liczba zamówień: ${repOrders}` : ""}
+                          </p>
                         </div>
                         {rep && (
                           <button
@@ -3048,17 +3364,54 @@ function AdminPanel({
                       ) : (
                         <div className="p-5 space-y-4">
                           <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-                            {renderInventoryGroup("Warzywa i Inne", catalog?.vegetables || DEFAULT_CATALOG.vegetables, rep.vegetables, "text-green-700")}
-                            {renderInventoryGroup("Stan Zamrażarek", catalog?.freezer || DEFAULT_CATALOG.freezer, rep.freezer, "text-blue-700")}
+                            {renderInventoryGroup(
+                              "Warzywa i Inne",
+                              (catalog?.vegetables || DEFAULT_CATALOG.vegetables).filter((it) => isItemAllowedForLocation(catalog, "vegetables", it, loc)),
+                              rep.vegetables,
+                              "text-green-700",
+                              repOrders
+                            )}
+                            {renderInventoryGroup(
+                              "Stan Zamrażarek",
+                              (catalog?.freezer || DEFAULT_CATALOG.freezer).filter((it) => isItemAllowedForLocation(catalog, "freezer", it, loc)),
+                              rep.freezer,
+                              "text-blue-700",
+                              repOrders
+                            )}
                           </div>
-                          {renderInventoryGroup(" Farutex", catalog?.farutex || DEFAULT_CATALOG.farutex, rep.farutex, "text-orange-700")}
+                          {renderInventoryGroup(
+                            " Farutex",
+                            (catalog?.farutex || DEFAULT_CATALOG.farutex).filter((it) => isItemAllowedForLocation(catalog, "farutex", it, loc)),
+                            rep.farutex,
+                            "text-orange-700",
+                            repOrders
+                          )}
                           <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-                            {renderInventoryGroup("Dostawa Mięso 1", catalog?.meat1 || DEFAULT_CATALOG.meat1, rep.meat1, "text-red-700")}
-                            {renderInventoryGroup("Dostawa Mięso 2", catalog?.meat2 || DEFAULT_CATALOG.meat2, rep.meat2, "text-red-700")}
+                            {renderInventoryGroup(
+                              "Dostawa Mięso 1",
+                              (catalog?.meat1 || DEFAULT_CATALOG.meat1).filter((it) => isItemAllowedForLocation(catalog, "meat1", it, loc)),
+                              rep.meat1,
+                              "text-red-700",
+                              repOrders
+                            )}
+                            {renderInventoryGroup(
+                              "Dostawa Mięso 2",
+                              (catalog?.meat2 || DEFAULT_CATALOG.meat2).filter((it) => isItemAllowedForLocation(catalog, "meat2", it, loc)),
+                              rep.meat2,
+                              "text-red-700",
+                              repOrders
+                            )}
                           </div>
-                          {renderInventoryGroup("Inne: Opakowania / Chemia", catalog?.otherItems || DEFAULT_CATALOG.otherItems, rep.otherItems, "text-purple-700")}
+                          {renderInventoryGroup(
+                            "Inne: Opakowania / Chemia",
+                            (catalog?.otherItems || DEFAULT_CATALOG.otherItems).filter((it) => isItemAllowedForLocation(catalog, "otherItems", it, loc)),
+                            rep.otherItems,
+                            "text-purple-700",
+                            repOrders
+                          )}
                           {customCategoriesList.map((cat) => {
                             const secData = rep.customSections?.[cat.id];
+                            const allowedCatItems = (cat.items || []).filter((it) => isItemAllowedForLocation(catalog, `custom:${cat.id}`, it, loc));
                             if (cat.type === "checkbox") {
                               const checkedArr = Array.isArray(secData) ? secData : [];
                               return (
@@ -3079,7 +3432,7 @@ function AdminPanel({
                                 </div>
                               );
                             }
-                            return <div key={cat.id}>{renderInventoryGroup(cat.name, cat.items || [], secData, "text-indigo-700")}</div>;
+                            return <div key={cat.id}>{renderInventoryGroup(cat.name, allowedCatItems, secData, "text-indigo-700", repOrders)}</div>;
                           })}
                         </div>
                       )}
@@ -3336,7 +3689,7 @@ function AdminPanel({
                   <h2 className="font-extrabold text-gray-900 flex items-center text-xl">
                     <PlusCircle className="w-6 h-6 mr-2 text-blue-600" /> Ustaw Zadanie Dnia {isKlodzkoAdmin ? "dla punktu Kłodzko" : "dla punktu / sieci"}
                   </h2>
-                  <p className="text-xs font-semibold text-gray-500 mt-1">Wybierz czy zadanie jest jednorazowe (doraźne), czy ma pojawiać się cyklicznie w wybrane dni tygodnia.</p>
+                  <p className="text-xs font-semibold text-gray-500 mt-1">Wybierz czy zadanie jest jednorazowe (doraźne), czy ma pojawiać się cyklicznie, oraz określ godzinę (deadline) wykonania.</p>
                 </div>
                 <div className="flex bg-gray-100 p-1 rounded-2xl border border-gray-200 self-start sm:self-center">
                   <button type="button" onClick={() => setNewTaskType("adhoc")} className={`px-3.5 py-2 rounded-xl font-black text-xs transition-colors ${newTaskType === "adhoc" ? "bg-blue-600 text-white shadow-sm" : "text-gray-600 hover:text-gray-900"}`}>
@@ -3349,7 +3702,7 @@ function AdminPanel({
               </div>
 
               <form onSubmit={handleAddTask} className="space-y-4">
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
                   {isKlodzkoAdmin ? (
                     <div className="w-full p-4 bg-gray-100 border border-gray-200 rounded-xl font-black text-gray-700 flex items-center">Punkt docelowy: Kłodzko</div>
                   ) : (
@@ -3363,9 +3716,22 @@ function AdminPanel({
                     required
                     value={newTask}
                     onChange={(e) => setNewTask(e.target.value)}
-                    className="w-full p-4 bg-gray-50 border border-gray-200 rounded-xl font-medium outline-none focus:ring-2 focus:ring-blue-500"
-                    placeholder={newTaskType === "recurring" ? "Opisz zadanie cykliczne (np. mycie frytkownicy, przegląd chłodni)..." : "Opisz zadanie na dziś (np. rozmrozić zamrażarkę nr 2)..."}
+                    className="sm:col-span-1 w-full p-4 bg-gray-50 border border-gray-200 rounded-xl font-medium outline-none focus:ring-2 focus:ring-blue-500"
+                    placeholder={newTaskType === "recurring" ? "Opisz zadanie cykliczne..." : "Opisz zadanie na dziś..."}
                   />
+                  <div className="flex items-center bg-gray-50 border border-gray-200 rounded-xl px-4 py-2">
+                    <Clock className="w-5 h-5 text-red-500 mr-2.5 shrink-0" />
+                    <div className="flex-1">
+                      <label className="block text-[10px] font-black uppercase text-gray-400">Deadline (Do godziny):</label>
+                      <input
+                        type="time"
+                        required
+                        value={newTaskDeadline}
+                        onChange={(e) => setNewTaskDeadline(e.target.value)}
+                        className="w-full bg-transparent font-black text-base text-gray-900 outline-none"
+                      />
+                    </div>
+                  </div>
                 </div>
 
                 {newTaskType === "recurring" && (
@@ -3481,9 +3847,11 @@ function AdminPanel({
               <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 mb-6">
                 <div>
                   <h2 className="text-2xl font-black text-gray-900 flex items-center">
-                    <Settings className="w-7 h-7 mr-3 text-amber-600" /> Zarządzanie Asortymentem i Kategoriami
+                    <Settings className="w-7 h-7 mr-3 text-amber-600" /> Zarządzanie Asortymentem i Przypisaniem do Lokali
                   </h2>
-                  <p className="text-xs font-semibold text-gray-500 mt-1">Dodawaj lub usuwaj pozycje w poszczególnych sekcjach. Zmiany zapisują się w bazie Firebase i od razu pojawiają u pracowników.</p>
+                  <p className="text-xs font-semibold text-gray-500 mt-1">
+                    Dodawaj lub usuwaj pozycje i przypisuj je do konkretnych lokali (Opole, Nysa, Kłodzko, Kudowa-Zdrój). Pracownicy widzą w formularzu tylko produkty włączone dla ich punktu.
+                  </p>
                 </div>
               </div>
 
@@ -3523,7 +3891,7 @@ function AdminPanel({
 
                 <div className="pt-4 border-t border-gray-100">
                   <div className="flex items-center justify-between mb-3">
-                    <span className="text-xs font-black uppercase text-gray-400">Aktualne pozycje w tej kategorii ({activeCategoryItems.length}):</span>
+                    <span className="text-xs font-black uppercase text-gray-400">Aktualne pozycje i przypisane lokale ({activeCategoryItems.length}):</span>
                     {selectedCatalogCategory.startsWith("custom:") && (
                       <button
                         type="button"
@@ -3538,15 +3906,45 @@ function AdminPanel({
                   {activeCategoryItems.length === 0 ? (
                     <p className="text-sm text-gray-400 font-bold py-6 text-center bg-gray-50 rounded-2xl border border-dashed border-gray-200">Brak pozycji w tej kategorii. Dodaj pierwszą pozycję powyżej.</p>
                   ) : (
-                    <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-2.5">
-                      {activeCategoryItems.map((item) => (
-                        <div key={item} className="p-3.5 bg-gray-50 hover:bg-white border border-gray-200 rounded-xl flex items-center justify-between gap-2 transition-colors shadow-sm">
-                          <span className="font-extrabold text-gray-800 text-sm truncate">{item}</span>
-                          <button type="button" onClick={() => handleRemoveCatalogItem(item)} className="p-2 text-red-500 hover:bg-red-50 hover:text-red-700 rounded-lg transition-colors shrink-0" title="Usuń pozycję">
-                            <Trash2 className="w-4 h-4" />
-                          </button>
-                        </div>
-                      ))}
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                      {activeCategoryItems.map((item) => {
+                        const mapKey = `${selectedCatalogCategory}__${item}`;
+                        const assignedLocs = Array.isArray(catalog?.itemLocations?.[mapKey])
+                          ? catalog.itemLocations[mapKey]
+                          : LOCATIONS;
+                        return (
+                          <div key={item} className="p-4 bg-gray-50 hover:bg-white border border-gray-200 rounded-2xl flex flex-col justify-between gap-3 transition-colors shadow-sm">
+                            <div className="flex items-center justify-between gap-2">
+                              <span className="font-extrabold text-gray-900 text-sm truncate">{item}</span>
+                              <button type="button" onClick={() => handleRemoveCatalogItem(item)} className="p-2 text-red-500 hover:bg-red-50 hover:text-red-700 rounded-lg transition-colors shrink-0" title="Usuń pozycję">
+                                <Trash2 className="w-4 h-4" />
+                              </button>
+                            </div>
+                            <div className="pt-2 border-t border-gray-200/70">
+                              <span className="block text-[10px] font-black uppercase text-gray-400 mb-1.5">Widoczność w punktach:</span>
+                              <div className="flex flex-wrap gap-1.5">
+                                {LOCATIONS.map((loc) => {
+                                  const isAssigned = assignedLocs.includes(loc);
+                                  return (
+                                    <button
+                                      key={loc}
+                                      type="button"
+                                      onClick={() => handleToggleItemLocation(item, loc)}
+                                      className={`px-2.5 py-1 rounded-lg text-[11px] font-black border transition-colors ${
+                                        isAssigned
+                                          ? "bg-amber-600 text-white border-amber-600 shadow-sm"
+                                          : "bg-white text-gray-400 border-gray-200 hover:border-amber-300"
+                                      }`}
+                                    >
+                                      {loc}
+                                    </button>
+                                  );
+                                })}
+                              </div>
+                            </div>
+                          </div>
+                        );
+                      })}
                     </div>
                   )}
                 </div>
