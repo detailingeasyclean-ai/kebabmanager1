@@ -612,7 +612,7 @@ export default function App() {
             </div>
             <h1 className="text-4xl font-extrabold text-gray-900 tracking-tight mb-2">System Raportów</h1>
             <p className="text-gray-500 font-medium">
-              Wybierz swój punkt (Data zmiany: <strong className="text-gray-800">{activeGastroDate}</strong>)
+              Wybierz swój punkt <strong className="text-gray-800">{activeGastroDate}</strong>
             </p>
           </div>
 
