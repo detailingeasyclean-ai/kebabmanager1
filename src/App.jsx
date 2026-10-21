@@ -2,7 +2,7 @@ import React, { useState, useEffect, useMemo, useCallback, memo } from "react";
 import { initializeApp } from "firebase/app";
 import { getAuth, signInAnonymously, onAuthStateChanged } from "firebase/auth";
 import { getFirestore, collection, addDoc, onSnapshot, doc, setDoc, updateDoc, deleteDoc, arrayUnion } from "firebase/firestore";
-import { Store, ChefHat, CheckCircle2, XCircle, Send, ArrowLeft, ShieldAlert, Package, Beaker, Banknote, Snowflake, Leaf, Truck, StickyNote, PlusCircle, Users, BarChart3, TrendingUp, TrendingDown, Calendar, Clock, MessageSquare, ClipboardList, Edit3, Lock, Warehouse, AlertTriangle, Settings, Trash2, FolderPlus, RotateCcw, KeyRound, Search, ChevronDown, ChevronUp, Receipt, PieChart, Save, Download, FileSpreadsheet, Wallet, Moon } from "lucide-react";
+import { Store, ChefHat, CheckCircle2, XCircle, Send, ArrowLeft, ShieldAlert, Package, Beaker, Banknote, Snowflake, Leaf, Truck, StickyNote, PlusCircle, Users, BarChart3, TrendingUp, TrendingDown, Calendar, Clock, MessageSquare, ClipboardList, Edit3, Lock, Warehouse, AlertTriangle, Settings, Trash2, FolderPlus, RotateCcw, KeyRound, Search, ChevronDown, ChevronUp, Receipt, PieChart, Save, Download, FileSpreadsheet, Wallet, Moon, Play, Square, Timer, UserCheck } from "lucide-react";
 
 const firebaseConfig = {
   apiKey: "AIzaSyDX0CRqfd5qQx0-mkRsELcHFOjRJ4MMzps",
@@ -32,6 +32,7 @@ const LS_REPORTS_KEY = `kebab_reports_${appId}`;
 const LS_NYSA_KEY = `kebab_nysa_${appId}`;
 const LS_TASKS_KEY = `kebab_tasks_${appId}`;
 const LS_CATALOG_KEY = `kebab_catalog_${appId}`;
+const LS_SHIFTS_KEY = `kebab_shifts_${appId}`;
 
 const LOCATIONS = ["Opole", "Nysa", "Kłodzko", "Kudowa-Zdrój"];
 const LOCATION_COLORS = { Opole: "bg-blue-500", Nysa: "bg-emerald-500", Kłodzko: "bg-amber-500", "Kudowa-Zdrój": "bg-purple-500" };
@@ -215,10 +216,21 @@ const isItemAllowedForLocation = (catalog, categoryKey, itemName, location) => {
 };
 
 const formatDateObj = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+const formatTimeHM = (d) => `${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`;
 const getCalendarTodayString = () => formatDateObj(new Date());
 const getYesterdayString = () => { const d = new Date(); d.setDate(d.getDate() - 1); return formatDateObj(d); };
 const isNightShiftWindow = () => { const h = new Date().getHours(); return h >= 0 && h < 5; };
 const getGastroTodayString = () => (isNightShiftWindow() ? getYesterdayString() : getCalendarTodayString());
+
+const formatLiveDuration = (startIso, nowMs = Date.now()) => {
+  if (!startIso) return "0 min";
+  const startMs = new Date(startIso).getTime();
+  if (isNaN(startMs)) return "0 min";
+  const diffMin = Math.max(0, Math.floor((nowMs - startMs) / 60000));
+  const h = Math.floor(diffMin / 60);
+  const m = diffMin % 60;
+  return h > 0 ? `${h}h ${String(m).padStart(2, "0")}m` : `${m} min`;
+};
 
 const parseDateStr = (dateStr) => {
   const parts = String(dateStr || "").split("-");
@@ -647,6 +659,148 @@ const UrgentTasksBanner = memo(({ tasks, location, todayStr, onCompleteTask }) =
   );
 });
 
+const ShiftClockWidget = memo(({ location, employeesList = [], activeShifts = [], todayCompletedShifts = [], onClockIn, onClockOut }) => {
+  const [selectedEmp, setSelectedEmp] = useState("");
+  const [nowMs, setNowMs] = useState(Date.now());
+  const [busy, setBusy] = useState(false);
+
+  useEffect(() => {
+    const id = setInterval(() => setNowMs(Date.now()), 15000);
+    return () => clearInterval(id);
+  }, []);
+
+  const locActive = useMemo(
+    () => activeShifts.filter((s) => s?.location === location && s?.status === "active"),
+    [activeShifts, location]
+  );
+
+  const locCompletedToday = useMemo(
+    () => todayCompletedShifts.filter((s) => s?.location === location && s?.status === "completed"),
+    [todayCompletedShifts, location]
+  );
+
+  const availableToClockIn = useMemo(() => {
+    const activeNames = new Set(locActive.map((s) => (s.employeeName || "").toLowerCase()));
+    return employeesList.filter((name) => !activeNames.has(name.toLowerCase()));
+  }, [employeesList, locActive]);
+
+  const handleStart = async () => {
+    if (!selectedEmp || busy) return;
+    setBusy(true);
+    try {
+      await onClockIn(selectedEmp, location);
+      setSelectedEmp("");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const handleStop = async (shiftObj) => {
+    if (busy) return;
+    setBusy(true);
+    try {
+      await onClockOut(shiftObj);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <div className="w-full bg-gradient-to-br from-slate-900 via-indigo-950 to-slate-900 text-white p-5 rounded-[2rem] border border-indigo-700/60 shadow-xl mb-6">
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 pb-4 border-b border-white/10">
+        <div className="flex items-center gap-2.5">
+          <div className="w-10 h-10 rounded-xl bg-emerald-500/20 border border-emerald-400/40 flex items-center justify-center shrink-0">
+            <Timer className="w-5 h-5 text-emerald-400" />
+          </div>
+          <div>
+            <div className="flex items-center gap-2">
+              <h3 className="font-black text-base sm:text-lg text-white">Czytnik Czasu Pracy (RCP Live)</h3>
+              <span className="bg-emerald-500/20 text-emerald-300 border border-emerald-400/30 text-[10px] font-black uppercase px-2.5 py-0.5 rounded-full flex items-center">
+                <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse mr-1.5" />
+                W pracy: {locActive.length}
+              </span>
+            </div>
+            <p className="text-xs text-indigo-200/80 font-medium">
+              Wybierz swoje imię na starcie zmiany i kliknij „Zakończ zmianę” przed wyjściem — godziny same wpiszą się do raportu!
+            </p>
+          </div>
+        </div>
+      </div>
+
+      <div className="mt-4 flex flex-col sm:flex-row gap-2.5">
+        <select
+          value={selectedEmp}
+          onChange={(e) => setSelectedEmp(e.target.value)}
+          className="flex-1 p-3.5 bg-white/10 hover:bg-white/15 border border-white/20 rounded-xl font-bold text-sm text-white outline-none focus:border-emerald-400"
+        >
+          <option value="" className="text-gray-900">— Wybierz swoje imię aby rozpocząć zmianę ({location}) —</option>
+          {availableToClockIn.map((emp) => (
+            <option key={emp} value={emp} className="text-gray-900">{emp}</option>
+          ))}
+        </select>
+        <button
+          type="button"
+          disabled={!selectedEmp || busy}
+          onClick={handleStart}
+          className="px-6 py-3.5 bg-emerald-500 hover:bg-emerald-400 disabled:opacity-40 text-gray-950 font-black text-sm rounded-xl flex items-center justify-center transition-colors shadow-lg shadow-emerald-500/20 shrink-0"
+        >
+          <Play className="w-4 h-4 mr-2 fill-current" /> Rozpocznij zmianę
+        </button>
+      </div>
+
+      {locActive.length > 0 && (
+        <div className="mt-4 pt-4 border-t border-white/10 space-y-2.5">
+          <span className="block text-[11px] font-black uppercase tracking-wider text-emerald-300">
+            Aktualnie na zmianie w punkcie {location}:
+          </span>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+            {locActive.map((sh) => (
+              <div key={sh.id} className="bg-white/10 border border-emerald-400/40 p-3.5 rounded-2xl flex items-center justify-between gap-3">
+                <div className="min-w-0">
+                  <div className="flex items-center gap-2">
+                    <span className="w-2.5 h-2.5 rounded-full bg-emerald-400 animate-ping shrink-0" />
+                    <span className="font-black text-base text-white truncate">{sh.employeeName}</span>
+                  </div>
+                  <div className="text-xs text-indigo-200 font-bold mt-1 flex flex-wrap items-center gap-2">
+                    <span>Start: <strong className="text-white">{sh.startHM}</strong></span>
+                    <span className="bg-emerald-400/20 text-emerald-300 px-2 py-0.5 rounded-md font-black">
+                      Czas: {formatLiveDuration(sh.startTime, nowMs)}
+                    </span>
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  disabled={busy}
+                  onClick={() => handleStop(sh)}
+                  className="shrink-0 bg-red-500 hover:bg-red-600 text-white font-black text-xs px-3.5 py-2.5 rounded-xl flex items-center shadow-md transition-colors"
+                >
+                  <Square className="w-3.5 h-3.5 mr-1.5 fill-current" /> Zakończ zmianę
+                </button>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {locCompletedToday.length > 0 && (
+        <div className="mt-4 pt-3 border-t border-white/10">
+          <span className="block text-[10px] font-black uppercase tracking-wider text-indigo-300 mb-2">
+            Zakończone dzisiaj zmiany z czytnika ({locCompletedToday.length}):
+          </span>
+          <div className="flex flex-wrap gap-2">
+            {locCompletedToday.map((sh) => (
+              <span key={sh.id} className="text-xs font-bold bg-white/10 border border-white/15 px-3 py-1 rounded-xl text-indigo-100">
+                <UserCheck className="w-3.5 h-3.5 inline mr-1 text-emerald-400" />
+                {sh.employeeName}: <strong className="text-white">{sh.startHM}-{sh.endHM}</strong> ({sh.totalHours}h)
+              </span>
+            ))}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+});
+
 export default function App() {
   const [user, setUser] = useState(null);
   const [view, setView] = useState("select");
@@ -660,6 +814,7 @@ export default function App() {
   const [allReports, setAllReports] = useState([]);
   const [allNysaWarehouse, setAllNysaWarehouse] = useState([]);
   const [tasks, setTasks] = useState([]);
+  const [shifts, setShifts] = useState([]);
   const [catalog, setCatalog] = useState(DEFAULT_CATALOG);
   const [modalMsg, setModalMsg] = useState("");
   const [adminEditingReport, setAdminEditingReport] = useState(null);
@@ -704,6 +859,16 @@ export default function App() {
     return prevList[0] || null;
   }, [allNysaWarehouse, activeGastroDate]);
 
+  const activeShifts = useMemo(
+    () => shifts.filter((s) => s?.status === "active"),
+    [shifts]
+  );
+
+  const todayCompletedShifts = useMemo(
+    () => shifts.filter((s) => s?.status === "completed" && s?.date === activeGastroDate),
+    [shifts, activeGastroDate]
+  );
+
   useEffect(() => {
     if (!auth) {
       setUser({ uid: "local-user", isLocal: true });
@@ -729,6 +894,8 @@ export default function App() {
       setAllNysaWarehouse(getLocalData(LS_NYSA_KEY, []));
       const localTasks = getLocalData(LS_TASKS_KEY, []);
       setTasks([...localTasks].sort((a, b) => (b?.createdAt || "").localeCompare(a?.createdAt || "")));
+      const localShifts = getLocalData(LS_SHIFTS_KEY, []);
+      setShifts([...localShifts].sort((a, b) => (b?.startTime || "").localeCompare(a?.startTime || "")));
       setCatalog(normalizeCatalog(getLocalData(LS_CATALOG_KEY, DEFAULT_CATALOG)));
     };
 
@@ -786,6 +953,15 @@ export default function App() {
       (err) => { console.error("Firestore Tasks error:", err); loadFromLocalStorage(); }
     );
 
+    const unsubShifts = onSnapshot(
+      collection(db, ...basePath, "work_shifts"),
+      (snap) => {
+        const data = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
+        setShifts(data.sort((a, b) => (b?.startTime || "").localeCompare(a?.startTime || "")));
+      },
+      (err) => { console.error("Firestore Shifts error:", err); loadFromLocalStorage(); }
+    );
+
     const catalogDocRef = doc(db, ...basePath, "config", "catalog");
     const unsubCatalog = onSnapshot(
       catalogDocRef,
@@ -808,7 +984,7 @@ export default function App() {
       }
     );
 
-    return () => { unsubReports(); unsubNysa(); unsubTasks(); unsubCatalog(); };
+    return () => { unsubReports(); unsubNysa(); unsubTasks(); unsubShifts(); unsubCatalog(); };
   }, [user]);
 
   const handleSaveCatalog = useCallback(async (nextCatalog, successMsg) => {
@@ -826,6 +1002,138 @@ export default function App() {
       }
     } else if (successMsg) {
       setModalMsg(successMsg);
+    }
+  }, []);
+
+  const handleClockIn = useCallback(async (employeeName, location) => {
+    const cleanName = String(employeeName || "").trim();
+    if (!cleanName || !location) return;
+    const alreadyActive = shifts.find(
+      (s) => s?.status === "active" && s?.location === location && (s?.employeeName || "").toLowerCase() === cleanName.toLowerCase()
+    );
+    if (alreadyActive) {
+      setModalMsg(`${cleanName} ma już aktywną zmianę w punkcie ${location} (od ${alreadyActive.startHM})!`);
+      return;
+    }
+
+    const now = new Date();
+    const startHM = formatTimeHM(now);
+    const shiftDoc = {
+      employeeName: cleanName,
+      location,
+      date: activeGastroDate,
+      startTime: now.toISOString(),
+      startHM,
+      endTime: null,
+      endHM: "",
+      totalHours: 0,
+      status: "active",
+      closedBy: "",
+      updatedAt: now.toISOString(),
+    };
+
+    try {
+      if (db) {
+        await ensureAuth();
+        await addDoc(collection(db, "artifacts", appId, "public", "data", "work_shifts"), shiftDoc);
+      } else {
+        const current = getLocalData(LS_SHIFTS_KEY, []);
+        setLocalData(LS_SHIFTS_KEY, [{ ...shiftDoc, id: `shift_${Date.now()}` }, ...current]);
+      }
+      setModalMsg(`Rozpoczęto zmianę: ${cleanName} (${location}) o godz. ${startHM}. Powodzenia!`);
+    } catch (err) {
+      console.error("Błąd startu zmiany RCP:", err);
+      setModalMsg("Wystąpił błąd podczas rozpoczynania zmiany.");
+    }
+  }, [shifts, activeGastroDate]);
+
+  const handleClockOut = useCallback(async (shiftObj, customEndHM = null, closedByAdminName = "") => {
+    if (!shiftObj?.id) return null;
+    const now = new Date();
+    const endHM = customEndHM || formatTimeHM(now);
+    const rangeStr = `${shiftObj.startHM}-${endHM}`;
+    const totalHours = calculateWorkedHours(rangeStr);
+
+    const updatedFields = {
+      endTime: now.toISOString(),
+      endHM,
+      totalHours,
+      status: "completed",
+      closedBy: closedByAdminName || shiftObj.employeeName,
+      updatedAt: now.toISOString(),
+    };
+
+    try {
+      if (db) {
+        await ensureAuth();
+        await updateDoc(doc(db, "artifacts", appId, "public", "data", "work_shifts", shiftObj.id), updatedFields);
+      } else {
+        const current = getLocalData(LS_SHIFTS_KEY, []);
+        setLocalData(
+          LS_SHIFTS_KEY,
+          current.map((s) => (s.id === shiftObj.id ? { ...s, ...updatedFields } : s))
+        );
+      }
+
+      const reportId = `${shiftObj.date}_${shiftObj.location}`;
+      const existingRep = allReports.find((r) => r?.date === shiftObj.date && r?.location === shiftObj.location);
+      if (existingRep) {
+        const prevEmps = Array.isArray(existingRep.employees)
+          ? [...existingRep.employees]
+          : [{ name: "", hours: "" }, { name: "", hours: "" }, { name: "", hours: "" }];
+        while (prevEmps.length < 3) prevEmps.push({ name: "", hours: "" });
+
+        const matchIdx = prevEmps.findIndex(
+          (e) => (e?.name || "").trim().toLowerCase() === (shiftObj.employeeName || "").trim().toLowerCase()
+        );
+        if (matchIdx !== -1) {
+          prevEmps[matchIdx] = { name: shiftObj.employeeName, hours: rangeStr };
+        } else {
+          const emptyIdx = prevEmps.findIndex((e) => !e?.name && !e?.hours);
+          if (emptyIdx !== -1) prevEmps[emptyIdx] = { name: shiftObj.employeeName, hours: rangeStr };
+        }
+
+        if (db) {
+          await setDoc(doc(db, "artifacts", appId, "public", "data", "daily_reports", reportId), {
+            ...existingRep,
+            employees: prevEmps,
+            updatedAt: now.toISOString(),
+          });
+        } else {
+          const currentReps = getLocalData(LS_REPORTS_KEY, []);
+          setLocalData(
+            LS_REPORTS_KEY,
+            currentReps.map((r) => (r.id === reportId ? { ...r, employees: prevEmps, updatedAt: now.toISOString() } : r))
+          );
+        }
+      }
+
+      setModalMsg(
+        closedByAdminName
+          ? `Zamknięto zmianę pracownika ${shiftObj.employeeName} (${rangeStr} = ${totalHours}h) przez: ${closedByAdminName}.`
+          : `Zakończono zmianę: ${shiftObj.employeeName} (${rangeStr} = ${totalHours} godz.). Godziny zostały dopisane do raportu!`
+      );
+      return { employeeName: shiftObj.employeeName, hoursRange: rangeStr, totalHours };
+    } catch (err) {
+      console.error("Błąd kończenia zmiany RCP:", err);
+      setModalMsg("Wystąpił błąd podczas kończenia zmiany.");
+      return null;
+    }
+  }, [allReports]);
+
+  const handleDeleteShift = useCallback(async (shiftId) => {
+    if (!shiftId) return;
+    try {
+      if (db) {
+        await ensureAuth();
+        await deleteDoc(doc(db, "artifacts", appId, "public", "data", "work_shifts", shiftId));
+      } else {
+        const current = getLocalData(LS_SHIFTS_KEY, []);
+        setLocalData(LS_SHIFTS_KEY, current.filter((s) => s.id !== shiftId));
+      }
+      setModalMsg("Wpis z czytnika czasu pracy został usunięty.");
+    } catch (err) {
+      console.error("Błąd usuwania zmiany:", err);
     }
   }, []);
 
@@ -943,6 +1251,7 @@ export default function App() {
             {LOCATIONS.map((loc) => {
               const isDone = !!todayReports[loc];
               const locTasksCount = tasks.filter((t) => isTaskRelevantForLocationAndDate(t, loc, activeGastroDate)).length;
+              const locActiveWorkers = activeShifts.filter((s) => s?.location === loc);
               const isUnlockedHere = unlockedLocation === loc;
               return (
                 <button
@@ -954,6 +1263,12 @@ export default function App() {
                   <div className="flex flex-col items-start text-left">
                     <div className="flex items-center gap-2 mb-1 flex-wrap">
                       <span className="text-2xl font-black text-gray-900">{loc}</span>
+                      {locActiveWorkers.length > 0 && (
+                        <span className="bg-emerald-100 text-emerald-800 text-[11px] font-black px-2.5 py-0.5 rounded-full flex items-center">
+                          <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse mr-1.5" />
+                          W pracy: {locActiveWorkers.length}
+                        </span>
+                      )}
                       {locTasksCount > 0 && (
                         <span className="bg-amber-100 text-amber-800 text-[11px] font-black px-2.5 py-0.5 rounded-full flex items-center">
                           <ClipboardList className="w-3.5 h-3.5 mr-1" /> Zadania: {locTasksCount}
@@ -981,7 +1296,7 @@ export default function App() {
               onClick={() => setView("adminLogin")}
               className="mt-8 flex items-center justify-center py-5 rounded-[2rem] bg-gray-900 text-white font-bold text-sm shadow-xl shadow-gray-900/20 active:scale-95 transition-transform hover:bg-gray-800 border border-gray-700"
             >
-              <ShieldAlert className="w-5 h-5 mr-3" /> LOGOWANIE WŁAŚCICIEL
+              <ShieldAlert className="w-5 h-5 mr-3" /> LOGOWANIE WŁAŚCICIEL / MANAGER
             </button>
           </div>
         </div>
@@ -1014,6 +1329,14 @@ export default function App() {
             location="Nysa"
             todayStr={activeGastroDate}
             onCompleteTask={(t) => handleCompleteTaskGlobal(t, "Nysa", activeGastroDate)}
+          />
+          <ShiftClockWidget
+            location="Nysa"
+            employeesList={catalog?.employeesByLocation?.["Nysa"] || DEFAULT_EMPLOYEES_BY_LOCATION["Nysa"]}
+            activeShifts={activeShifts}
+            todayCompletedShifts={todayCompletedShifts}
+            onClockIn={handleClockIn}
+            onClockOut={handleClockOut}
           />
           <div className="w-full flex flex-col gap-5">
             <button
@@ -1072,6 +1395,10 @@ export default function App() {
           previousReport={previousReportForCurrentLoc}
           catalog={catalog}
           tasks={currentEmployeeTasks}
+          activeShifts={activeShifts}
+          todayCompletedShifts={todayCompletedShifts}
+          onClockIn={handleClockIn}
+          onClockOut={handleClockOut}
           onCompleteTask={(t) => handleCompleteTaskGlobal(t, currentLocation, activeGastroDate)}
           onBack={() => setView(currentLocation === "Nysa" ? "nysaMenu" : "select")}
           todayStr={activeGastroDate}
@@ -1093,6 +1420,10 @@ export default function App() {
           previousReport={previousReportForAdminEdit}
           catalog={catalog}
           tasks={adminEditTasks}
+          activeShifts={activeShifts}
+          todayCompletedShifts={shifts.filter((s) => s?.status === "completed" && s?.date === adminEditingReport.date)}
+          onClockIn={handleClockIn}
+          onClockOut={handleClockOut}
           onCompleteTask={(t) => handleCompleteTaskGlobal(t, adminEditingReport.location, adminEditingReport.date)}
           onBack={() => { setAdminEditingReport(null); setView("admin"); }}
           todayStr={adminEditingReport.date}
@@ -1127,6 +1458,10 @@ export default function App() {
           todayNysaWarehouse={todayNysaWarehouse}
           allNysaWarehouse={allNysaWarehouse}
           tasks={tasks}
+          shifts={shifts}
+          onClockIn={handleClockIn}
+          onClockOut={handleClockOut}
+          onDeleteShift={handleDeleteShift}
           catalog={catalog}
           onSaveCatalog={handleSaveCatalog}
           todayStr={activeGastroDate}
@@ -1149,6 +1484,10 @@ function EmployeeForm({
   previousReport,
   catalog,
   tasks = [],
+  activeShifts = [],
+  todayCompletedShifts = [],
+  onClockIn,
+  onClockOut,
   onCompleteTask,
   onBack,
   todayStr,
@@ -1231,6 +1570,53 @@ function EmployeeForm({
   );
   const [saucesNote, setSaucesNote] = useState(savedDraft?.saucesNote || existingData?.saucesNote || "");
   const [notes, setNotes] = useState(savedDraft?.notes || existingData?.notes || "");
+
+  const applyCompletedShiftsToForm = useCallback((shiftsList) => {
+    const locShifts = (shiftsList || []).filter((s) => s?.location === location && s?.status === "completed" && s?.startHM && s?.endHM);
+    if (locShifts.length === 0) return;
+    setEmployees((prev) => {
+      const next = prev.map((e) => ({ ...e }));
+      locShifts.forEach((sh) => {
+        const range = `${sh.startHM}-${sh.endHM}`;
+        const existingIdx = next.findIndex((e) => (e.name || "").toLowerCase() === (sh.employeeName || "").toLowerCase());
+        if (existingIdx !== -1) {
+          if (!next[existingIdx].hours) next[existingIdx].hours = range;
+        } else {
+          const emptyIdx = next.findIndex((e) => !e.name && !e.hours);
+          if (emptyIdx !== -1) {
+            next[emptyIdx] = { name: sh.employeeName, hours: range };
+          }
+        }
+      });
+      return next;
+    });
+  }, [location]);
+
+  useEffect(() => {
+    if (todayCompletedShifts.length > 0) {
+      applyCompletedShiftsToForm(todayCompletedShifts);
+    }
+  }, [todayCompletedShifts, applyCompletedShiftsToForm]);
+
+  const handleLocalClockOut = useCallback(async (shiftObj) => {
+    if (!onClockOut) return;
+    const res = await onClockOut(shiftObj);
+    if (res?.employeeName && res?.hoursRange) {
+      setIsDirty(true);
+      setEmployees((prev) => {
+        const next = prev.map((e) => ({ ...e }));
+        const idx = next.findIndex((e) => (e.name || "").toLowerCase() === res.employeeName.toLowerCase());
+        if (idx !== -1) {
+          next[idx] = { name: res.employeeName, hours: res.hoursRange };
+        } else {
+          const emptyIdx = next.findIndex((e) => !e.name && !e.hours);
+          if (emptyIdx !== -1) next[emptyIdx] = { name: res.employeeName, hours: res.hoursRange };
+        }
+        return next;
+      });
+      setReporter((r) => r || res.employeeName);
+    }
+  }, [onClockOut]);
 
   useEffect(() => {
     if (!existingData) return;
@@ -1645,6 +2031,17 @@ function EmployeeForm({
           onCompleteTask={onCompleteTask}
         />
 
+        {!isAdminEdit && onClockIn && (
+          <ShiftClockWidget
+            location={location}
+            employeesList={locationEmployeesList}
+            activeShifts={activeShifts}
+            todayCompletedShifts={todayCompletedShifts}
+            onClockIn={onClockIn}
+            onClockOut={handleLocalClockOut}
+          />
+        )}
+
         {inNightWindow && !isAdminEdit && onChangeGastroDate && (
           <div className="bg-indigo-950 text-white p-4 rounded-2xl border border-indigo-700 shadow-md flex flex-col sm:flex-row sm:items-center justify-between gap-3">
             <div className="flex items-center text-xs font-bold">
@@ -1746,7 +2143,20 @@ function EmployeeForm({
                   </select>
                 </div>
                 <div className="pt-4 border-t border-gray-100">
-                  <label className="text-xs font-black text-gray-500 uppercase ml-2 block mb-3">Godziny pracy personelu (max 3 osoby z lokalu {location})</label>
+                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 mb-3">
+                    <label className="text-xs font-black text-gray-500 uppercase ml-2 block">
+                      Godziny pracy personelu w raporcie (automatycznie z czytnika lub ręcznie)
+                    </label>
+                    {todayCompletedShifts.filter((s) => s?.location === location).length > 0 && (
+                      <button
+                        type="button"
+                        onClick={() => { setIsDirty(true); applyCompletedShiftsToForm(todayCompletedShifts); }}
+                        className="text-[11px] font-black text-indigo-700 bg-indigo-50 hover:bg-indigo-100 border border-indigo-200 px-3 py-1 rounded-lg self-start sm:self-center transition-colors"
+                      >
+                        Pobierz ponownie z czytnika RCP
+                      </button>
+                    )}
+                  </div>
                   <div className="space-y-3">
                     {[0, 1, 2].map((i) => {
                       const currentEmpName = employees[i]?.name || "";
@@ -2349,8 +2759,7 @@ function NysaWarehouseForm({
       </form>
     </div>
   );
-}
-function AdminPanel({
+}function AdminPanel({
   db,
   appId,
   role,
@@ -2359,6 +2768,10 @@ function AdminPanel({
   allReports = [],
   allNysaWarehouse = [],
   tasks = [],
+  shifts = [],
+  onClockIn,
+  onClockOut,
+  onDeleteShift,
   catalog,
   onSaveCatalog,
   todayStr,
@@ -2370,7 +2783,7 @@ function AdminPanel({
   const hasFullAnalytics = isOwner || isKlodzkoAdmin;
   const allowedLocations = useMemo(() => (isKlodzkoAdmin ? ["Kłodzko"] : LOCATIONS), [isKlodzkoAdmin]);
 
-  const [tab, setTab] = useState(hasFullAnalytics ? "reports" : "tasks");
+  const [tab, setTab] = useState(hasFullAnalytics ? "reports" : "hours");
   const [newTask, setNewTask] = useState("");
   const [newTaskLoc, setNewTaskLoc] = useState(isKlodzkoAdmin ? "Kłodzko" : "All");
   const [newTaskType, setNewTaskType] = useState("adhoc");
@@ -2395,6 +2808,16 @@ function AdminPanel({
   const [hoursLocation, setHoursLocation] = useState(isKlodzkoAdmin ? "Kłodzko" : "All");
   const [hoursStartDate, setHoursStartDate] = useState(() => getWeekBounds(todayStr).start);
   const [hoursEndDate, setHoursEndDate] = useState(() => getWeekBounds(todayStr).end);
+  const [hoursSourceMode, setHoursSourceMode] = useState("combined");
+
+  const [nowMs, setNowMs] = useState(Date.now());
+  const [closingShiftId, setClosingShiftId] = useState(null);
+  const [customEndTimeInput, setCustomEndTimeInput] = useState("22:00");
+
+  useEffect(() => {
+    const id = setInterval(() => setNowMs(Date.now()), 15000);
+    return () => clearInterval(id);
+  }, []);
 
   const [inventoryLocFilter, setInventoryLocFilter] = useState(isKlodzkoAdmin ? "Kłodzko" : "All");
   const [avgOrderFallbackVal, setAvgOrderFallbackVal] = useState(String(DEFAULT_AVG_ORDER_VALUE));
@@ -2428,6 +2851,16 @@ function AdminPanel({
     [allReports, isKlodzkoAdmin]
   );
 
+  const roleFilteredShifts = useMemo(
+    () => (isKlodzkoAdmin ? shifts.filter((s) => s?.location === "Kłodzko") : shifts),
+    [shifts, isKlodzkoAdmin]
+  );
+
+  const activeLiveShifts = useMemo(
+    () => roleFilteredShifts.filter((s) => s?.status === "active"),
+    [roleFilteredShifts]
+  );
+
   const reportsForSelectedDate = useMemo(
     () => roleFilteredAllReports.filter((r) => r?.date === selectedReportDate),
     [roleFilteredAllReports, selectedReportDate]
@@ -2453,6 +2886,7 @@ function AdminPanel({
         exportedAt: new Date().toISOString(),
         exportedBy: name,
         reports: roleFilteredAllReports,
+        shifts: roleFilteredShifts,
         nysaWarehouse: isKlodzkoAdmin ? [] : allNysaWarehouse,
         catalog: isOwner ? catalog : undefined,
       };
@@ -2912,48 +3346,100 @@ function AdminPanel({
 
   const workHoursData = useMemo(() => {
     const effectiveLoc = isKlodzkoAdmin ? "Kłodzko" : hoursLocation;
-    const matchingReports = roleFilteredAllReports
-      .filter((r) => {
-        if (!r?.date) return false;
-        if (effectiveLoc !== "All" && r.location !== effectiveLoc) return false;
-        if (hoursStartDate && r.date < hoursStartDate) return false;
-        if (hoursEndDate && r.date > hoursEndDate) return false;
-        return true;
-      })
-      .sort((a, b) => (a.date < b.date ? 1 : -1));
-
     const entries = [];
     const summaryByPerson = {};
+    const recordedKeys = new Set();
 
-    matchingReports.forEach((r) => {
-      if (Array.isArray(r.employees)) {
-        r.employees.forEach((emp) => {
-          const empName = String(emp?.name || "").trim();
-          const empHoursRaw = String(emp?.hours || "").trim();
-          if (empName || empHoursRaw) {
-            const parsedHrs = calculateWorkedHours(empHoursRaw);
-            entries.push({
-              id: `${r.id}_${empName}_${empHoursRaw}`, date: r.date, location: r.location,
-              name: empName || "(Nie wpisano imienia)", rawHours: empHoursRaw || "-", calculatedHours: parsedHrs, reporter: r.reporter,
-            });
-            if (empName) {
-              const normKey = empName.toLowerCase();
-              if (!summaryByPerson[normKey]) summaryByPerson[normKey] = { displayName: empName, totalHours: 0, shiftsCount: 0, locations: new Set() };
-              summaryByPerson[normKey].totalHours = Math.round((summaryByPerson[normKey].totalHours + parsedHrs) * 100) / 100;
-              summaryByPerson[normKey].shiftsCount += 1;
-              summaryByPerson[normKey].locations.add(r.location);
-            }
-          }
-        });
+    const addEntryToSummary = (entryObj) => {
+      entries.push(entryObj);
+      const empName = entryObj.name;
+      if (empName && empName !== "(Nie wpisano imienia)") {
+        const normKey = empName.toLowerCase();
+        if (!summaryByPerson[normKey]) {
+          summaryByPerson[normKey] = { displayName: empName, totalHours: 0, shiftsCount: 0, locations: new Set() };
+        }
+        summaryByPerson[normKey].totalHours = Math.round((summaryByPerson[normKey].totalHours + entryObj.calculatedHours) * 100) / 100;
+        summaryByPerson[normKey].shiftsCount += 1;
+        summaryByPerson[normKey].locations.add(entryObj.location);
       }
-    });
+    };
+
+    if (hoursSourceMode === "combined" || hoursSourceMode === "rcp") {
+      const matchingShifts = roleFilteredShifts
+        .filter((s) => {
+          if (s?.status !== "completed" || !s?.date) return false;
+          if (effectiveLoc !== "All" && s.location !== effectiveLoc) return false;
+          if (hoursStartDate && s.date < hoursStartDate) return false;
+          if (hoursEndDate && s.date > hoursEndDate) return false;
+          return true;
+        })
+        .sort((a, b) => (a.date < b.date ? 1 : -1));
+
+      matchingShifts.forEach((s) => {
+        const empName = String(s.employeeName || "").trim();
+        const rawRange = `${s.startHM || ""}-${s.endHM || ""}`;
+        const hrs = parseSafeNumber(s.totalHours) || calculateWorkedHours(rawRange);
+        const dedupKey = `${s.date}_${s.location}_${empName.toLowerCase()}`;
+        recordedKeys.add(dedupKey);
+        addEntryToSummary({
+          id: `rcp_${s.id}`,
+          shiftId: s.id,
+          source: "RCP Czytnik",
+          closedBy: s.closedBy || empName,
+          date: s.date,
+          location: s.location,
+          name: empName || "(Nie wpisano imienia)",
+          rawHours: rawRange,
+          calculatedHours: hrs,
+        });
+      });
+    }
+
+    if (hoursSourceMode === "combined" || hoursSourceMode === "reports") {
+      const matchingReports = roleFilteredAllReports
+        .filter((r) => {
+          if (!r?.date) return false;
+          if (effectiveLoc !== "All" && r.location !== effectiveLoc) return false;
+          if (hoursStartDate && r.date < hoursStartDate) return false;
+          if (hoursEndDate && r.date > hoursEndDate) return false;
+          return true;
+        })
+        .sort((a, b) => (a.date < b.date ? 1 : -1));
+
+      matchingReports.forEach((r) => {
+        if (Array.isArray(r.employees)) {
+          r.employees.forEach((emp) => {
+            const empName = String(emp?.name || "").trim();
+            const empHoursRaw = String(emp?.hours || "").trim();
+            if (empName || empHoursRaw) {
+              const dedupKey = `${r.date}_${r.location}_${empName.toLowerCase()}`;
+              if (hoursSourceMode === "combined" && recordedKeys.has(dedupKey)) {
+                return;
+              }
+              const parsedHrs = calculateWorkedHours(empHoursRaw);
+              addEntryToSummary({
+                id: `rep_${r.id}_${empName}_${empHoursRaw}`,
+                source: "Raport dobowy",
+                date: r.date,
+                location: r.location,
+                name: empName || "(Nie wpisano imienia)",
+                rawHours: empHoursRaw || "-",
+                calculatedHours: parsedHrs,
+              });
+            }
+          });
+        }
+      });
+    }
+
+    entries.sort((a, b) => (a.date < b.date ? 1 : -1));
 
     const summaryList = Object.values(summaryByPerson)
       .map((item) => ({ ...item, locations: Array.from(item.locations) }))
       .sort((a, b) => b.totalHours - a.totalHours);
 
     return { entries, summaryList };
-  }, [isKlodzkoAdmin, hoursLocation, roleFilteredAllReports, hoursStartDate, hoursEndDate]);
+  }, [isKlodzkoAdmin, hoursLocation, hoursSourceMode, roleFilteredAllReports, roleFilteredShifts, hoursStartDate, hoursEndDate]);
 
   const renderInventoryGroup = (title, itemsList, recordObj, colorClass, ordersCountForReport = 0) => {
     const extraKeys = recordObj ? Object.keys(recordObj).filter((k) => !itemsList.includes(k)) : [];
@@ -3006,7 +3492,7 @@ function AdminPanel({
               <Users className="w-6 h-6 mr-2.5 text-blue-600" /> Zarządzanie Pracownikami Punktów
             </h3>
             <p className="text-xs font-semibold text-gray-500 mt-1">
-              Dodawaj i usuwaj imiona pracowników przypisanych do konkretnych lokali. Lista wyświetla się w polu wyboru raportu dziennego.
+              Dodawaj i usuwaj imiona pracowników przypisanych do konkretnych lokali. Lista wyświetla się w czytniku RCP oraz w raporcie dziennym.
             </p>
           </div>
           {!isKlodzkoAdmin && (
@@ -3172,7 +3658,13 @@ function AdminPanel({
                 { id: "stats", label: "Statystyka Dni", icon: BarChart3, activeClass: "border-emerald-600 text-emerald-700 bg-emerald-50/30", minW: "min-w-[155px]" },
               ]
             : []),
-          { id: "hours", label: "Godziny Pracy & Kadra", icon: Clock, activeClass: "border-indigo-600 text-indigo-700 bg-indigo-50/30", minW: "min-w-[160px]" },
+          {
+            id: "hours",
+            label: `Czytnik RCP & Godziny (${activeLiveShifts.length} live)`,
+            icon: Timer,
+            activeClass: "border-indigo-600 text-indigo-700 bg-indigo-50/30",
+            minW: "min-w-[185px]",
+          },
           { id: "tasks", label: "Zadania Dnia", icon: ClipboardList, activeClass: "border-blue-600 text-blue-600 bg-blue-50/30", minW: "min-w-[150px]" },
           ...(isOwner ? [{ id: "catalog", label: "Asortyment / Kopia Bazy", icon: Settings, activeClass: "border-amber-600 text-amber-700 bg-amber-50/40", minW: "min-w-[190px]" }] : []),
         ].map(({ id, label, icon: Icon, activeClass, minW }) => (
@@ -3977,6 +4469,109 @@ function AdminPanel({
 
         {tab === "hours" && (
           <div className="space-y-6">
+            <div className="bg-gradient-to-br from-slate-900 via-indigo-950 to-slate-900 text-white p-6 rounded-[2rem] border border-indigo-700/70 shadow-xl space-y-5">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-white/10 pb-4">
+                <div className="flex items-center gap-3">
+                  <div className="w-12 h-12 rounded-2xl bg-emerald-500/20 border border-emerald-400/40 flex items-center justify-center shrink-0">
+                    <Timer className="w-6 h-6 text-emerald-400" />
+                  </div>
+                  <div>
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <h2 className="text-xl font-black text-white">Aktualnie w Pracy (Podgląd Na Żywo — RCP)</h2>
+                      <span className="bg-emerald-500/20 text-emerald-300 border border-emerald-400/30 text-xs font-black px-3 py-0.5 rounded-full flex items-center">
+                        <span className="w-2 h-2 rounded-full bg-emerald-400 animate-ping mr-1.5" />
+                        Aktywnych: {activeLiveShifts.length}
+                      </span>
+                    </div>
+                    <p className="text-xs text-indigo-200/80 font-medium mt-0.5">
+                      Widzisz tu każdego pracownika, który rozpoczął zmianę. Jeśli ktoś zapomniał odbić wyjścia, możesz zamknąć zmianę ręcznie.
+                    </p>
+                  </div>
+                </div>
+              </div>
+
+              {activeLiveShifts.length === 0 ? (
+                <div className="bg-white/5 border border-white/10 p-6 rounded-2xl text-center">
+                  <p className="text-sm font-bold text-indigo-200">Aktualnie żaden pracownik nie ma włączonej aktywnej zmiany na czytniku.</p>
+                </div>
+              ) : (
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  {activeLiveShifts.map((sh) => {
+                    const isClosingThis = closingShiftId === sh.id;
+                    return (
+                      <div key={sh.id} className="bg-white/10 border border-emerald-400/40 p-4 rounded-2xl flex flex-col justify-between gap-3">
+                        <div className="flex items-start justify-between gap-2">
+                          <div>
+                            <div className="flex items-center gap-2 flex-wrap">
+                              <span className="text-[10px] font-black uppercase bg-indigo-500/40 text-indigo-100 px-2.5 py-0.5 rounded-md border border-indigo-400/30">
+                                {sh.location}
+                              </span>
+                              <span className="text-[10px] font-bold text-indigo-200">Data: {sh.date}</span>
+                            </div>
+                            <h4 className="font-black text-lg text-white mt-1 flex items-center gap-2">
+                              <span className="w-2.5 h-2.5 rounded-full bg-emerald-400 animate-pulse" />
+                              {sh.employeeName}
+                            </h4>
+                            <p className="text-xs font-bold text-indigo-200 mt-1">
+                              Rozpoczęto o: <strong className="text-white">{sh.startHM}</strong> • Czas pracy na żywo:{" "}
+                              <strong className="text-emerald-300 bg-emerald-500/20 px-2 py-0.5 rounded-md">
+                                {formatLiveDuration(sh.startTime, nowMs)}
+                              </strong>
+                            </p>
+                          </div>
+                          {!isClosingThis && (
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setClosingShiftId(sh.id);
+                                setCustomEndTimeInput(formatTimeHM(new Date()));
+                              }}
+                              className="shrink-0 bg-red-500 hover:bg-red-600 text-white font-black text-xs px-3.5 py-2.5 rounded-xl flex items-center shadow-md transition-colors"
+                            >
+                              <Square className="w-3.5 h-3.5 mr-1.5 fill-current" /> Zakończ z panelu
+                            </button>
+                          )}
+                        </div>
+
+                        {isClosingThis && (
+                          <div className="pt-3 border-t border-white/15 bg-black/25 p-3 rounded-xl space-y-2.5">
+                            <label className="block text-[11px] font-black uppercase text-amber-300">
+                              Podaj godzinę zakończenia zmiany (np. gdy pracownik zapomniał się wylogować):
+                            </label>
+                            <div className="flex flex-wrap items-center gap-2">
+                              <input
+                                type="time"
+                                value={customEndTimeInput}
+                                onChange={(e) => setCustomEndTimeInput(e.target.value)}
+                                className="px-3 py-2 bg-white text-gray-900 font-black text-sm rounded-xl outline-none"
+                              />
+                              <button
+                                type="button"
+                                onClick={async () => {
+                                  await onClockOut(sh, customEndTimeInput || formatTimeHM(new Date()), name);
+                                  setClosingShiftId(null);
+                                }}
+                                className="flex-1 bg-emerald-500 hover:bg-emerald-400 text-gray-950 font-black text-xs py-2.5 px-4 rounded-xl transition-colors"
+                              >
+                                Zatwierdź i zamknij ({sh.startHM}-{customEndTimeInput})
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => setClosingShiftId(null)}
+                                className="bg-white/15 hover:bg-white/25 text-white font-bold text-xs py-2.5 px-3 rounded-xl"
+                              >
+                                Anuluj
+                              </button>
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+
             {(isOwner || isKlodzkoAdmin) && renderEmployeeManagerWidget()}
 
             <div className="bg-white p-6 rounded-[2rem] border border-gray-200 shadow-sm space-y-5">
@@ -3985,7 +4580,9 @@ function AdminPanel({
                   <h2 className="text-2xl font-black text-gray-900 flex items-center">
                     <Clock className="w-7 h-7 mr-3 text-indigo-600" /> Podsumowanie Godzin Pracy {isKlodzkoAdmin ? "(Punkt Kłodzko)" : ""}
                   </h2>
-                  <p className="text-xs font-semibold text-gray-500 mt-1">Ewidencja godzin wpisywanych w raportach dziennych (obsługuje formaty np. 10-22, 10:30-22:00 oraz 10.30-22.00)</p>
+                  <p className="text-xs font-semibold text-gray-500 mt-1">
+                    Automatycznie łączy odbicia z czytnika RCP oraz wpisy z raportów dobowych (bez dublowania tego samego dnia i pracownika).
+                  </p>
                 </div>
                 {!isKlodzkoAdmin && (
                   <div className="flex flex-wrap gap-2">
@@ -4002,18 +4599,40 @@ function AdminPanel({
                   </div>
                 )}
               </div>
-              <div className="pt-4 border-t border-gray-100 flex flex-wrap items-center gap-3">
-                <div className="flex items-center bg-gray-50 px-3 py-2 rounded-xl border border-gray-200">
-                  <span className="text-xs font-bold text-gray-500 mr-2">Od dnia:</span>
-                  <input type="date" value={hoursStartDate} onChange={(e) => setHoursStartDate(e.target.value)} className="font-black text-xs text-gray-900 bg-transparent outline-none" />
+
+              <div className="pt-4 border-t border-gray-100 flex flex-wrap items-center justify-between gap-3">
+                <div className="flex flex-wrap items-center gap-3">
+                  <div className="flex items-center bg-gray-50 px-3 py-2 rounded-xl border border-gray-200">
+                    <span className="text-xs font-bold text-gray-500 mr-2">Od dnia:</span>
+                    <input type="date" value={hoursStartDate} onChange={(e) => setHoursStartDate(e.target.value)} className="font-black text-xs text-gray-900 bg-transparent outline-none" />
+                  </div>
+                  <div className="flex items-center bg-gray-50 px-3 py-2 rounded-xl border border-gray-200">
+                    <span className="text-xs font-bold text-gray-500 mr-2">Do dnia:</span>
+                    <input type="date" value={hoursEndDate} onChange={(e) => setHoursEndDate(e.target.value)} className="font-black text-xs text-gray-900 bg-transparent outline-none" />
+                  </div>
+                  <button type="button" onClick={() => { setHoursStartDate(""); setHoursEndDate(""); }} className="px-3.5 py-2 bg-gray-100 hover:bg-gray-200 text-gray-700 font-bold text-xs rounded-xl transition-colors">
+                    Pokaż wszystkie daty
+                  </button>
                 </div>
-                <div className="flex items-center bg-gray-50 px-3 py-2 rounded-xl border border-gray-200">
-                  <span className="text-xs font-bold text-gray-500 mr-2">Do dnia:</span>
-                  <input type="date" value={hoursEndDate} onChange={(e) => setHoursEndDate(e.target.value)} className="font-black text-xs text-gray-900 bg-transparent outline-none" />
+
+                <div className="flex bg-gray-100 p-1 rounded-xl border border-gray-200">
+                  {[
+                    { id: "combined", label: "Połączone (RCP + Raporty)" },
+                    { id: "rcp", label: "Tylko Czytnik RCP" },
+                    { id: "reports", label: "Tylko z Raportów" },
+                  ].map((mode) => (
+                    <button
+                      key={mode.id}
+                      type="button"
+                      onClick={() => setHoursSourceMode(mode.id)}
+                      className={`px-3 py-1.5 rounded-lg font-black text-[11px] transition-colors ${
+                        hoursSourceMode === mode.id ? "bg-indigo-600 text-white shadow-sm" : "text-gray-600 hover:text-gray-900"
+                      }`}
+                    >
+                      {mode.label}
+                    </button>
+                  ))}
                 </div>
-                <button type="button" onClick={() => { setHoursStartDate(""); setHoursEndDate(""); }} className="px-3.5 py-2 bg-gray-100 hover:bg-gray-200 text-gray-700 font-bold text-xs rounded-xl transition-colors">
-                  Pokaż wszystkie daty
-                </button>
               </div>
             </div>
 
@@ -4039,7 +4658,7 @@ function AdminPanel({
             <div className="bg-white p-6 rounded-[2rem] border border-gray-200 shadow-sm">
               <h3 className="font-extrabold text-gray-900 text-lg mb-4">Szczegółowy wykaz zmian ({workHoursData.entries.length})</h3>
               {workHoursData.entries.length === 0 ? (
-                <p className="text-gray-400 font-bold text-center py-6">Brak wpisanych godzin pracy dla wybranych filtrów.</p>
+                <p className="text-gray-400 font-bold text-center py-6">Brak zarejestrowanych godzin pracy dla wybranych filtrów.</p>
               ) : (
                 <div className="space-y-3">
                   {workHoursData.entries.map((entry) => (
@@ -4047,11 +4666,29 @@ function AdminPanel({
                       <div className="flex flex-wrap items-center gap-2.5">
                         <span className="px-3 py-1 bg-gray-900 text-white font-black text-xs rounded-lg">{entry.date}</span>
                         <span className="px-3 py-1 bg-indigo-100 text-indigo-800 font-black text-xs rounded-lg">{entry.location}</span>
+                        <span className={`px-2.5 py-0.5 font-black text-[10px] uppercase rounded-md ${entry.source === "RCP Czytnik" ? "bg-emerald-100 text-emerald-800 border border-emerald-200" : "bg-blue-50 text-blue-700 border border-blue-200"}`}>
+                          {entry.source}
+                        </span>
                         <span className="font-extrabold text-gray-900 text-base">{entry.name}</span>
                       </div>
-                      <div className="flex items-center justify-between sm:justify-end gap-4 border-t sm:border-t-0 pt-2 sm:pt-0 border-gray-200">
-                        <span className="text-xs font-bold text-gray-500">Wpis w raporcie: <strong className="text-gray-900">{entry.rawHours}</strong></span>
+                      <div className="flex items-center justify-between sm:justify-end gap-3 border-t sm:border-t-0 pt-2 sm:pt-0 border-gray-200">
+                        <span className="text-xs font-bold text-gray-500">
+                          Godziny: <strong className="text-gray-900">{entry.rawHours}</strong>
+                          {entry.closedBy && entry.closedBy !== entry.name && (
+                            <span className="text-[10px] text-amber-700 ml-1.5">(zamknął: {entry.closedBy})</span>
+                          )}
+                        </span>
                         {entry.calculatedHours > 0 && <span className="bg-emerald-100 text-emerald-800 font-black text-xs px-3 py-1 rounded-full">{entry.calculatedHours} godz.</span>}
+                        {entry.shiftId && isOwner && (
+                          <button
+                            type="button"
+                            onClick={() => onDeleteShift && onDeleteShift(entry.shiftId)}
+                            className="p-1.5 text-red-500 hover:bg-red-50 rounded-lg transition-colors"
+                            title="Usuń odbicie RCP"
+                          >
+                            <Trash2 className="w-4 h-4" />
+                          </button>
+                        )}
                       </div>
                     </div>
                   ))}
@@ -4158,7 +4795,7 @@ function AdminPanel({
             <div className="bg-emerald-950 text-white p-6 rounded-[2rem] border border-emerald-800 shadow-lg flex flex-col sm:flex-row sm:items-center justify-between gap-4">
               <div>
                 <h3 className="text-xl font-black flex items-center"><Download className="w-6 h-6 mr-2.5 text-emerald-400" /> Kopia Zapasowa i Eksport Danych</h3>
-                <p className="text-xs text-gray-300 font-medium mt-1">Pobierz pełne archiwum raportów na swój telefon lub komputer w formacie Excel (CSV) lub pełnego obrazu bazy (JSON).</p>
+                <p className="text-xs text-gray-300 font-medium mt-1">Pobierz pełne archiwum raportów i odbić RCP na swój telefon lub komputer w formacie Excel (CSV) lub pełnego obrazu bazy (JSON).</p>
               </div>
               <div className="flex flex-wrap gap-2 shrink-0">
                 <button type="button" onClick={handleDownloadCSV} className="px-4 py-3 bg-emerald-500 hover:bg-emerald-400 text-gray-950 font-black text-xs rounded-xl flex items-center transition-colors shadow-md">
