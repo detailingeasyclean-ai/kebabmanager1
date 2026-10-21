@@ -51,7 +51,7 @@ const LOCATION_BADGE_STYLES = {
 const DEFAULT_LOCATION_PINS = { Opole: "0525", Nysa: "0526", Kłodzko: "0527", "Kudowa-Zdrój": "0528" };
 
 const DEFAULT_EMPLOYEES_BY_LOCATION = {
-  Opole: ["Mikołaj", "Michał", "Kacper", "Dawid", "Oliwia", "Zuzanna", "Bartek"],
+  Opole: ["Mikołaj", "Michał", "Kacper", "Dawid", "Oliwia", "Zuzana", "Bartek"],
   Nysa: ["Mikołaj", "Michał", "Mateusz", "Kamil", "Natalia", "Wiktoria", "Szymon"],
   Kłodzko: ["Mikołaj", "Michał", "Patryk", "Jakub", "Karolina", "Martyna", "Tomek"],
   "Kudowa-Zdrój": ["Mikołaj", "Michał", "Łukasz", "Piotr", "Maja", "Aleksandra", "Filip"],
