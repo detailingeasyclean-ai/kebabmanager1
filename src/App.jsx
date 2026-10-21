@@ -37,11 +37,84 @@ const LOCATIONS = ["Opole", "Nysa", "Kłodzko", "Kudowa-Zdrój"];
 const LOCATION_COLORS = { Opole: "bg-blue-500", Nysa: "bg-emerald-500", Kłodzko: "bg-amber-500", "Kudowa-Zdrój": "bg-purple-500" };
 const DEFAULT_LOCATION_PINS = { Opole: "0525", Nysa: "0526", Kłodzko: "0527", "Kudowa-Zdrój": "0528" };
 
-const EMPLOYEES_BY_LOCATION = {
-  Opole: ["Kasia", "Aymen", "Mateusz", "Tamara", "Pracownik 1", "Pracownik 2", "Pracownik 3"],
-  Nysa: ["Ola", "Sergio", "Ula", "Pracownik 1", "Pracownik 2", "Pracownik 3"],
-  Kłodzko: ["Mikołaj", "Bruno", "Dominika", "Pracownik 1", "Pracownik 2", "Pracownik 3"],
-  "Kudowa-Zdrój": ["Szczepan", "Karol", "Daniel", "Sara", "Leon", "Pracownik 1", "Pracownik 2"],
+const DEFAULT_EMPLOYEES_BY_LOCATION = {
+  Opole: ["Mikołaj", "Michał", "Kacper", "Dawid", "Oliwia", "Zuzanna", "Bartek"],
+  Nysa: ["Mikołaj", "Michał", "Mateusz", "Kamil", "Natalia", "Wiktoria", "Szymon"],
+  Kłodzko: ["Mikołaj", "Michał", "Patryk", "Jakub", "Karolina", "Martyna", "Tomek"],
+  "Kudowa-Zdrój": ["Mikołaj", "Michał", "Łukasz", "Piotr", "Maja", "Aleksandra", "Filip"],
+};
+
+const AVAILABLE_UNITS = ["szt.", "kg", "g", "op.", "l", "wiadro", "karton", "pęczek", "rolka"];
+
+const DEFAULT_ITEM_UNITS = {
+  "Sałata lodowa": "szt.",
+  "Pomidor": "kg",
+  "Ogórek": "kg",
+  "Cebula": "kg",
+  "Cytryna": "kg",
+  "Pietruszka": "pęczek",
+  "Ziemniaki": "kg",
+  "Cukinia": "kg",
+  "Marchewka": "kg",
+  "Kurczak": "kg",
+  "Wołowina": "kg",
+  "Frytki": "kg",
+  "Frytka": "kg",
+  "Bułki": "szt.",
+  "Bułka": "szt.",
+  "Lawasz": "op.",
+  "Lawasz 30": "op.",
+  "Lawasz 38": "op.",
+  "Falafel": "kg",
+  "Ser smażony": "kg",
+  "Ser oba": "kg",
+  "Jogurt grecki": "wiadro",
+  "Majonez 50": "wiadro",
+  "Majonez 27": "wiadro",
+  "Ketchup 5 kg": "wiadro",
+  "Ketchup 1 kg": "szt.",
+  "Bbq 1 kg": "szt.",
+  "Czosnek obrany": "kg",
+  "Mięta": "g",
+  "Sok z limonki": "l",
+  "Passata pomidorowa": "szt.",
+  "Pieprz cayenne": "op.",
+  "Pieprz": "op.",
+  "Sól": "kg",
+  "Masło": "szt.",
+  "Papryka słodka wędzona": "op.",
+  "Oregano": "op.",
+  "Sok z granatu": "l",
+  "Sambal": "szt.",
+  "Frytura": "l",
+  "Ayran": "op.",
+  "Czosnkowy": "wiadro",
+  "Czosnek z miętą": "wiadro",
+  "Sriracha majo": "wiadro",
+  "Ostry": "wiadro",
+  "Tzatziki/curry mango": "wiadro",
+  "Fartuchy": "op.",
+  "Rękawiczki": "op.",
+  "Folia aluminiowa": "rolka",
+  "Torby papierowe": "op.",
+  "Serwetki / ZZ": "op.",
+  "Płyn do naczyń / Chemia": "szt.",
+  "Worki na śmieci": "rolka",
+  "Box duży": "op.",
+  "Box mały": "op.",
+  "Widelec": "op.",
+  "Papier": "op.",
+  "Koperta": "op.",
+  "Zz": "op.",
+  "Rolka kasa": "rolka",
+};
+
+const getItemUnit = (catalog, itemName) => {
+  if (!itemName) return "szt.";
+  if (catalog?.itemUnits && catalog.itemUnits[itemName]) return catalog.itemUnits[itemName];
+  if (DEFAULT_ITEM_UNITS[itemName]) return DEFAULT_ITEM_UNITS[itemName];
+  if (itemName.toLowerCase().includes("mięta")) return "g";
+  return "szt.";
 };
 
 const DEFAULT_AVG_ORDER_VALUE = 38;
@@ -70,6 +143,8 @@ const DEFAULT_CATALOG = {
   locationPins: DEFAULT_LOCATION_PINS,
   deliveryDays: DEFAULT_DELIVERY_DAYS,
   itemLocations: {},
+  itemUnits: DEFAULT_ITEM_UNITS,
+  employeesByLocation: DEFAULT_EMPLOYEES_BY_LOCATION,
 };
 
 const DAYS_OF_WEEK = [
@@ -112,6 +187,18 @@ const normalizeCatalog = (raw) => {
       res[k] = mergedDays;
     } else if (k === "itemLocations") {
       res[k] = raw.itemLocations && typeof raw.itemLocations === "object" ? raw.itemLocations : {};
+    } else if (k === "itemUnits") {
+      res[k] = { ...DEFAULT_ITEM_UNITS, ...(raw.itemUnits && typeof raw.itemUnits === "object" ? raw.itemUnits : {}) };
+    } else if (k === "employeesByLocation") {
+      const mergedEmp = { ...DEFAULT_EMPLOYEES_BY_LOCATION };
+      if (raw.employeesByLocation && typeof raw.employeesByLocation === "object") {
+        LOCATIONS.forEach((loc) => {
+          if (Array.isArray(raw.employeesByLocation[loc])) {
+            mergedEmp[loc] = raw.employeesByLocation[loc];
+          }
+        });
+      }
+      res[k] = mergedEmp;
     } else if (Array.isArray(raw[k])) {
       res[k] = raw[k];
     }
@@ -170,6 +257,46 @@ const parseSafeNumber = (val) => {
   if (val === "" || val === null || val === undefined) return 0;
   const parsed = parseFloat(String(val).replace(",", ".").trim());
   return isNaN(parsed) ? 0 : parsed;
+};
+
+const hasAnyPositiveValue = (obj) => {
+  if (!obj || typeof obj !== "object") return false;
+  return Object.values(obj).some((v) => parseSafeNumber(v) > 0);
+};
+
+const buildInitialSectionState = (prevSec, existingSec, draftSec) => {
+  const base = { ...(prevSec && typeof prevSec === "object" ? prevSec : {}) };
+  if (existingSec && typeof existingSec === "object" && Object.keys(existingSec).length > 0) {
+    Object.entries(existingSec).forEach(([k, v]) => {
+      if (v !== undefined && v !== null && v !== "") base[k] = String(v);
+    });
+  }
+  if (draftSec && typeof draftSec === "object" && hasAnyPositiveValue(draftSec)) {
+    Object.entries(draftSec).forEach(([k, v]) => {
+      if (v !== undefined && v !== null && v !== "") base[k] = String(v);
+    });
+  }
+  return base;
+};
+
+const mergeInventorySectionForSave = (existingSec, currentSec, explicitlyZeroed = {}) => {
+  const existingClean = sanitizeRecord(existingSec);
+  const currentClean = sanitizeRecord(currentSec);
+
+  if (!hasAnyPositiveValue(currentClean) && hasAnyPositiveValue(existingClean) && Object.keys(explicitlyZeroed).length === 0) {
+    return existingClean;
+  }
+
+  const merged = { ...existingClean };
+  Object.entries(currentClean).forEach(([k, v]) => {
+    const num = parseSafeNumber(v);
+    if (num > 0) {
+      merged[k] = String(v);
+    } else if (explicitlyZeroed[k] || !(k in existingClean)) {
+      merged[k] = "0";
+    }
+  });
+  return merged;
 };
 
 const getEffectiveOrdersCount = (report, fallbackAvgOrderVal = DEFAULT_AVG_ORDER_VALUE) => {
@@ -280,21 +407,25 @@ const Section = memo(({ title, icon: Icon, children, bgClass = "bg-white", title
   );
 });
 
-const Counter = memo(({ itemKey, label, value, onChange, onItemChange }) => {
+const Counter = memo(({ itemKey, label, unit = "szt.", value, onChange, onItemChange, onExplicitZero }) => {
   const [isEditingInput, setIsEditingInput] = useState(false);
   const [tempInput, setTempInput] = useState("");
   const displayLabel = label || itemKey || "";
-  const isMint = displayLabel.toLowerCase().includes("mięta");
+  const isGrams = unit === "g" || displayLabel.toLowerCase().includes("mięta");
   const numVal = value === "" || value === undefined || value === null || isNaN(Number(value)) ? 0 : Number(value);
 
-  const emitChange = (nextStr) => {
+  const emitChange = (nextStr, isZeroReset = false) => {
+    if (isZeroReset && onExplicitZero && (itemKey || displayLabel)) {
+      onExplicitZero(itemKey || displayLabel);
+    }
     if (onItemChange && itemKey) onItemChange(itemKey, nextStr);
     else if (onChange) onChange(nextStr);
   };
 
   const updateVal = (amount) => {
     const nextVal = Math.max(0, numVal + amount);
-    emitChange(parseFloat(nextVal.toFixed(2)).toString());
+    const formatted = parseFloat(nextVal.toFixed(2)).toString();
+    emitChange(formatted, nextVal === 0);
   };
 
   const handleStartManualEdit = () => {
@@ -302,11 +433,30 @@ const Counter = memo(({ itemKey, label, value, onChange, onItemChange }) => {
     setIsEditingInput(true);
   };
 
+  const handleInputChange = (e) => {
+    const v = e.target.value;
+    if (v === "" || /^\d*[.,]?\d*$/.test(v)) {
+      setTempInput(v);
+      const normalized = v.replace(",", ".").trim();
+      if (normalized !== "" && !normalized.endsWith(".")) {
+        const parsed = parseFloat(normalized);
+        if (!isNaN(parsed) && parsed >= 0) {
+          emitChange(parseFloat(parsed.toFixed(2)).toString(), parsed === 0);
+        }
+      }
+    }
+  };
+
   const commitManualEdit = () => {
     setIsEditingInput(false);
-    if (tempInput.trim() === "") { emitChange("0"); return; }
-    const parsed = parseFloat(tempInput.replace(",", "."));
-    if (!isNaN(parsed) && parsed >= 0) emitChange(parseFloat(parsed.toFixed(2)).toString());
+    const trimmed = tempInput.trim().replace(",", ".");
+    if (trimmed === "") {
+      return;
+    }
+    const parsed = parseFloat(trimmed);
+    if (!isNaN(parsed) && parsed >= 0) {
+      emitChange(parseFloat(parsed.toFixed(2)).toString(), parsed === 0);
+    }
   };
 
   const renderInputBox = (widthClass) =>
@@ -316,32 +466,38 @@ const Counter = memo(({ itemKey, label, value, onChange, onItemChange }) => {
         inputMode="decimal"
         autoFocus
         value={tempInput}
-        onChange={(e) => { const v = e.target.value; if (v === "" || /^\d*[.,]?\d*$/.test(v)) setTempInput(v); }}
+        onChange={handleInputChange}
         onBlur={commitManualEdit}
         onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); commitManualEdit(); } }}
         className={`${widthClass} h-11 text-center font-black text-blue-900 bg-blue-50 border-2 border-blue-400 rounded-lg outline-none text-sm`}
-        placeholder="0"
+        placeholder={`0 ${unit}`}
       />
     ) : (
       <div
         onClick={handleStartManualEdit}
         title="Kliknij, aby wpisać wartość z klawiatury"
-        className={`${widthClass} h-11 flex items-center justify-center font-black text-gray-900 bg-gray-50 hover:bg-blue-50/50 border border-gray-200 hover:border-blue-300 rounded-lg select-none text-sm cursor-text transition-colors`}
+        className={`${widthClass} h-11 px-1.5 flex items-center justify-center gap-1 font-black text-gray-900 bg-gray-50 hover:bg-blue-50/50 border border-gray-200 hover:border-blue-300 rounded-lg select-none text-sm cursor-text transition-colors`}
       >
-        {value || "0"}
+        <span>{value || "0"}</span>
+        <span className="text-[10px] font-extrabold text-blue-600 uppercase">{unit}</span>
       </div>
     );
 
   return (
     <div className="flex flex-col bg-white border border-gray-100 rounded-2xl shadow-sm overflow-hidden mb-3 w-full transition-colors hover:border-blue-100">
       <div className="p-3 bg-gray-50/50 border-b border-gray-100 flex items-center justify-between gap-2">
-        <span className="font-bold text-gray-800 text-sm leading-tight break-words">
-          {displayLabel} {isMint && <span className="text-xs text-gray-500 font-normal ml-1">(gramy)</span>}
-        </span>
+        <div className="flex items-center gap-1.5 flex-wrap">
+          <span className="font-bold text-gray-800 text-sm leading-tight break-words">
+            {displayLabel}
+          </span>
+          <span className="text-[10px] font-black uppercase px-2 py-0.5 rounded-md bg-blue-50 text-blue-700 border border-blue-200">
+            {unit}
+          </span>
+        </div>
         {numVal > 0 && (
           <button
             type="button"
-            onClick={() => emitChange("0")}
+            onClick={() => emitChange("0", true)}
             title="Wyzeruj wartość (Reset do 0)"
             className="shrink-0 text-[10px] font-black uppercase px-2 py-0.5 rounded-md bg-gray-200/70 hover:bg-red-100 text-gray-600 hover:text-red-700 transition-colors flex items-center"
           >
@@ -350,17 +506,17 @@ const Counter = memo(({ itemKey, label, value, onChange, onItemChange }) => {
         )}
       </div>
       <div className="flex items-center justify-between p-2 gap-1 bg-white">
-        {isMint ? (
+        {isGrams ? (
           <>
             <button type="button" onClick={() => updateVal(-100)} className="flex-1 min-w-0 h-11 bg-red-50 hover:bg-red-100 text-red-600 rounded-lg font-black text-sm transition-colors touch-manipulation">-100</button>
-            {renderInputBox("w-20")}
+            {renderInputBox("w-24")}
             <button type="button" onClick={() => updateVal(100)} className="flex-1 min-w-0 h-11 bg-green-50 hover:bg-green-100 text-green-600 rounded-lg font-black text-sm transition-colors touch-manipulation">+100</button>
           </>
         ) : (
           <>
             <button type="button" onClick={() => updateVal(-1)} className="flex-1 min-w-0 h-11 bg-red-50 hover:bg-red-100 text-red-600 rounded-lg font-black text-sm transition-colors touch-manipulation">-1</button>
             <button type="button" onClick={() => updateVal(-0.5)} className="flex-1 min-w-0 h-11 bg-orange-50 hover:bg-orange-100 text-orange-600 rounded-lg font-black text-xs transition-colors touch-manipulation">-.5</button>
-            {renderInputBox("w-16 shrink-0")}
+            {renderInputBox("w-20 shrink-0")}
             <button type="button" onClick={() => updateVal(0.5)} className="flex-1 min-w-0 h-11 bg-emerald-50 hover:bg-emerald-100 text-emerald-600 rounded-lg font-black text-xs transition-colors touch-manipulation">+.5</button>
             <button type="button" onClick={() => updateVal(1)} className="flex-1 min-w-0 h-11 bg-green-50 hover:bg-green-100 text-green-600 rounded-lg font-black text-sm transition-colors touch-manipulation">+1</button>
           </>
@@ -422,8 +578,18 @@ const PinLoginScreen = memo(({ icon: Icon, iconBgClass, title, subtitle, submitL
   </div>
 ));
 
-const UrgentTasksBanner = memo(({ tasks, location }) => {
-  if (!Array.isArray(tasks) || tasks.length === 0) return null;
+const UrgentTasksBanner = memo(({ tasks, location, todayStr, onCompleteTask }) => {
+  if (!Array.isArray(tasks) || tasks.length === 0) {
+    return (
+      <div className="w-full bg-emerald-50 border border-emerald-200 px-4 py-3 rounded-2xl flex items-center justify-between text-xs font-bold text-emerald-900 mb-4 shadow-sm">
+        <div className="flex items-center">
+          <CheckCircle2 className="w-4 h-4 mr-2 text-emerald-600 shrink-0" />
+          <span>Wszystkie zadania dnia dla punktu <strong>{location}</strong> ({todayStr}) zostały wykonane lub brak zadań.</span>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="w-full bg-gradient-to-r from-red-600 via-rose-600 to-amber-600 text-white p-4 sm:p-5 rounded-2xl shadow-xl border-2 border-red-300 mb-6">
       <div className="flex items-start gap-3">
@@ -431,24 +597,49 @@ const UrgentTasksBanner = memo(({ tasks, location }) => {
           <AlertTriangle className="w-6 h-6 text-white" />
         </div>
         <div className="flex-1 min-w-0">
-          <div className="flex items-center justify-between gap-2 flex-wrap mb-2">
-            <span className="text-xs font-black uppercase tracking-wider bg-black/25 px-3 py-1 rounded-full">
-              Pilne zadanie dnia — Punkt: {location}
+          <div className="flex items-center justify-between gap-2 flex-wrap mb-3">
+            <span className="text-xs font-black uppercase tracking-wider bg-black/25 px-3 py-1 rounded-full flex items-center">
+              <ClipboardList className="w-3.5 h-3.5 mr-1.5" /> Zadania dnia — Punkt: {location}
             </span>
-            <span className="text-xs font-black bg-white text-red-700 px-2.5 py-0.5 rounded-full">
-              Niewykonane: {tasks.length}
+            <span className="text-xs font-black bg-white text-red-700 px-3 py-1 rounded-full shadow-sm">
+              Do wykonania dziś: {tasks.length}
             </span>
           </div>
-          <div className="space-y-2">
-            {tasks.map((t) => (
-              <div key={t.id} className="bg-black/20 p-3 rounded-xl border border-white/15 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
-                <p className="font-extrabold text-sm sm:text-base text-white break-words">{t.text}</p>
-                <span className="shrink-0 inline-flex items-center text-xs font-black bg-amber-300 text-gray-950 px-3 py-1.5 rounded-lg shadow-sm">
-                  <Clock className="w-3.5 h-3.5 mr-1.5" />
-                  Do wykonania do godziny: {t.deadlineTime || "22:00"}
-                </span>
-              </div>
-            ))}
+          <div className="space-y-2.5">
+            {tasks.map((t) => {
+              const isRecurring = t.type === "recurring";
+              const scheduledDaysText = isRecurring && Array.isArray(t.daysOfWeek)
+                ? DAYS_OF_WEEK.filter((d) => t.daysOfWeek.map(Number).includes(d.id)).map((d) => d.short).join(", ")
+                : "";
+              return (
+                <div key={t.id} className="bg-black/25 p-3.5 rounded-xl border border-white/20 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+                  <div className="space-y-1 min-w-0">
+                    <div className="flex flex-wrap items-center gap-1.5">
+                      <span className="text-[10px] font-black uppercase bg-white/20 text-white px-2 py-0.5 rounded-md">
+                        {isRecurring ? `Cykliczne (${scheduledDaysText})` : "Zadanie doraźne"}
+                      </span>
+                      <span className="inline-flex items-center text-[11px] font-black bg-amber-300 text-gray-950 px-2.5 py-0.5 rounded-md shadow-sm">
+                        <Clock className="w-3 h-3 mr-1" />
+                        Do wykonania do godziny: {t.deadlineTime || "22:00"}
+                      </span>
+                      {t.createdBy && (
+                        <span className="text-[10px] font-semibold text-white/80">• Zlecił(a): {t.createdBy}</span>
+                      )}
+                    </div>
+                    <p className="font-extrabold text-sm sm:text-base text-white break-words pt-0.5">{t.text}</p>
+                  </div>
+                  {onCompleteTask && (
+                    <button
+                      type="button"
+                      onClick={() => onCompleteTask(t)}
+                      className="shrink-0 bg-emerald-500 hover:bg-emerald-400 text-gray-950 font-black text-xs px-4 py-2.5 rounded-xl flex items-center justify-center transition-colors shadow-md"
+                    >
+                      <CheckCircle2 className="w-4 h-4 mr-1.5" /> Wykonane
+                    </button>
+                  )}
+                </div>
+              );
+            })}
           </div>
         </div>
       </div>
@@ -558,8 +749,21 @@ export default function App() {
           const data = docSnap.data();
           const fullRecord = { id: docSnap.id, ...data };
           const key = `${data?.date}_${data?.location}`;
-          if (!byKey[key] || (fullRecord.updatedAt || "") > (byKey[key].updatedAt || "")) {
+          if (!byKey[key]) {
             byKey[key] = fullRecord;
+          } else {
+            const prev = byKey[key];
+            const isNewer = (fullRecord.updatedAt || "") >= (prev.updatedAt || "");
+            const winner = isNewer ? fullRecord : prev;
+            const loser = isNewer ? prev : fullRecord;
+            const merged = { ...loser, ...winner };
+            ["vegetables", "freezer", "farutex", "meat1", "meat2", "otherItems"].forEach((sec) => {
+              if (!hasAnyPositiveValue(winner[sec]) && hasAnyPositiveValue(loser[sec])) {
+                merged[sec] = loser[sec];
+              }
+            });
+            if (docSnap.id === key) merged.id = key;
+            byKey[key] = merged;
           }
         });
         setAllReports(Object.values(byKey));
@@ -624,6 +828,34 @@ export default function App() {
       setModalMsg(successMsg);
     }
   }, []);
+
+  const handleCompleteTaskGlobal = useCallback(async (taskObj, targetLoc, targetDateStr) => {
+    if (!taskObj?.id) return;
+    const loc = targetLoc || currentLocation;
+    const dStr = targetDateStr || activeGastroDate;
+    try {
+      const completionEntry = taskObj.type === "recurring" ? `${dStr}_${loc}` : loc;
+      if (db) {
+        await ensureAuth();
+        await updateDoc(doc(db, "artifacts", appId, "public", "data", "tasks", taskObj.id), {
+          completedBy: arrayUnion(completionEntry),
+          updatedAt: new Date().toISOString(),
+        });
+      } else {
+        const currentTasks = getLocalData(LS_TASKS_KEY, []);
+        const nextTasks = currentTasks.map((t) => {
+          if (t.id !== taskObj.id) return t;
+          const prevArr = Array.isArray(t.completedBy) ? t.completedBy : [];
+          return prevArr.includes(completionEntry) ? t : { ...t, completedBy: [...prevArr, completionEntry], updatedAt: new Date().toISOString() };
+        });
+        setLocalData(LS_TASKS_KEY, nextTasks);
+      }
+      setModalMsg(`Zadanie dnia zostało oznaczone jako wykonane dla punktu ${loc}!`);
+    } catch (err) {
+      console.error("Błąd odhaczania zadania:", err);
+      setModalMsg("Wystąpił błąd podczas zapisywania wykonania zadania.");
+    }
+  }, [currentLocation, activeGastroDate]);
 
   const handleNav = (loc) => {
     setCurrentLocation(loc);
@@ -777,7 +1009,12 @@ export default function App() {
             <h1 className="text-3xl font-extrabold text-gray-900 mt-1">Menu Nysa</h1>
             <p className="text-gray-500 mt-2 font-medium">Wybierz formularz docelowy ({activeGastroDate})</p>
           </div>
-          <UrgentTasksBanner tasks={currentEmployeeTasks} location="Nysa" />
+          <UrgentTasksBanner
+            tasks={currentEmployeeTasks}
+            location="Nysa"
+            todayStr={activeGastroDate}
+            onCompleteTask={(t) => handleCompleteTaskGlobal(t, "Nysa", activeGastroDate)}
+          />
           <div className="w-full flex flex-col gap-5">
             <button
               type="button"
@@ -835,6 +1072,7 @@ export default function App() {
           previousReport={previousReportForCurrentLoc}
           catalog={catalog}
           tasks={currentEmployeeTasks}
+          onCompleteTask={(t) => handleCompleteTaskGlobal(t, currentLocation, activeGastroDate)}
           onBack={() => setView(currentLocation === "Nysa" ? "nysaMenu" : "select")}
           todayStr={activeGastroDate}
           onChangeGastroDate={setActiveGastroDate}
@@ -855,6 +1093,7 @@ export default function App() {
           previousReport={previousReportForAdminEdit}
           catalog={catalog}
           tasks={adminEditTasks}
+          onCompleteTask={(t) => handleCompleteTaskGlobal(t, adminEditingReport.location, adminEditingReport.date)}
           onBack={() => { setAdminEditingReport(null); setView("admin"); }}
           todayStr={adminEditingReport.date}
           onShowModal={setModalMsg}
@@ -910,6 +1149,7 @@ function EmployeeForm({
   previousReport,
   catalog,
   tasks = [],
+  onCompleteTask,
   onBack,
   todayStr,
   onChangeGastroDate,
@@ -928,11 +1168,12 @@ function EmployeeForm({
   const [hasLoadedFromPrevious, setHasLoadedFromPrevious] = useState(() => !existingData && !savedDraft && !!previousReport);
   const [isDirty, setIsDirty] = useState(false);
   const [showExitConfirm, setShowExitConfirm] = useState(false);
+  const [explicitlyZeroed, setExplicitlyZeroed] = useState({});
 
   const [activeFormTab, setActiveFormTab] = useState("all");
   const [itemSearchQuery, setItemSearchQuery] = useState("");
 
-  const [reporter, setReporter] = useState(savedDraft?.reporter ?? existingData?.reporter ?? "");
+  const [reporter, setReporter] = useState(savedDraft?.reporter || existingData?.reporter || "");
   const [ordersCount, setOrdersCount] = useState(() => {
     const val = savedDraft?.ordersCount ?? existingData?.ordersCount;
     return val !== undefined && val !== null && Number(val) > 0 ? String(val) : "";
@@ -945,18 +1186,24 @@ function EmployeeForm({
   const [revenue, setRevenue] = useState(() => {
     const rev = {};
     ["gotowka", "karta", "aplikacje", "raportFiskalny", "roznica"].forEach((k) => {
-      const val = savedDraft?.revenue?.[k] ?? existingData?.revenue?.[k];
+      const dVal = savedDraft?.revenue?.[k];
+      const eVal = existingData?.revenue?.[k];
+      const val = dVal !== undefined && dVal !== "" ? dVal : eVal;
       rev[k] = val !== undefined ? String(val) : "";
     });
     return rev;
   });
 
   const [expenses, setExpenses] = useState(() =>
-    Array.isArray(savedDraft?.expenses) ? savedDraft.expenses : Array.isArray(existingData?.expenses) ? existingData.expenses : []
+    Array.isArray(savedDraft?.expenses) && savedDraft.expenses.length > 0
+      ? savedDraft.expenses
+      : Array.isArray(existingData?.expenses)
+      ? existingData.expenses
+      : []
   );
 
   const [employees, setEmployees] = useState(() => {
-    const src = Array.isArray(savedDraft?.employees) && savedDraft.employees.length > 0
+    const src = Array.isArray(savedDraft?.employees) && savedDraft.employees.some((e) => e?.name || e?.hours)
       ? savedDraft.employees
       : Array.isArray(existingData?.employees) && existingData.employees.length > 0
       ? existingData.employees
@@ -964,20 +1211,71 @@ function EmployeeForm({
     return [0, 1, 2].map((i) => ({ name: src[i]?.name || "", hours: src[i]?.hours || "" }));
   });
 
-  const [vegetables, setVegetables] = useState(() => savedDraft?.vegetables || existingData?.vegetables || previousReport?.vegetables || {});
-  const [farutex, setFarutex] = useState(() => savedDraft?.farutex || existingData?.farutex || previousReport?.farutex || {});
-  const [freezer, setFreezer] = useState(() => savedDraft?.freezer || existingData?.freezer || previousReport?.freezer || {});
-  const [meat1, setMeat1] = useState(() => savedDraft?.meat1 || existingData?.meat1 || previousReport?.meat1 || {});
-  const [meat2, setMeat2] = useState(() => savedDraft?.meat2 || existingData?.meat2 || previousReport?.meat2 || {});
-  const [otherItems, setOtherItems] = useState(() => savedDraft?.otherItems || existingData?.otherItems || previousReport?.otherItems || {});
-  const [customSections, setCustomSections] = useState(() => savedDraft?.customSections || existingData?.customSections || previousReport?.customSections || {});
+  const [vegetables, setVegetables] = useState(() => buildInitialSectionState(previousReport?.vegetables, existingData?.vegetables, savedDraft?.vegetables));
+  const [farutex, setFarutex] = useState(() => buildInitialSectionState(previousReport?.farutex, existingData?.farutex, savedDraft?.farutex));
+  const [freezer, setFreezer] = useState(() => buildInitialSectionState(previousReport?.freezer, existingData?.freezer, savedDraft?.freezer));
+  const [meat1, setMeat1] = useState(() => buildInitialSectionState(previousReport?.meat1, existingData?.meat1, savedDraft?.meat1));
+  const [meat2, setMeat2] = useState(() => buildInitialSectionState(previousReport?.meat2, existingData?.meat2, savedDraft?.meat2));
+  const [otherItems, setOtherItems] = useState(() => buildInitialSectionState(previousReport?.otherItems, existingData?.otherItems, savedDraft?.otherItems));
+  const [customSections, setCustomSections] = useState(() => ({
+    ...(previousReport?.customSections || {}),
+    ...(existingData?.customSections || {}),
+    ...(savedDraft?.customSections || {}),
+  }));
   const [sauces, setSauces] = useState(() =>
-    Array.isArray(savedDraft?.sauces) ? savedDraft.sauces : Array.isArray(existingData?.sauces) ? existingData.sauces : []
+    Array.isArray(savedDraft?.sauces) && savedDraft.sauces.length > 0
+      ? savedDraft.sauces
+      : Array.isArray(existingData?.sauces)
+      ? existingData.sauces
+      : []
   );
-  const [saucesNote, setSaucesNote] = useState(savedDraft?.saucesNote ?? existingData?.saucesNote ?? "");
-  const [notes, setNotes] = useState(savedDraft?.notes ?? existingData?.notes ?? "");
+  const [saucesNote, setSaucesNote] = useState(savedDraft?.saucesNote || existingData?.saucesNote || "");
+  const [notes, setNotes] = useState(savedDraft?.notes || existingData?.notes || "");
 
-  const locationEmployeesList = useMemo(() => EMPLOYEES_BY_LOCATION[location] || [], [location]);
+  useEffect(() => {
+    if (!existingData) return;
+    setVegetables((prev) => (hasAnyPositiveValue(prev) ? prev : { ...prev, ...(existingData.vegetables || {}) }));
+    setFreezer((prev) => (hasAnyPositiveValue(prev) ? prev : { ...prev, ...(existingData.freezer || {}) }));
+    setFarutex((prev) => (hasAnyPositiveValue(prev) ? prev : { ...prev, ...(existingData.farutex || {}) }));
+    setMeat1((prev) => (hasAnyPositiveValue(prev) ? prev : { ...prev, ...(existingData.meat1 || {}) }));
+    setMeat2((prev) => (hasAnyPositiveValue(prev) ? prev : { ...prev, ...(existingData.meat2 || {}) }));
+    setOtherItems((prev) => (hasAnyPositiveValue(prev) ? prev : { ...prev, ...(existingData.otherItems || {}) }));
+    if (!isDirty) {
+      if (existingData.reporter) setReporter((r) => r || existingData.reporter);
+      if (existingData.ordersCount) setOrdersCount((o) => o || String(existingData.ordersCount));
+      if (existingData.revenue) {
+        setRevenue((prev) => {
+          const next = { ...prev };
+          ["gotowka", "karta", "aplikacje", "raportFiskalny", "roznica"].forEach((k) => {
+            if (!next[k] && existingData.revenue[k] !== undefined) next[k] = String(existingData.revenue[k]);
+          });
+          return next;
+        });
+      }
+      if (Array.isArray(existingData.employees) && existingData.employees.length > 0) {
+        setEmployees((prev) =>
+          prev.some((e) => e.name || e.hours)
+            ? prev
+            : [0, 1, 2].map((i) => ({ name: existingData.employees[i]?.name || "", hours: existingData.employees[i]?.hours || "" }))
+        );
+      }
+    }
+  }, [existingData, isDirty]);
+
+  useEffect(() => {
+    if (existingData || !previousReport || isDirty) return;
+    setVegetables((prev) => (hasAnyPositiveValue(prev) ? prev : { ...(previousReport.vegetables || {}) }));
+    setFreezer((prev) => (hasAnyPositiveValue(prev) ? prev : { ...(previousReport.freezer || {}) }));
+    setFarutex((prev) => (hasAnyPositiveValue(prev) ? prev : { ...(previousReport.farutex || {}) }));
+    setMeat1((prev) => (hasAnyPositiveValue(prev) ? prev : { ...(previousReport.meat1 || {}) }));
+    setMeat2((prev) => (hasAnyPositiveValue(prev) ? prev : { ...(previousReport.meat2 || {}) }));
+    setOtherItems((prev) => (hasAnyPositiveValue(prev) ? prev : { ...(previousReport.otherItems || {}) }));
+  }, [previousReport, existingData, isDirty]);
+
+  const locationEmployeesList = useMemo(
+    () => catalog?.employeesByLocation?.[location] || DEFAULT_EMPLOYEES_BY_LOCATION[location] || [],
+    [catalog, location]
+  );
 
   const estimatedOrdersFromRevenue = useMemo(() => {
     const totalRev =
@@ -987,9 +1285,23 @@ function EmployeeForm({
     return totalRev > 0 ? Math.max(1, Math.round(totalRev / DEFAULT_AVG_ORDER_VALUE)) : 0;
   }, [revenue]);
 
+  const markItemExplicitlyZeroed = useCallback((itemKey) => {
+    setExplicitlyZeroed((prev) => ({ ...prev, [itemKey]: true }));
+  }, []);
+
   const handleResetAllInventoryToZero = () => {
     setIsDirty(true);
     setHasLoadedFromPrevious(false);
+    const allZeroFlags = {};
+    [
+      ...(catalog?.vegetables || []),
+      ...(catalog?.freezer || []),
+      ...(catalog?.farutex || []),
+      ...(catalog?.meat1 || []),
+      ...(catalog?.meat2 || []),
+      ...(catalog?.otherItems || []),
+    ].forEach((k) => { allZeroFlags[k] = true; });
+    setExplicitlyZeroed(allZeroFlags);
     setVegetables({});
     setFreezer({});
     setFarutex({});
@@ -1118,32 +1430,6 @@ function EmployeeForm({
     });
   };
 
-  const handleCompleteTask = async (taskObj) => {
-    if (!taskObj?.id) return;
-    try {
-      const completionEntry = taskObj.type === "recurring" ? `${todayStr}_${location}` : location;
-      if (db) {
-        await ensureAuth();
-        await updateDoc(doc(db, "artifacts", appId, "public", "data", "tasks", taskObj.id), {
-          completedBy: arrayUnion(completionEntry),
-          updatedAt: new Date().toISOString(),
-        });
-      } else {
-        const currentTasks = getLocalData(LS_TASKS_KEY, []);
-        const nextTasks = currentTasks.map((t) => {
-          if (t.id !== taskObj.id) return t;
-          const prevArr = Array.isArray(t.completedBy) ? t.completedBy : [];
-          return prevArr.includes(completionEntry) ? t : { ...t, completedBy: [...prevArr, completionEntry], updatedAt: new Date().toISOString() };
-        });
-        setLocalData(LS_TASKS_KEY, nextTasks);
-      }
-      onShowModal(`Zadanie dnia zostało oznaczone jako wykonane dla punktu ${location}!`);
-    } catch (err) {
-      console.error("Błąd odhaczania zadania:", err);
-      onShowModal("Wystąpił błąd podczas zapisywania wykonania zadania.");
-    }
-  };
-
   const handleSubmit = async (e) => {
     e.preventDefault();
     if (loading) return;
@@ -1167,15 +1453,25 @@ function EmployeeForm({
       const sanitizedCustomSections = {};
       Object.entries(customSections || {}).forEach(([catId, val]) => {
         if (Array.isArray(val)) sanitizedCustomSections[catId] = val.map(String);
-        else if (val && typeof val === "object") sanitizedCustomSections[catId] = sanitizeRecord(val);
+        else if (val && typeof val === "object") {
+          sanitizedCustomSections[catId] = mergeInventorySectionForSave(
+            existingData?.customSections?.[catId],
+            val,
+            explicitlyZeroed
+          );
+        }
       });
 
       const targetDate = String(todayStr || getGastroTodayString());
       const targetLoc = String(location || "");
-      const deterministicId = isEdit && existingData?.id ? existingData.id : `${targetDate}_${targetLoc}`;
+      const deterministicId = `${targetDate}_${targetLoc}`;
 
       const manualOrdersNum = Math.round(parseSafeNumber(ordersCount));
-      const finalOrdersCount = manualOrdersNum > 0 ? manualOrdersNum : estimatedOrdersFromRevenue;
+      const finalOrdersCount = manualOrdersNum > 0
+        ? manualOrdersNum
+        : estimatedOrdersFromRevenue > 0
+        ? estimatedOrdersFromRevenue
+        : parseSafeNumber(existingData?.ordersCount);
 
       const data = {
         date: targetDate,
@@ -1191,12 +1487,12 @@ function EmployeeForm({
           roznica: parseSafeNumber(revenue.roznica),
         },
         expenses: sanitizedExpenses,
-        vegetables: sanitizeRecord(vegetables),
-        farutex: sanitizeRecord(farutex),
-        freezer: sanitizeRecord(freezer),
-        meat1: sanitizeRecord(meat1),
-        meat2: sanitizeRecord(meat2),
-        otherItems: sanitizeRecord(otherItems),
+        vegetables: mergeInventorySectionForSave(existingData?.vegetables, vegetables, explicitlyZeroed),
+        farutex: mergeInventorySectionForSave(existingData?.farutex, farutex, explicitlyZeroed),
+        freezer: mergeInventorySectionForSave(existingData?.freezer, freezer, explicitlyZeroed),
+        meat1: mergeInventorySectionForSave(existingData?.meat1, meat1, explicitlyZeroed),
+        meat2: mergeInventorySectionForSave(existingData?.meat2, meat2, explicitlyZeroed),
+        otherItems: mergeInventorySectionForSave(existingData?.otherItems, otherItems, explicitlyZeroed),
         customSections: sanitizedCustomSections,
         sauces: Array.isArray(sauces) ? sauces.map(String) : [],
         saucesNote: String(saucesNote || "").trim(),
@@ -1207,7 +1503,7 @@ function EmployeeForm({
 
       if (db) {
         await ensureAuth();
-        await setDoc(doc(db, "artifacts", appId, "public", "data", "daily_reports", deterministicId), data, { merge: true });
+        await setDoc(doc(db, "artifacts", appId, "public", "data", "daily_reports", deterministicId), data);
       } else {
         const currentReports = getLocalData(LS_REPORTS_KEY, []);
         const filtered = currentReports.filter((r) => r.id !== deterministicId && !(r.date === data.date && r.location === data.location));
@@ -1342,7 +1638,12 @@ function EmployeeForm({
       </div>
 
       <form onSubmit={handleSubmit} noValidate className="p-4 sm:p-6 max-w-4xl mx-auto space-y-6 overflow-x-hidden">
-        <UrgentTasksBanner tasks={tasks} location={location} />
+        <UrgentTasksBanner
+          tasks={tasks}
+          location={location}
+          todayStr={todayStr}
+          onCompleteTask={onCompleteTask}
+        />
 
         {inNightWindow && !isAdminEdit && onChangeGastroDate && (
           <div className="bg-indigo-950 text-white p-4 rounded-2xl border border-indigo-700 shadow-md flex flex-col sm:flex-row sm:items-center justify-between gap-3">
@@ -1399,64 +1700,6 @@ function EmployeeForm({
             >
               Wyzeruj wszystkie stany do 0
             </button>
-          </div>
-        )}
-
-        {showGeneral && (
-          <div className="bg-amber-50 p-6 rounded-[2rem] border-2 border-amber-300 shadow-sm relative overflow-hidden">
-            <div className="flex items-center justify-between mb-3">
-              <h3 className="font-extrabold text-amber-950 text-lg flex items-center">
-                <ClipboardList className="w-6 h-6 mr-2 text-amber-600" /> Zadania dnia dla punktu: {location}
-              </h3>
-              <span className="bg-amber-200 text-amber-900 text-xs font-black px-3 py-1 rounded-full">
-                Do wykonania dziś: {tasks.length}
-              </span>
-            </div>
-
-            {tasks.length === 0 ? (
-              <p className="text-sm font-semibold text-amber-800/80 bg-white/70 p-4 rounded-xl border border-amber-200">
-                Wszystkie zadania na dzień {todayStr} zostały wykonane lub brak dodatkowych zadań.
-              </p>
-            ) : (
-              <div className="space-y-3">
-                {tasks.map((t) => {
-                  const isRecurring = t.type === "recurring";
-                  const scheduledDaysText = isRecurring && Array.isArray(t.daysOfWeek)
-                    ? DAYS_OF_WEEK.filter((d) => t.daysOfWeek.map(Number).includes(d.id)).map((d) => d.short).join(", ")
-                    : "";
-                  return (
-                    <div key={t.id} className="bg-white p-4 rounded-2xl border border-amber-200 shadow-sm flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
-                      <div>
-                        <div className="flex flex-wrap items-center gap-2 mb-1">
-                          <span className="text-[10px] font-black uppercase bg-amber-100 text-amber-800 px-2.5 py-0.5 rounded-full">
-                            {t.location === "All" ? "Cała sieć" : t.location}
-                          </span>
-                          {isRecurring ? (
-                            <span className="text-[10px] font-black uppercase bg-indigo-100 text-indigo-800 px-2.5 py-0.5 rounded-full flex items-center">
-                              <Calendar className="w-3 h-3 mr-1" /> Stałe harmonogramowe ({scheduledDaysText})
-                            </span>
-                          ) : (
-                            <span className="text-[10px] font-black uppercase bg-blue-100 text-blue-800 px-2.5 py-0.5 rounded-full">Zadanie doraźne</span>
-                          )}
-                          <span className="text-[10px] font-black uppercase bg-red-100 text-red-700 px-2.5 py-0.5 rounded-full flex items-center">
-                            <Clock className="w-3 h-3 mr-1" /> Do wykonania do godziny: {t.deadlineTime || "22:00"}
-                          </span>
-                          <span className="text-xs font-semibold text-gray-400">Zlecił(a): {t.createdBy}</span>
-                        </div>
-                        <p className="font-extrabold text-gray-900 text-base">{t.text}</p>
-                      </div>
-                      <button
-                        type="button"
-                        onClick={() => handleCompleteTask(t)}
-                        className="shrink-0 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-black px-4 py-2.5 rounded-xl flex items-center justify-center transition-colors shadow-sm"
-                      >
-                        <CheckCircle2 className="w-4 h-4 mr-1.5" /> Wykonane
-                      </button>
-                    </div>
-                  );
-                })}
-              </div>
-            )}
           </div>
         )}
 
@@ -1684,7 +1927,7 @@ function EmployeeForm({
             >
               <div className="grid grid-cols-1 md:grid-cols-2 gap-x-4">
                 {filterBySearch(vegList).map((item) => (
-                  <Counter key={item} itemKey={item} label={item} value={vegetables[item]} onItemChange={handleVegChange} />
+                  <Counter key={item} itemKey={item} label={item} unit={getItemUnit(catalog, item)} value={vegetables[item]} onItemChange={handleVegChange} onExplicitZero={markItemExplicitlyZeroed} />
                 ))}
               </div>
             </Section>
@@ -1701,7 +1944,7 @@ function EmployeeForm({
             >
               <div className="grid grid-cols-1 md:grid-cols-2 gap-x-4">
                 {filterBySearch(freezerList).map((item) => (
-                  <Counter key={item} itemKey={item} label={item} value={freezer[item]} onItemChange={handleFreezerChange} />
+                  <Counter key={item} itemKey={item} label={item} unit={getItemUnit(catalog, item)} value={freezer[item]} onItemChange={handleFreezerChange} onExplicitZero={markItemExplicitlyZeroed} />
                 ))}
               </div>
             </Section>
@@ -1722,7 +1965,7 @@ function EmployeeForm({
             >
               <div className="grid grid-cols-1 md:grid-cols-2 gap-x-4">
                 {filterBySearch(farutexList).map((item) => (
-                  <Counter key={item} itemKey={item} label={item} value={farutex[item]} onItemChange={handleFarutexChange} />
+                  <Counter key={item} itemKey={item} label={item} unit={getItemUnit(catalog, item)} value={farutex[item]} onItemChange={handleFarutexChange} onExplicitZero={markItemExplicitlyZeroed} />
                 ))}
               </div>
             </Section>
@@ -1739,7 +1982,7 @@ function EmployeeForm({
             >
               <div className="grid grid-cols-1 md:grid-cols-2 gap-x-4">
                 {filterBySearch(meat1List).map((item) => (
-                  <Counter key={item} itemKey={item} label={item} value={meat1[item]} onItemChange={handleMeat1Change} />
+                  <Counter key={item} itemKey={item} label={item} unit={getItemUnit(catalog, item)} value={meat1[item]} onItemChange={handleMeat1Change} onExplicitZero={markItemExplicitlyZeroed} />
                 ))}
               </div>
             </Section>
@@ -1756,7 +1999,7 @@ function EmployeeForm({
             >
               <div className="grid grid-cols-1 md:grid-cols-2 gap-x-4">
                 {filterBySearch(meat2List).map((item) => (
-                  <Counter key={item} itemKey={item} label={item} value={meat2[item]} onItemChange={handleMeat2Change} />
+                  <Counter key={item} itemKey={item} label={item} unit={getItemUnit(catalog, item)} value={meat2[item]} onItemChange={handleMeat2Change} onExplicitZero={markItemExplicitlyZeroed} />
                 ))}
               </div>
             </Section>
@@ -1778,7 +2021,7 @@ function EmployeeForm({
               >
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-x-4">
                   {filterBySearch(otherItemsList).map((item) => (
-                    <Counter key={item} itemKey={item} label={item} value={otherItems[item]} onItemChange={handleOtherItemsChange} />
+                    <Counter key={item} itemKey={item} label={item} unit={getItemUnit(catalog, item)} value={otherItems[item]} onItemChange={handleOtherItemsChange} onExplicitZero={markItemExplicitlyZeroed} />
                   ))}
                 </div>
               </Section>
@@ -1846,7 +2089,7 @@ function EmployeeForm({
                 >
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-x-4">
                     {filterBySearch(catItems).map((item) => (
-                      <Counter key={item} label={item} value={valObj[item]} onChange={(v) => handleCustomCounterChange(cat.id, item, v)} />
+                      <Counter key={item} itemKey={item} label={item} unit={getItemUnit(catalog, item)} value={valObj[item]} onChange={(v) => handleCustomCounterChange(cat.id, item, v)} onExplicitZero={markItemExplicitlyZeroed} />
                     ))}
                   </div>
                 </Section>
@@ -1948,12 +2191,19 @@ function NysaWarehouseForm({
   const draftKey = `kebab_nysa_draft_${appId}_${todayStr}`;
   const [savedDraft] = useState(() => getLocalData(draftKey, null));
   const [hasLoadedFromPrevious, setHasLoadedFromPrevious] = useState(() => !existingData && !savedDraft && !!previousWarehouseData);
+  const [explicitlyZeroed, setExplicitlyZeroed] = useState({});
 
-  const [food, setFood] = useState(() => savedDraft?.food || existingData?.food || previousWarehouseData?.food || {});
-  const [pack, setPack] = useState(() => savedDraft?.pack || existingData?.pack || previousWarehouseData?.pack || {});
+  const [food, setFood] = useState(() => buildInitialSectionState(previousWarehouseData?.food, existingData?.food, savedDraft?.food));
+  const [pack, setPack] = useState(() => buildInitialSectionState(previousWarehouseData?.pack, existingData?.pack, savedDraft?.pack));
   const [isDirty, setIsDirty] = useState(false);
   const [showExitConfirm, setShowExitConfirm] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
+
+  useEffect(() => {
+    if (!existingData) return;
+    setFood((prev) => (hasAnyPositiveValue(prev) ? prev : { ...prev, ...(existingData.food || {}) }));
+    setPack((prev) => (hasAnyPositiveValue(prev) ? prev : { ...prev, ...(existingData.pack || {}) }));
+  }, [existingData]);
 
   useEffect(() => {
     if (!isDirty) return;
@@ -1965,6 +2215,7 @@ function NysaWarehouseForm({
 
   const handleFoodChange = useCallback((item, v) => { setIsDirty(true); setFood((p) => ({ ...p, [item]: v })); }, []);
   const handlePackChange = useCallback((item, v) => { setIsDirty(true); setPack((p) => ({ ...p, [item]: v })); }, []);
+  const markZeroed = useCallback((itemKey) => { setExplicitlyZeroed((prev) => ({ ...prev, [itemKey]: true })); }, []);
 
   const nysaFoodList = (catalog?.nysaFood || DEFAULT_CATALOG.nysaFood).filter((it) => isItemAllowedForLocation(catalog, "nysaFood", it, "Nysa"));
   const nysaPackList = (catalog?.nysaPack || DEFAULT_CATALOG.nysaPack).filter((it) => isItemAllowedForLocation(catalog, "nysaPack", it, "Nysa"));
@@ -1980,17 +2231,17 @@ function NysaWarehouseForm({
     setLoading(true);
     try {
       const targetDate = String(todayStr || getGastroTodayString());
-      const deterministicId = isEdit && existingData?.id ? existingData.id : `${targetDate}_Nysa`;
+      const deterministicId = `${targetDate}_Nysa`;
       const data = {
         date: targetDate,
-        food: sanitizeRecord(food),
-        pack: sanitizeRecord(pack),
+        food: mergeInventorySectionForSave(existingData?.food, food, explicitlyZeroed),
+        pack: mergeInventorySectionForSave(existingData?.pack, pack, explicitlyZeroed),
         updatedAt: new Date().toISOString(),
       };
 
       if (db) {
         await ensureAuth();
-        await setDoc(doc(db, "artifacts", appId, "public", "data", "nysa_warehouse", deterministicId), data, { merge: true });
+        await setDoc(doc(db, "artifacts", appId, "public", "data", "nysa_warehouse", deterministicId), data);
       } else {
         const currentNysa = getLocalData(LS_NYSA_KEY, []);
         const filtered = currentNysa.filter((n) => n.id !== deterministicId && n.date !== data.date);
@@ -2078,7 +2329,7 @@ function NysaWarehouseForm({
             </h3>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-x-4">
               {filterList(list).map((item) => (
-                <Counter key={item} itemKey={item} label={item} value={state[item]} onItemChange={handler} />
+                <Counter key={item} itemKey={item} label={item} unit={getItemUnit(catalog, item)} value={state[item]} onItemChange={handler} onExplicitZero={markZeroed} />
               ))}
             </div>
           </div>
@@ -2099,7 +2350,6 @@ function NysaWarehouseForm({
     </div>
   );
 }
-
 function AdminPanel({
   db,
   appId,
@@ -2151,9 +2401,13 @@ function AdminPanel({
 
   const [selectedCatalogCategory, setSelectedCatalogCategory] = useState("vegetables");
   const [newItemName, setNewItemName] = useState("");
+  const [newItemUnit, setNewItemUnit] = useState("szt.");
   const [newCategoryName, setNewCategoryName] = useState("");
   const [newCategoryType, setNewCategoryType] = useState("counter");
   const [pinDrafts, setPinDrafts] = useState(catalog?.locationPins || DEFAULT_LOCATION_PINS);
+
+  const [selectedEmpManageLoc, setSelectedEmpManageLoc] = useState(isKlodzkoAdmin ? "Kłodzko" : "Opole");
+  const [newEmployeeName, setNewEmployeeName] = useState("");
 
   const [deliveryDaysDraft, setDeliveryDaysDraft] = useState(() => ({
     ...DEFAULT_DELIVERY_DAYS,
@@ -2317,6 +2571,7 @@ function AdminPanel({
     e.preventDefault();
     const clean = newItemName.trim();
     if (!clean) return;
+    const nextUnits = { ...(catalog?.itemUnits || DEFAULT_ITEM_UNITS), [clean]: newItemUnit || "szt." };
 
     if (selectedCatalogCategory.startsWith("custom:")) {
       const catId = selectedCatalogCategory.replace("custom:", "");
@@ -2325,16 +2580,21 @@ function AdminPanel({
         const curr = Array.isArray(cat.items) ? cat.items : [];
         return curr.some((x) => x.toLowerCase() === clean.toLowerCase()) ? cat : { ...cat, items: [...curr, clean] };
       });
-      await onSaveCatalog({ ...catalog, customCategories: nextCustom }, `Dodano pozycję "${clean}" do kategorii!`);
+      await onSaveCatalog({ ...catalog, customCategories: nextCustom, itemUnits: nextUnits }, `Dodano pozycję "${clean}" (${newItemUnit}) do kategorii!`);
     } else {
       const currentList = Array.isArray(catalog?.[selectedCatalogCategory]) ? catalog[selectedCatalogCategory] : [];
       if (currentList.some((x) => x.toLowerCase() === clean.toLowerCase())) {
         onShowModal("Taka pozycja już istnieje w tej kategorii.");
         return;
       }
-      await onSaveCatalog({ ...catalog, [selectedCatalogCategory]: [...currentList, clean] }, `Dodano pozycję "${clean}"! Jest już widoczna u pracowników.`);
+      await onSaveCatalog({ ...catalog, [selectedCatalogCategory]: [...currentList, clean], itemUnits: nextUnits }, `Dodano pozycję "${clean}" (${newItemUnit})!`);
     }
     setNewItemName("");
+  };
+
+  const handleChangeCatalogItemUnit = async (itemName, nextUnit) => {
+    const nextUnits = { ...(catalog?.itemUnits || DEFAULT_ITEM_UNITS), [itemName]: nextUnit };
+    await onSaveCatalog({ ...catalog, itemUnits: nextUnits });
   };
 
   const handleRemoveCatalogItem = async (itemToRemove) => {
@@ -2367,6 +2627,38 @@ function AdminPanel({
       [mapKey]: nextLocations,
     };
     await onSaveCatalog({ ...catalog, itemLocations: nextItemLocations });
+  };
+
+  const handleAddEmployeeToLocation = async (e) => {
+    e.preventDefault();
+    const cleanName = newEmployeeName.trim();
+    if (!cleanName) return;
+    const currentMap = catalog?.employeesByLocation || DEFAULT_EMPLOYEES_BY_LOCATION;
+    const locList = Array.isArray(currentMap[selectedEmpManageLoc])
+      ? currentMap[selectedEmpManageLoc]
+      : DEFAULT_EMPLOYEES_BY_LOCATION[selectedEmpManageLoc] || [];
+
+    if (locList.some((x) => x.toLowerCase() === cleanName.toLowerCase())) {
+      onShowModal(`Pracownik "${cleanName}" jest już na liście punktu ${selectedEmpManageLoc}.`);
+      return;
+    }
+
+    const nextMap = {
+      ...currentMap,
+      [selectedEmpManageLoc]: [...locList, cleanName],
+    };
+    await onSaveCatalog({ ...catalog, employeesByLocation: nextMap }, `Dodano pracownika "${cleanName}" do punktu ${selectedEmpManageLoc}!`);
+    setNewEmployeeName("");
+  };
+
+  const handleRemoveEmployeeFromLocation = async (loc, empName) => {
+    const currentMap = catalog?.employeesByLocation || DEFAULT_EMPLOYEES_BY_LOCATION;
+    const locList = Array.isArray(currentMap[loc]) ? currentMap[loc] : DEFAULT_EMPLOYEES_BY_LOCATION[loc] || [];
+    const nextMap = {
+      ...currentMap,
+      [loc]: locList.filter((x) => x !== empName),
+    };
+    await onSaveCatalog({ ...catalog, employeesByLocation: nextMap }, `Usunięto pracownika "${empName}" z punktu ${loc}.`);
   };
 
   const handleCreateCustomCategory = async (e) => {
@@ -2677,24 +2969,110 @@ function AdminPanel({
             const numVal = parseSafeNumber(rawVal);
             const isLowOrZero = rawVal === undefined || numVal === 0;
             const perOrderVal = ordersCountForReport > 0 && numVal > 0 ? numVal / ordersCountForReport : 0;
-            const isMint = item.toLowerCase().includes("mięta");
+            const unit = getItemUnit(catalog, item);
             return (
               <div key={item} className={`p-2.5 rounded-xl border flex flex-col justify-between text-xs ${isLowOrZero ? "bg-red-50/70 border-red-200 text-red-900" : "bg-white border-gray-200 text-gray-800"}`}>
                 <div className="flex items-center justify-between gap-1">
-                  <span className="font-bold truncate pr-2">{item}</span>
+                  <span className="font-bold truncate pr-1">{item} <span className="text-[10px] font-normal opacity-75">[{unit}]</span></span>
                   <span className={`font-black px-2 py-0.5 rounded-md shrink-0 ${isLowOrZero ? "bg-red-200/80 text-red-800" : "bg-emerald-100 text-emerald-800"}`}>
-                    {rawVal !== undefined ? rawVal : "0"} {isMint ? "g" : ""}
+                    {rawVal !== undefined ? rawVal : "0"} {unit}
                   </span>
                 </div>
                 {ordersCountForReport > 0 && numVal > 0 && (
                   <div className="mt-1.5 pt-1 border-t border-gray-100 flex items-center justify-between text-[10px] text-indigo-700 font-extrabold">
                     <span>Śr. na 1 zam.:</span>
-                    <span>{perOrderVal.toFixed(3)} {isMint ? "g" : "szt./jedn."}</span>
+                    <span>{perOrderVal.toFixed(3)} {unit}</span>
                   </div>
                 )}
               </div>
             );
           })}
+        </div>
+      </div>
+    );
+  };
+
+  const renderEmployeeManagerWidget = () => {
+    const empMap = catalog?.employeesByLocation || DEFAULT_EMPLOYEES_BY_LOCATION;
+    const currentLocEmployees = Array.isArray(empMap[selectedEmpManageLoc])
+      ? empMap[selectedEmpManageLoc]
+      : DEFAULT_EMPLOYEES_BY_LOCATION[selectedEmpManageLoc] || [];
+
+    return (
+      <div className="bg-white p-6 rounded-[2rem] border border-gray-200 shadow-sm space-y-5">
+        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+          <div>
+            <h3 className="text-xl font-black text-gray-900 flex items-center">
+              <Users className="w-6 h-6 mr-2.5 text-blue-600" /> Zarządzanie Pracownikami Punktów
+            </h3>
+            <p className="text-xs font-semibold text-gray-500 mt-1">
+              Dodawaj i usuwaj imiona pracowników przypisanych do konkretnych lokali. Lista wyświetla się w polu wyboru raportu dziennego.
+            </p>
+          </div>
+          {!isKlodzkoAdmin && (
+            <div className="flex flex-wrap gap-1.5">
+              {LOCATIONS.map((loc) => (
+                <button
+                  key={loc}
+                  type="button"
+                  onClick={() => setSelectedEmpManageLoc(loc)}
+                  className={`px-3.5 py-2 rounded-xl font-black text-xs border transition-colors ${
+                    selectedEmpManageLoc === loc
+                      ? "bg-blue-600 text-white border-blue-600 shadow-sm"
+                      : "bg-gray-50 text-gray-700 border-gray-200 hover:bg-gray-100"
+                  }`}
+                >
+                  {loc}
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
+
+        <form onSubmit={handleAddEmployeeToLocation} className="flex flex-col sm:flex-row gap-3">
+          <input
+            type="text"
+            value={newEmployeeName}
+            onChange={(e) => setNewEmployeeName(e.target.value)}
+            placeholder={`Wpisz imię nowego pracownika dla punktu ${selectedEmpManageLoc}...`}
+            className="flex-1 p-4 bg-gray-50 border border-gray-200 rounded-xl font-bold text-gray-900 outline-none focus:bg-white focus:ring-2 focus:ring-blue-500"
+          />
+          <button
+            type="submit"
+            className="px-6 py-4 bg-blue-600 hover:bg-blue-700 text-white font-black rounded-xl shadow-md flex items-center justify-center transition-colors shrink-0 text-sm"
+          >
+            <PlusCircle className="w-5 h-5 mr-2" /> Dodaj pracownika ({selectedEmpManageLoc})
+          </button>
+        </form>
+
+        <div className="pt-3 border-t border-gray-100">
+          <span className="block text-xs font-black uppercase text-gray-400 mb-3">
+            Przypisani pracownicy — {selectedEmpManageLoc} ({currentLocEmployees.length}):
+          </span>
+          {currentLocEmployees.length === 0 ? (
+            <p className="text-sm text-gray-400 font-bold py-4 text-center bg-gray-50 rounded-xl">
+              Brak pracowników przypisanych do tego lokalu.
+            </p>
+          ) : (
+            <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-2.5">
+              {currentLocEmployees.map((empName) => (
+                <div
+                  key={empName}
+                  className="p-3 bg-gray-50 hover:bg-white border border-gray-200 rounded-xl flex items-center justify-between gap-2 shadow-sm transition-colors"
+                >
+                  <span className="font-extrabold text-gray-800 text-sm truncate">{empName}</span>
+                  <button
+                    type="button"
+                    onClick={() => handleRemoveEmployeeFromLocation(selectedEmpManageLoc, empName)}
+                    className="p-1.5 text-red-500 hover:bg-red-50 hover:text-red-700 rounded-lg transition-colors shrink-0"
+                    title="Usuń pracownika z tego lokalu"
+                  >
+                    <Trash2 className="w-4 h-4" />
+                  </button>
+                </div>
+              ))}
+            </div>
+          )}
         </div>
       </div>
     );
@@ -2794,7 +3172,7 @@ function AdminPanel({
                 { id: "stats", label: "Statystyka Dni", icon: BarChart3, activeClass: "border-emerald-600 text-emerald-700 bg-emerald-50/30", minW: "min-w-[155px]" },
               ]
             : []),
-          { id: "hours", label: "Godziny Pracy", icon: Clock, activeClass: "border-indigo-600 text-indigo-700 bg-indigo-50/30", minW: "min-w-[150px]" },
+          { id: "hours", label: "Godziny Pracy & Kadra", icon: Clock, activeClass: "border-indigo-600 text-indigo-700 bg-indigo-50/30", minW: "min-w-[160px]" },
           { id: "tasks", label: "Zadania Dnia", icon: ClipboardList, activeClass: "border-blue-600 text-blue-600 bg-blue-50/30", minW: "min-w-[150px]" },
           ...(isOwner ? [{ id: "catalog", label: "Asortyment / Kopia Bazy", icon: Settings, activeClass: "border-amber-600 text-amber-700 bg-amber-50/40", minW: "min-w-[190px]" }] : []),
         ].map(({ id, label, icon: Icon, activeClass, minW }) => (
@@ -3158,7 +3536,7 @@ function AdminPanel({
                   <Warehouse className="w-7 h-7 mr-3 text-purple-600" /> Magazyn, Średnie Zużycie na Zamówienie i Braki
                 </h2>
                 <p className="text-xs font-semibold text-gray-500 mt-1">
-                  Zestawienie średniego zużycia produktów na 1 zamówienie, stanów magazynowych, braków sosów oraz uwag końcowych.
+                  Zestawienie średniego zużycia produktów na 1 zamówienie (z jednostkami miary), stanów magazynowych, braków sosów oraz uwag końcowych.
                 </p>
               </div>
               <div className="flex flex-wrap items-center gap-3">
@@ -3193,7 +3571,7 @@ function AdminPanel({
                     Średnie zużycie / udział produktów na 1 zamówienie ({selectedReportDate})
                   </h3>
                   <p className="text-xs text-indigo-200 font-medium mt-0.5">
-                    Wyliczane przez podzielenie zaraportowanych sztuk/gramów przez łączną liczbę zamówień ({averageUsagePerOrderData.totalOrders} zam. w wybranych punktach).
+                    Wyliczane przez podzielenie zaraportowanych ilości przez łączną liczbę zamówień ({averageUsagePerOrderData.totalOrders} zam. w wybranych punktach).
                   </p>
                 </div>
                 <div className="flex items-center gap-3 bg-white/10 p-3 rounded-2xl border border-white/15 shrink-0">
@@ -3245,12 +3623,12 @@ function AdminPanel({
                           <div className="space-y-1.5">
                             {entries.map(([itemName, sumVal]) => {
                               const perOrder = sumVal / averageUsagePerOrderData.totalOrders;
-                              const isMint = itemName.toLowerCase().includes("mięta");
+                              const unit = getItemUnit(catalog, itemName);
                               return (
                                 <div key={itemName} className="flex items-center justify-between text-xs bg-white/5 px-2.5 py-1.5 rounded-lg">
-                                  <span className="font-bold text-gray-200 truncate pr-2">{itemName} (Σ {sumVal}{isMint ? "g" : ""})</span>
+                                  <span className="font-bold text-gray-200 truncate pr-2">{itemName} (Σ {sumVal} {unit})</span>
                                   <span className="font-black text-emerald-300 shrink-0">
-                                    {perOrder.toFixed(3)} {isMint ? "g" : "szt."} / zam.
+                                    {perOrder.toFixed(3)} {unit} / zam.
                                   </span>
                                 </div>
                               );
@@ -3599,6 +3977,8 @@ function AdminPanel({
 
         {tab === "hours" && (
           <div className="space-y-6">
+            {(isOwner || isKlodzkoAdmin) && renderEmployeeManagerWidget()}
+
             <div className="bg-white p-6 rounded-[2rem] border border-gray-200 shadow-sm space-y-5">
               <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4">
                 <div>
@@ -3790,6 +4170,8 @@ function AdminPanel({
               </div>
             </div>
 
+            {renderEmployeeManagerWidget()}
+
             <div className="bg-white p-6 rounded-[2rem] border border-gray-200 shadow-sm space-y-4">
               <h3 className="text-xl font-black text-gray-900 flex items-center">
                 <Calendar className="w-6 h-6 mr-2.5 text-orange-600" /> Harmonogram Dostaw i Uzupełniania (Dni aktywności dla każdej kategorii)
@@ -3847,10 +4229,10 @@ function AdminPanel({
               <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 mb-6">
                 <div>
                   <h2 className="text-2xl font-black text-gray-900 flex items-center">
-                    <Settings className="w-7 h-7 mr-3 text-amber-600" /> Zarządzanie Asortymentem i Przypisaniem do Lokali
+                    <Settings className="w-7 h-7 mr-3 text-amber-600" /> Zarządzanie Asortymentem, Jednostkami Miary i Lokalami
                   </h2>
                   <p className="text-xs font-semibold text-gray-500 mt-1">
-                    Dodawaj lub usuwaj pozycje i przypisuj je do konkretnych lokali (Opole, Nysa, Kłodzko, Kudowa-Zdrój). Pracownicy widzą w formularzu tylko produkty włączone dla ich punktu.
+                    Dodawaj pozycje, wybieraj ich jednostkę miary (kg, szt., g, op., l, wiadro) i przypisuj je do konkretnych lokali.
                   </p>
                 </div>
               </div>
@@ -3881,9 +4263,18 @@ function AdminPanel({
                     type="text"
                     value={newItemName}
                     onChange={(e) => setNewItemName(e.target.value)}
-                    placeholder="Wpisz nazwę nowej pozycji (np. Fartuch czarny, Ser cheddar, Opakowanie XXL)..."
-                    className="flex-1 p-4 bg-gray-50 border border-gray-200 rounded-xl font-bold text-gray-900 outline-none focus:bg-white focus:ring-2 focus:ring-amber-500"
+                    placeholder="Wpisz nazwę nowej pozycji (np. Fartuch czarny, Ser cheddar)..."
+                    className="flex-[2] p-4 bg-gray-50 border border-gray-200 rounded-xl font-bold text-gray-900 outline-none focus:bg-white focus:ring-2 focus:ring-amber-500"
                   />
+                  <select
+                    value={newItemUnit}
+                    onChange={(e) => setNewItemUnit(e.target.value)}
+                    className="p-4 bg-gray-50 border border-gray-200 rounded-xl font-black text-gray-800 outline-none focus:ring-2 focus:ring-amber-500"
+                  >
+                    {AVAILABLE_UNITS.map((u) => (
+                      <option key={u} value={u}>Jednostka: {u}</option>
+                    ))}
+                  </select>
                   <button type="submit" className="px-6 py-4 bg-amber-600 hover:bg-amber-700 text-white font-black rounded-xl shadow-md flex items-center justify-center transition-colors shrink-0">
                     <PlusCircle className="w-5 h-5 mr-2" /> Dodaj pozycję
                   </button>
@@ -3891,7 +4282,7 @@ function AdminPanel({
 
                 <div className="pt-4 border-t border-gray-100">
                   <div className="flex items-center justify-between mb-3">
-                    <span className="text-xs font-black uppercase text-gray-400">Aktualne pozycje i przypisane lokale ({activeCategoryItems.length}):</span>
+                    <span className="text-xs font-black uppercase text-gray-400">Aktualne pozycje, jednostki i przypisane lokale ({activeCategoryItems.length}):</span>
                     {selectedCatalogCategory.startsWith("custom:") && (
                       <button
                         type="button"
@@ -3912,13 +4303,26 @@ function AdminPanel({
                         const assignedLocs = Array.isArray(catalog?.itemLocations?.[mapKey])
                           ? catalog.itemLocations[mapKey]
                           : LOCATIONS;
+                        const currentUnit = getItemUnit(catalog, item);
                         return (
                           <div key={item} className="p-4 bg-gray-50 hover:bg-white border border-gray-200 rounded-2xl flex flex-col justify-between gap-3 transition-colors shadow-sm">
                             <div className="flex items-center justify-between gap-2">
                               <span className="font-extrabold text-gray-900 text-sm truncate">{item}</span>
-                              <button type="button" onClick={() => handleRemoveCatalogItem(item)} className="p-2 text-red-500 hover:bg-red-50 hover:text-red-700 rounded-lg transition-colors shrink-0" title="Usuń pozycję">
-                                <Trash2 className="w-4 h-4" />
-                              </button>
+                              <div className="flex items-center gap-1.5 shrink-0">
+                                <select
+                                  value={currentUnit}
+                                  onChange={(e) => handleChangeCatalogItemUnit(item, e.target.value)}
+                                  className="px-2.5 py-1.5 bg-blue-50 border border-blue-200 rounded-lg text-xs font-black text-blue-800 outline-none"
+                                  title="Zmień jednostkę miary"
+                                >
+                                  {AVAILABLE_UNITS.map((u) => (
+                                    <option key={u} value={u}>{u}</option>
+                                  ))}
+                                </select>
+                                <button type="button" onClick={() => handleRemoveCatalogItem(item)} className="p-2 text-red-500 hover:bg-red-50 hover:text-red-700 rounded-lg transition-colors shrink-0" title="Usuń pozycję">
+                                  <Trash2 className="w-4 h-4" />
+                                </button>
+                              </div>
                             </div>
                             <div className="pt-2 border-t border-gray-200/70">
                               <span className="block text-[10px] font-black uppercase text-gray-400 mb-1.5">Widoczność w punktach:</span>
