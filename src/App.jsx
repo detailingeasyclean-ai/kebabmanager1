@@ -43,10 +43,10 @@ const LOCATION_COLORS = {
   "Kudowa-Zdrój": "bg-purple-600",
 };
 const LOCATION_BADGE_STYLES = {
-  Opole: "bg-blue-50 text-blue-700 border-blue-200",
-  Nysa: "bg-emerald-50 text-emerald-700 border-emerald-200",
-  Kłodzko: "bg-amber-50 text-amber-800 border-amber-200",
-  "Kudowa-Zdrój": "bg-purple-50 text-purple-700 border-purple-200",
+  Opole: "bg-blue-100 text-blue-800 border-blue-300",
+  Nysa: "bg-emerald-100 text-emerald-800 border-emerald-300",
+  Kłodzko: "bg-amber-100 text-amber-900 border-amber-300",
+  "Kudowa-Zdrój": "bg-purple-100 text-purple-800 border-purple-300",
 };
 const DEFAULT_LOCATION_PINS = { Opole: "0525", Nysa: "0526", Kłodzko: "0527", "Kudowa-Zdrój": "0528" };
 
@@ -130,6 +130,26 @@ const getItemUnit = (catalog, itemName) => {
   return "szt.";
 };
 
+const AVAILABLE_STEPS = [0.1, 0.5, 1, 5, 10, 50, 100];
+
+const DEFAULT_ITEM_STEPS = {
+  "Mięta": 100,
+};
+
+let globalItemSteps = { ...DEFAULT_ITEM_STEPS };
+
+const getItemStep = (catalog, itemName) => {
+  if (!itemName) return 1;
+  if (catalog?.itemSteps && catalog.itemSteps[itemName] !== undefined) {
+    return Number(catalog.itemSteps[itemName]);
+  }
+  if (globalItemSteps[itemName] !== undefined) {
+    return Number(globalItemSteps[itemName]);
+  }
+  if (itemName.toLowerCase().includes("mięta")) return 100;
+  return 1;
+};
+
 const DEFAULT_AVG_ORDER_VALUE = 38;
 
 const DEFAULT_DELIVERY_DAYS = {
@@ -157,6 +177,7 @@ const DEFAULT_CATALOG = {
   deliveryDays: DEFAULT_DELIVERY_DAYS,
   itemLocations: {},
   itemUnits: DEFAULT_ITEM_UNITS,
+  itemSteps: DEFAULT_ITEM_STEPS,
   employeesByLocation: DEFAULT_EMPLOYEES_BY_LOCATION,
 };
 
@@ -206,6 +227,9 @@ const normalizeCatalog = (raw) => {
       res[k] = raw.itemLocations && typeof raw.itemLocations === "object" ? raw.itemLocations : {};
     } else if (k === "itemUnits") {
       res[k] = { ...DEFAULT_ITEM_UNITS, ...(raw.itemUnits && typeof raw.itemUnits === "object" ? raw.itemUnits : {}) };
+    } else if (k === "itemSteps") {
+      res[k] = { ...DEFAULT_ITEM_STEPS, ...(raw.itemSteps && typeof raw.itemSteps === "object" ? raw.itemSteps : {}) };
+      globalItemSteps = res[k];
     } else if (k === "employeesByLocation") {
       const mergedEmp = { ...DEFAULT_EMPLOYEES_BY_LOCATION };
       if (raw.employeesByLocation && typeof raw.employeesByLocation === "object") {
@@ -408,19 +432,19 @@ const downloadFile = (content, filename, mimeType) => {
   URL.revokeObjectURL(url);
 };
 
-const Section = memo(({ title, icon: Icon, children, bgClass = "bg-white border-slate-200", titleColor = "text-slate-900", badge, collapsible = false, defaultExpanded = true, subtitle = "", footerAction = null }) => {
+const Section = memo(({ title, icon: Icon, children, bgClass = "bg-white border-gray-200", titleColor = "text-gray-900", badge, collapsible = false, defaultExpanded = true, subtitle = "", footerAction = null }) => {
   const [isOpen, setIsOpen] = useState(defaultExpanded);
   return (
-    <div className={`p-4 sm:p-6 rounded-3xl border shadow-sm transition-all ${bgClass}`}>
+    <div className={`p-4 sm:p-6 rounded-[2rem] border shadow-sm transition-all ${bgClass}`}>
       <div
         onClick={() => collapsible && setIsOpen((o) => !o)}
-        className={`flex flex-col sm:flex-row sm:justify-between sm:items-center gap-3 ${collapsible ? "cursor-pointer select-none" : ""} ${isOpen ? "mb-5 pb-4 border-b border-slate-100" : "mb-0"}`}
+        className={`flex flex-col sm:flex-row sm:justify-between sm:items-center gap-3 ${collapsible ? "cursor-pointer select-none" : ""} ${isOpen ? "mb-5 pb-4 border-b border-gray-200/60" : "mb-0"}`}
       >
         <div className="flex flex-col">
           <h3 className={`font-extrabold text-lg sm:text-xl flex items-center ${titleColor}`}>
-            {Icon && <Icon className="w-5 h-5 mr-2.5 text-slate-500 shrink-0" />} {title}
+            {Icon && <Icon className="w-6 h-6 mr-2 opacity-80 shrink-0" />} {title}
           </h3>
-          {subtitle && <span className="text-xs font-semibold text-slate-400 mt-1">{subtitle}</span>}
+          {subtitle && <span className="text-xs font-bold text-gray-500 mt-1">{subtitle}</span>}
         </div>
         <div className="flex items-center gap-2 self-start sm:self-center flex-wrap">
           {badge}
@@ -431,7 +455,7 @@ const Section = memo(({ title, icon: Icon, children, bgClass = "bg-white border-
                 e.stopPropagation();
                 setIsOpen((o) => !o);
               }}
-              className="px-3 py-1.5 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold text-xs flex items-center transition-colors"
+              className="px-3 py-1.5 rounded-xl bg-white/80 hover:bg-gray-100 text-gray-700 border border-gray-200 font-black text-xs flex items-center transition-colors"
             >
               {isOpen ? (
                 <>Zwiń <ChevronUp className="w-4 h-4 ml-1" /></>
@@ -445,7 +469,7 @@ const Section = memo(({ title, icon: Icon, children, bgClass = "bg-white border-
       {isOpen && (
         <div>
           {children}
-          {footerAction && <div className="mt-5 pt-4 border-t border-slate-100">{footerAction}</div>}
+          {footerAction && <div className="mt-5 pt-4 border-t border-gray-200/60">{footerAction}</div>}
         </div>
       )}
     </div>
@@ -454,18 +478,15 @@ const Section = memo(({ title, icon: Icon, children, bgClass = "bg-white border-
 
 const Counter = memo(({ itemKey, label, unit = "szt.", value, onChange, onItemChange }) => {
   const displayLabel = label || itemKey || "";
-  const isGrams = unit === "g" || displayLabel.toLowerCase().includes("mięta");
-  const isWeightOrVol = ["kg", "l", "wiadro"].includes(unit);
+  const defaultConfiguredStep = getItemStep(null, displayLabel);
 
-  const stepOptions = useMemo(() => {
-    if (isGrams) return [50, 100, 250];
-    if (isWeightOrVol) return [0.1, 0.5, 1];
-    return [0.5, 1, 5];
-  }, [isGrams, isWeightOrVol]);
-
-  const [step, setStep] = useState(() => (isGrams ? 100 : 1));
+  const [step, setStep] = useState(() => defaultConfiguredStep);
   const [isEditingInput, setIsEditingInput] = useState(false);
   const [tempInput, setTempInput] = useState("");
+
+  useEffect(() => {
+    setStep(getItemStep(null, displayLabel));
+  }, [displayLabel]);
 
   const numVal = value === "" || value === undefined || value === null || isNaN(Number(value)) ? 0 : Number(value);
 
@@ -511,31 +532,33 @@ const Counter = memo(({ itemKey, label, unit = "szt.", value, onChange, onItemCh
   };
 
   return (
-    <div className={`flex flex-col bg-white border rounded-2xl p-3.5 mb-3 w-full transition-all ${numVal > 0 ? "border-slate-300 shadow-sm" : "border-slate-200/80"}`}>
-      <div className="flex items-center justify-between gap-2 mb-2.5">
-        <div className="flex items-center gap-2 min-w-0 flex-wrap">
-          <span className="font-bold text-slate-900 text-sm sm:text-base leading-tight break-words">
-            {displayLabel}
-          </span>
-          <span className="text-[11px] font-extrabold uppercase px-2 py-0.5 rounded-md bg-slate-100 text-slate-600 border border-slate-200 shrink-0">
-            {unit}
-          </span>
-        </div>
+    <div className={`flex flex-col bg-white border rounded-2xl p-3.5 mb-3 w-full transition-all ${numVal > 0 ? "border-blue-300 shadow-sm" : "border-gray-200"}`}>
+      <div className="flex items-center justify-between gap-2 mb-2">
+        <span className="font-bold text-gray-900 text-sm sm:text-base leading-tight break-words">
+          {displayLabel}
+        </span>
+        <span className="text-[11px] font-black uppercase px-2.5 py-0.5 rounded-md bg-blue-50 text-blue-700 border border-blue-200 shrink-0">
+          {unit}
+        </span>
+      </div>
 
-        <div className="flex items-center gap-1 bg-slate-100 p-0.5 rounded-lg border border-slate-200/80 shrink-0">
-          <span className="text-[9px] font-extrabold uppercase text-slate-400 px-1.5 hidden sm:inline">Skok:</span>
-          {stepOptions.map((st) => (
+      <div className="flex items-center justify-between bg-gray-100 p-1 rounded-xl border border-gray-200 mb-2.5">
+        <span className="text-[10px] font-extrabold uppercase text-gray-500 px-2 shrink-0">
+          Skok:
+        </span>
+        <div className="flex items-center gap-1 flex-1 justify-end flex-wrap">
+          {AVAILABLE_STEPS.map((st) => (
             <button
               key={st}
               type="button"
               onClick={() => setStep(st)}
-              className={`px-2 py-0.5 rounded-md text-[11px] font-black transition-colors ${
+              className={`px-2 py-1 rounded-lg text-[11px] font-black transition-colors flex-1 sm:flex-none text-center ${
                 step === st
-                  ? "bg-slate-900 text-white shadow-sm"
-                  : "text-slate-500 hover:text-slate-800"
+                  ? "bg-blue-600 text-white shadow-sm"
+                  : "text-gray-600 hover:bg-gray-200"
               }`}
             >
-              +{st}
+              {st}
             </button>
           ))}
         </div>
@@ -545,7 +568,7 @@ const Counter = memo(({ itemKey, label, unit = "szt.", value, onChange, onItemCh
         <button
           type="button"
           onClick={() => updateVal(-1)}
-          className="w-14 h-12 bg-slate-100 hover:bg-rose-50 active:bg-rose-100 text-slate-700 hover:text-rose-600 border border-slate-200 rounded-xl font-black text-lg transition-colors touch-manipulation shrink-0 flex items-center justify-center"
+          className="w-16 h-12 bg-red-50 hover:bg-red-100 active:bg-red-200 text-red-600 border border-red-200 rounded-xl font-black text-base transition-colors touch-manipulation shrink-0 flex items-center justify-center"
         >
           -{step}
         </button>
@@ -564,7 +587,7 @@ const Counter = memo(({ itemKey, label, unit = "szt.", value, onChange, onItemCh
                 commitManualEdit();
               }
             }}
-            className="flex-1 h-12 text-center font-black text-slate-900 bg-blue-50/60 border-2 border-blue-500 rounded-xl outline-none text-lg"
+            className="flex-1 h-12 text-center font-black text-blue-900 bg-blue-50 border-2 border-blue-500 rounded-xl outline-none text-lg"
             placeholder={`Wpisz (${unit})`}
           />
         ) : (
@@ -573,19 +596,19 @@ const Counter = memo(({ itemKey, label, unit = "szt.", value, onChange, onItemCh
             title="Dotknij, aby wpisać dokładną ilość z klawiatury"
             className={`flex-1 h-12 px-3 flex items-center justify-center gap-1.5 font-black rounded-xl select-none text-lg cursor-text transition-colors border ${
               numVal > 0
-                ? "bg-emerald-50/50 border-emerald-300 text-slate-900"
-                : "bg-slate-50 hover:bg-slate-100/80 border-slate-200 text-slate-500"
+                ? "bg-emerald-50 border-emerald-300 text-emerald-950"
+                : "bg-gray-50 hover:bg-blue-50/40 border-gray-200 text-gray-600"
             }`}
           >
             <span>{value || "0"}</span>
-            <span className="text-xs font-bold text-slate-400 uppercase">{unit}</span>
+            <span className="text-xs font-extrabold text-blue-600 uppercase">{unit}</span>
           </div>
         )}
 
         <button
           type="button"
           onClick={() => updateVal(1)}
-          className="w-14 h-12 bg-slate-900 hover:bg-emerald-600 active:bg-emerald-700 text-white rounded-xl font-black text-lg transition-colors touch-manipulation shrink-0 flex items-center justify-center shadow-sm"
+          className="w-16 h-12 bg-emerald-600 hover:bg-emerald-700 active:bg-emerald-800 text-white rounded-xl font-black text-base transition-colors touch-manipulation shrink-0 flex items-center justify-center shadow-sm"
         >
           +{step}
         </button>
@@ -597,15 +620,15 @@ const Counter = memo(({ itemKey, label, unit = "szt.", value, onChange, onItemCh
 const Modal = memo(({ message, onClose }) => {
   if (!message) return null;
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm">
-      <div className="bg-white p-6 rounded-3xl shadow-2xl border border-slate-100 w-full max-w-sm text-center">
-        <p className="text-slate-900 font-bold text-base sm:text-lg mb-6 leading-snug">{message}</p>
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm">
+      <div className="bg-white p-6 rounded-3xl shadow-2xl border border-gray-100 w-full max-w-sm text-center">
+        <p className="text-gray-900 font-bold text-base sm:text-lg mb-6 leading-snug">{message}</p>
         <button
           type="button"
           onClick={onClose}
-          className="bg-slate-900 w-full hover:bg-slate-800 text-white px-6 py-3.5 rounded-2xl font-bold transition-colors"
+          className="bg-blue-600 w-full hover:bg-blue-700 text-white px-6 py-3.5 rounded-2xl font-bold transition-colors shadow-md"
         >
-          Rozumiem (OK)
+          OK
         </button>
       </div>
     </div>
@@ -615,27 +638,27 @@ const Modal = memo(({ message, onClose }) => {
 const ConfirmExitModal = memo(({ isOpen, onConfirm, onCancel }) => {
   if (!isOpen) return null;
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm">
-      <div className="bg-white p-6 rounded-3xl shadow-2xl border border-slate-100 w-full max-w-sm text-center">
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm">
+      <div className="bg-white p-6 rounded-3xl shadow-2xl border border-gray-100 w-full max-w-sm text-center">
         <div className="w-12 h-12 rounded-2xl bg-amber-100 text-amber-600 flex items-center justify-center mx-auto mb-4">
           <AlertTriangle className="w-6 h-6" />
         </div>
-        <h4 className="text-slate-900 font-extrabold text-lg mb-2">Wrócić do pulpitu lokalu?</h4>
-        <p className="text-slate-600 text-sm font-medium mb-6">
+        <h4 className="text-gray-900 font-extrabold text-lg mb-2">Wrócić do pulpitu lokalu?</h4>
+        <p className="text-gray-600 text-sm font-medium mb-6">
           Wszystkie wpisane stany są automatycznie zachowane w szkicu roboczym (w telefonie oraz w podglądzie managera).
         </p>
         <div className="flex gap-3">
           <button
             type="button"
             onClick={onCancel}
-            className="flex-1 bg-slate-100 hover:bg-slate-200 text-slate-800 py-3 rounded-xl font-bold transition-colors text-sm"
+            className="flex-1 bg-gray-100 hover:bg-gray-200 text-gray-800 py-3 rounded-xl font-bold transition-colors text-sm"
           >
             Zostań w raporcie
           </button>
           <button
             type="button"
             onClick={onConfirm}
-            className="flex-1 bg-slate-900 hover:bg-slate-800 text-white py-3 rounded-xl font-bold transition-colors text-sm"
+            className="flex-1 bg-blue-600 hover:bg-blue-700 text-white py-3 rounded-xl font-bold transition-colors text-sm"
           >
             Wróć do pulpitu
           </button>
@@ -647,13 +670,13 @@ const ConfirmExitModal = memo(({ isOpen, onConfirm, onCancel }) => {
 
 const PinLoginScreen = memo(({ icon: Icon, iconBgClass, title, subtitle, submitLabel, submitBtnClass, onSubmitPin, onBack }) => (
   <div className="flex flex-col items-center justify-center p-6 min-h-screen max-w-sm mx-auto">
-    <div className="bg-white p-8 rounded-3xl shadow-xl border border-slate-200/80 w-full">
+    <div className="bg-white p-8 rounded-[2rem] shadow-xl border border-gray-100 w-full">
       <div className="text-center mb-8">
         <div className={`w-16 h-16 ${iconBgClass} rounded-2xl flex items-center justify-center mx-auto mb-4 shadow-lg`}>
           <Icon className="w-8 h-8 text-white" />
         </div>
-        <h2 className="text-2xl font-extrabold text-slate-900">{title}</h2>
-        <p className="text-slate-500 mt-2 font-medium text-sm">{subtitle}</p>
+        <h2 className="text-2xl font-extrabold text-gray-900">{title}</h2>
+        <p className="text-gray-500 mt-2 font-medium text-sm">{subtitle}</p>
       </div>
       <form
         onSubmit={(e) => {
@@ -668,18 +691,18 @@ const PinLoginScreen = memo(({ icon: Icon, iconBgClass, title, subtitle, submitL
           inputMode="numeric"
           autoComplete="off"
           autoFocus
-          className="w-full text-center text-4xl tracking-[0.5em] font-black border-2 border-slate-200 bg-slate-50 rounded-2xl p-4 mb-6 focus:border-slate-900 focus:bg-white outline-none transition-colors"
+          className="w-full text-center text-4xl tracking-[0.5em] font-black border-2 border-gray-200 bg-gray-50 rounded-2xl p-4 mb-6 focus:border-blue-500 focus:bg-white outline-none transition-colors shadow-inner"
           placeholder="••••"
           required
         />
         <div className="flex flex-col gap-3">
-          <button type="submit" className={`w-full text-white py-4 rounded-2xl font-bold shadow-md transition-colors ${submitBtnClass}`}>
+          <button type="submit" className={`w-full text-white py-4 rounded-xl font-bold shadow-lg transition-colors ${submitBtnClass}`}>
             {submitLabel}
           </button>
           <button
             type="button"
             onClick={onBack}
-            className="w-full bg-slate-100 text-slate-700 py-4 rounded-2xl font-bold hover:bg-slate-200 transition-colors"
+            className="w-full bg-white border-2 border-gray-200 text-gray-700 py-4 rounded-xl font-bold hover:bg-gray-50 transition-colors"
           >
             Wróć
           </button>
@@ -690,65 +713,73 @@ const PinLoginScreen = memo(({ icon: Icon, iconBgClass, title, subtitle, submitL
 ));
 
 const UrgentTasksBanner = memo(({ tasks, location, todayStr, onCompleteTask }) => {
-  if (!Array.isArray(tasks) || tasks.length === 0) return null;
+  if (!Array.isArray(tasks) || tasks.length === 0) {
+    return (
+      <div className="w-full bg-emerald-50 border-2 border-emerald-200 px-4 py-3 rounded-2xl flex items-center justify-between text-xs font-bold text-emerald-900 mb-5 shadow-sm">
+        <div className="flex items-center">
+          <CheckCircle2 className="w-4 h-4 mr-2 text-emerald-600 shrink-0" />
+          <span>Wszystkie zadania dnia dla punktu <strong>{location}</strong> ({todayStr}) zostały wykonane lub brak zadań.</span>
+        </div>
+      </div>
+    );
+  }
 
   return (
-    <div className="w-full bg-white border-2 border-rose-500 rounded-3xl p-4 sm:p-5 shadow-md mb-5">
-      <div className="flex items-center justify-between gap-2 flex-wrap mb-3 pb-3 border-b border-rose-100">
-        <div className="flex items-center gap-2.5">
-          <div className="w-9 h-9 rounded-xl bg-rose-600 text-white flex items-center justify-center shrink-0">
-            <AlertTriangle className="w-5 h-5" />
-          </div>
-          <div>
-            <span className="text-xs font-black uppercase tracking-wider text-rose-600 block">
-              Pilne zadanie dnia — {location}
+    <div className="w-full bg-gradient-to-r from-red-600 via-rose-600 to-amber-600 text-white p-4 sm:p-5 rounded-[2rem] shadow-xl border-2 border-red-300 mb-6">
+      <div className="flex items-start gap-3">
+        <div className="w-10 h-10 rounded-xl bg-white/20 flex items-center justify-center shrink-0 mt-0.5">
+          <AlertTriangle className="w-6 h-6 text-white" />
+        </div>
+        <div className="flex-1 min-w-0">
+          <div className="flex items-center justify-between gap-2 flex-wrap mb-3">
+            <span className="text-xs font-black uppercase tracking-wider bg-black/25 px-3 py-1 rounded-full flex items-center">
+              <ClipboardList className="w-3.5 h-3.5 mr-1.5" /> Pilne zadania dnia — Punkt: {location}
             </span>
-            <span className="text-xs font-semibold text-slate-500">Data: {todayStr}</span>
+            <span className="text-xs font-black bg-white text-red-700 px-3 py-1 rounded-full shadow-sm">
+              Do wykonania dziś: {tasks.length}
+            </span>
+          </div>
+          <div className="space-y-2.5">
+            {tasks.map((t) => {
+              const isRecurring = t.type === "recurring";
+              const scheduledDaysText =
+                isRecurring && Array.isArray(t.daysOfWeek)
+                  ? DAYS_OF_WEEK.filter((d) => t.daysOfWeek.map(Number).includes(d.id))
+                      .map((d) => d.short)
+                      .join(", ")
+                  : "";
+              return (
+                <div
+                  key={t.id}
+                  className="bg-black/25 p-3.5 rounded-2xl border border-white/20 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3"
+                >
+                  <div className="space-y-1 min-w-0">
+                    <div className="flex flex-wrap items-center gap-1.5">
+                      <span className="text-[10px] font-black uppercase bg-white/20 text-white px-2 py-0.5 rounded-md">
+                        {isRecurring ? `Cykliczne (${scheduledDaysText})` : "Zadanie doraźne"}
+                      </span>
+                      <span className="inline-flex items-center text-[11px] font-black bg-amber-300 text-gray-950 px-2.5 py-0.5 rounded-md shadow-sm">
+                        <Clock className="w-3 h-3 mr-1" />
+                        Do wykonania do godziny: {t.deadlineTime || "22:00"}
+                      </span>
+                      {t.createdBy && <span className="text-[10px] font-semibold text-white/85">• Zlecił(a): {t.createdBy}</span>}
+                    </div>
+                    <p className="font-extrabold text-sm sm:text-base text-white break-words pt-0.5">{t.text}</p>
+                  </div>
+                  {onCompleteTask && (
+                    <button
+                      type="button"
+                      onClick={() => onCompleteTask(t)}
+                      className="shrink-0 bg-emerald-500 hover:bg-emerald-400 text-gray-950 font-black text-xs px-4 py-2.5 rounded-xl flex items-center justify-center transition-colors shadow-md"
+                    >
+                      <CheckCircle2 className="w-4 h-4 mr-1.5" /> Wykonane
+                    </button>
+                  )}
+                </div>
+              );
+            })}
           </div>
         </div>
-        <span className="text-xs font-black bg-rose-100 text-rose-800 px-3 py-1 rounded-full">
-          Do wykonania: {tasks.length}
-        </span>
-      </div>
-      <div className="space-y-2.5">
-        {tasks.map((t) => {
-          const isRecurring = t.type === "recurring";
-          const scheduledDaysText =
-            isRecurring && Array.isArray(t.daysOfWeek)
-              ? DAYS_OF_WEEK.filter((d) => t.daysOfWeek.map(Number).includes(d.id))
-                  .map((d) => d.short)
-                  .join(", ")
-              : "";
-          return (
-            <div
-              key={t.id}
-              className="bg-rose-50/60 p-3.5 rounded-2xl border border-rose-200/80 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3"
-            >
-              <div className="space-y-1 min-w-0">
-                <div className="flex flex-wrap items-center gap-1.5">
-                  <span className="text-[10px] font-black uppercase bg-white text-slate-700 border border-slate-200 px-2 py-0.5 rounded-md">
-                    {isRecurring ? `Cykliczne (${scheduledDaysText})` : "Zadanie doraźne"}
-                  </span>
-                  <span className="inline-flex items-center text-[11px] font-black bg-rose-600 text-white px-2.5 py-0.5 rounded-md">
-                    <Clock className="w-3 h-3 mr-1" />
-                    Do wykonania do godziny: {t.deadlineTime || "22:00"}
-                  </span>
-                  {t.createdBy && <span className="text-[11px] font-semibold text-slate-500">• Zlecił(a): {t.createdBy}</span>}
-                </div>
-                <p className="font-extrabold text-sm sm:text-base text-slate-900 break-words pt-0.5">{t.text}</p>
-              </div>
-              {onCompleteTask && (
-                <button
-                  type="button"
-                  onClick={() => onCompleteTask(t)}
-                  className="shrink-0 bg-emerald-600 hover:bg-emerald-700 text-white font-black text-xs px-4 py-2.5 rounded-xl flex items-center justify-center transition-colors shadow-sm"
-                >
-                  <CheckCircle2 className="w-4 h-4 mr-1.5" /> Wykonane
-                </button>
-              )}
-            </div>
-          );
-        })}
       </div>
     </div>
   );
@@ -801,21 +832,21 @@ const ShiftClockWidget = memo(({ location, employeesList = [], activeShifts = []
   };
 
   return (
-    <div className="w-full bg-slate-900 text-white p-5 rounded-3xl border border-slate-800 shadow-lg mb-5">
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 pb-4 border-b border-slate-800">
+    <div className="w-full bg-gradient-to-br from-slate-900 via-indigo-950 to-slate-900 text-white p-5 rounded-[2rem] border border-indigo-700/60 shadow-xl mb-6">
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 pb-4 border-b border-white/10">
         <div className="flex items-center gap-3">
-          <div className="w-10 h-10 rounded-2xl bg-emerald-500/15 border border-emerald-500/30 flex items-center justify-center shrink-0">
+          <div className="w-10 h-10 rounded-2xl bg-emerald-500/20 border border-emerald-400/40 flex items-center justify-center shrink-0">
             <Timer className="w-5 h-5 text-emerald-400" />
           </div>
           <div>
             <div className="flex items-center gap-2 flex-wrap">
-              <h3 className="font-extrabold text-base sm:text-lg text-white">Czytnik Czasu Pracy (RCP)</h3>
-              <span className="bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 text-[10px] font-black uppercase px-2.5 py-0.5 rounded-full flex items-center">
+              <h3 className="font-extrabold text-base sm:text-lg text-white">Czytnik Czasu Pracy (RCP Live)</h3>
+              <span className="bg-emerald-500/20 text-emerald-300 border border-emerald-400/30 text-[10px] font-black uppercase px-2.5 py-0.5 rounded-full flex items-center">
                 <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse mr-1.5" />
                 W pracy: {locActive.length}
               </span>
             </div>
-            <p className="text-xs text-slate-400 font-medium">
+            <p className="text-xs text-indigo-200/80 font-medium">
               Wybierz imię na starcie zmiany i kliknij „Zakończ” przed wyjściem — godziny automatycznie trafią do raportu.
             </p>
           </div>
@@ -826,13 +857,13 @@ const ShiftClockWidget = memo(({ location, employeesList = [], activeShifts = []
         <select
           value={selectedEmp}
           onChange={(e) => setSelectedEmp(e.target.value)}
-          className="flex-1 p-3.5 bg-slate-800 hover:bg-slate-800/80 border border-slate-700 rounded-2xl font-bold text-sm text-white outline-none focus:border-emerald-400"
+          className="flex-1 p-3.5 bg-white/10 hover:bg-white/15 border border-white/20 rounded-2xl font-bold text-sm text-white outline-none focus:border-emerald-400"
         >
-          <option value="" className="text-slate-900">
+          <option value="" className="text-gray-900">
             — Wybierz swoje imię z listy ({location}) —
           </option>
           {availableToClockIn.map((emp) => (
-            <option key={emp} value={emp} className="text-slate-900">
+            <option key={emp} value={emp} className="text-gray-900">
               {emp}
             </option>
           ))}
@@ -841,33 +872,33 @@ const ShiftClockWidget = memo(({ location, employeesList = [], activeShifts = []
           type="button"
           disabled={!selectedEmp || busy}
           onClick={handleStart}
-          className="px-6 py-3.5 bg-emerald-500 hover:bg-emerald-400 disabled:opacity-40 text-slate-950 font-black text-sm rounded-2xl flex items-center justify-center transition-colors shadow-md shrink-0"
+          className="px-6 py-3.5 bg-emerald-500 hover:bg-emerald-400 disabled:opacity-40 text-gray-950 font-black text-sm rounded-2xl flex items-center justify-center transition-colors shadow-lg shadow-emerald-500/20 shrink-0"
         >
           <Play className="w-4 h-4 mr-2 fill-current" /> Rozpocznij zmianę
         </button>
       </div>
 
       {locActive.length > 0 && (
-        <div className="mt-4 pt-4 border-t border-slate-800 space-y-2.5">
-          <span className="block text-[11px] font-black uppercase tracking-wider text-emerald-400">
+        <div className="mt-4 pt-4 border-t border-white/10 space-y-2.5">
+          <span className="block text-[11px] font-black uppercase tracking-wider text-emerald-300">
             Aktualnie w pracy ({location}):
           </span>
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
             {locActive.map((sh) => (
               <div
                 key={sh.id}
-                className="bg-slate-800/90 border border-slate-700 p-3.5 rounded-2xl flex items-center justify-between gap-3"
+                className="bg-white/10 border border-emerald-400/40 p-3.5 rounded-2xl flex items-center justify-between gap-3"
               >
                 <div className="min-w-0">
                   <div className="flex items-center gap-2">
-                    <span className="w-2 h-2 rounded-full bg-emerald-400 animate-ping shrink-0" />
+                    <span className="w-2.5 h-2.5 rounded-full bg-emerald-400 animate-ping shrink-0" />
                     <span className="font-black text-base text-white truncate">{sh.employeeName}</span>
                   </div>
-                  <div className="text-xs text-slate-300 font-bold mt-1 flex flex-wrap items-center gap-2">
+                  <div className="text-xs text-indigo-200 font-bold mt-1 flex flex-wrap items-center gap-2">
                     <span>
                       Wejście: <strong className="text-white">{sh.startHM}</strong>
                     </span>
-                    <span className="bg-emerald-500/20 text-emerald-300 px-2 py-0.5 rounded-md font-black">
+                    <span className="bg-emerald-400/20 text-emerald-300 px-2 py-0.5 rounded-md font-black">
                       {formatLiveDuration(sh.startTime, nowMs)}
                     </span>
                   </div>
@@ -876,7 +907,7 @@ const ShiftClockWidget = memo(({ location, employeesList = [], activeShifts = []
                   type="button"
                   disabled={busy}
                   onClick={() => handleStop(sh)}
-                  className="shrink-0 bg-rose-600 hover:bg-rose-500 text-white font-black text-xs px-3.5 py-2.5 rounded-xl flex items-center shadow-sm transition-colors"
+                  className="shrink-0 bg-red-500 hover:bg-red-600 text-white font-black text-xs px-3.5 py-2.5 rounded-xl flex items-center shadow-md transition-colors"
                 >
                   <Square className="w-3.5 h-3.5 mr-1.5 fill-current" /> Zakończ
                 </button>
@@ -887,15 +918,15 @@ const ShiftClockWidget = memo(({ location, employeesList = [], activeShifts = []
       )}
 
       {locCompletedToday.length > 0 && (
-        <div className="mt-4 pt-3 border-t border-slate-800">
-          <span className="block text-[10px] font-black uppercase tracking-wider text-slate-400 mb-2">
+        <div className="mt-4 pt-3 border-t border-white/10">
+          <span className="block text-[10px] font-black uppercase tracking-wider text-indigo-300 mb-2">
             Zakończone dzisiaj zmiany ({locCompletedToday.length}):
           </span>
           <div className="flex flex-wrap gap-2">
             {locCompletedToday.map((sh) => (
               <span
                 key={sh.id}
-                className="text-xs font-bold bg-slate-800 border border-slate-700 px-3 py-1 rounded-xl text-slate-200"
+                className="text-xs font-bold bg-white/10 border border-white/15 px-3 py-1 rounded-xl text-indigo-100"
               >
                 <UserCheck className="w-3.5 h-3.5 inline mr-1 text-emerald-400" />
                 {sh.employeeName}: <strong className="text-white">{sh.startHM}-{sh.endHM}</strong> ({sh.totalHours}h)
@@ -953,26 +984,26 @@ const LocationDashboard = memo(({
   }, [liveDraft, todayReport]);
 
   return (
-    <div className="min-h-screen bg-slate-50 pb-16">
-      <div className="sticky top-0 z-40 bg-white/95 backdrop-blur-md border-b border-slate-200 px-4 py-3.5 shadow-sm">
+    <div className="min-h-screen bg-gray-50 pb-16">
+      <div className="sticky top-0 z-40 bg-white/95 backdrop-blur-md border-b border-gray-200 px-4 py-3.5 shadow-sm">
         <div className="max-w-3xl mx-auto flex items-center justify-between">
           <div className="flex items-center gap-3 min-w-0">
             <button
               type="button"
               onClick={onBack}
-              className="w-10 h-10 rounded-2xl bg-slate-100 hover:bg-slate-200 text-slate-700 flex items-center justify-center transition-colors shrink-0"
+              className="w-10 h-10 rounded-full bg-gray-100 hover:bg-gray-200 text-gray-700 flex items-center justify-center transition-colors shrink-0"
             >
               <ArrowLeft className="w-5 h-5" />
             </button>
             <div className="min-w-0">
               <div className="flex items-center gap-2">
-                <span className={`w-2.5 h-2.5 rounded-full ${LOCATION_COLORS[location] || "bg-slate-900"}`} />
-                <h1 className="font-extrabold text-slate-900 text-lg sm:text-xl truncate">Pulpit Punktu: {location}</h1>
+                <span className={`w-3 h-3 rounded-full ${LOCATION_COLORS[location] || "bg-blue-600"}`} />
+                <h1 className="font-extrabold text-gray-900 text-lg sm:text-xl truncate">Pulpit Punktu: {location}</h1>
               </div>
-              <p className="text-xs font-semibold text-slate-500">Aktywny dzień rozliczeniowy: {todayStr}</p>
+              <p className="text-xs font-semibold text-gray-500">Aktywny dzień rozliczeniowy: {todayStr}</p>
             </div>
           </div>
-          <span className={`px-3 py-1.5 rounded-xl text-xs font-black border ${LOCATION_BADGE_STYLES[location] || "bg-slate-100 text-slate-800 border-slate-200"}`}>
+          <span className={`px-3 py-1.5 rounded-full text-xs font-black border ${LOCATION_BADGE_STYLES[location] || "bg-blue-100 text-blue-800 border-blue-200"}`}>
             {todayStr}
           </span>
         </div>
@@ -980,7 +1011,7 @@ const LocationDashboard = memo(({
 
       <div className="max-w-3xl mx-auto p-4 sm:p-6 space-y-5">
         {inNightWindow && onChangeGastroDate && (
-          <div className="bg-slate-900 text-white p-4 rounded-3xl border border-slate-800 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+          <div className="bg-indigo-950 text-white p-4 rounded-2xl border border-indigo-700 shadow-md flex flex-col sm:flex-row sm:items-center justify-between gap-3">
             <div className="flex items-center text-xs font-bold">
               <Moon className="w-5 h-5 mr-2.5 text-amber-400 shrink-0" />
               <span>
@@ -997,7 +1028,7 @@ const LocationDashboard = memo(({
                   type="button"
                   onClick={() => onChangeGastroDate(opt.date)}
                   className={`px-3 py-1.5 rounded-xl font-black text-xs transition-colors ${
-                    todayStr === opt.date ? "bg-amber-400 text-slate-950" : "bg-slate-800 text-slate-300 hover:bg-slate-700"
+                    todayStr === opt.date ? "bg-amber-400 text-gray-950" : "bg-white/10 text-gray-300 hover:bg-white/20"
                   }`}
                 >
                   {opt.label} ({opt.date})
@@ -1027,20 +1058,20 @@ const LocationDashboard = memo(({
           <button
             type="button"
             onClick={onOpenReport}
-            className={`p-6 rounded-3xl text-left transition-all active:scale-[0.99] border-2 shadow-sm hover:shadow-md flex flex-col justify-between ${
+            className={`p-6 rounded-[2rem] text-left transition-all active:scale-[0.99] border-2 shadow-sm hover:shadow-md flex flex-col justify-between ${
               todayReport
-                ? "bg-white border-emerald-400"
-                : "bg-white border-slate-900"
+                ? "bg-green-50/60 border-green-300 hover:border-green-400"
+                : "bg-blue-50/60 border-blue-300 hover:border-blue-400"
             }`}
           >
             <div>
               <div className="flex items-center justify-between gap-2 mb-3">
                 <span className={`text-[11px] font-black uppercase px-3 py-1 rounded-full ${
                   todayReport
-                    ? "bg-emerald-100 text-emerald-800"
+                    ? "bg-green-200 text-green-900"
                     : confirmedSectionsList.length > 0
-                    ? "bg-blue-100 text-blue-800"
-                    : "bg-slate-100 text-slate-700"
+                    ? "bg-blue-200 text-blue-900"
+                    : "bg-blue-600 text-white"
                 }`}>
                   {todayReport
                     ? "Raport wysłany"
@@ -1048,22 +1079,22 @@ const LocationDashboard = memo(({
                     ? `Szkic aktywny (Zatwierdzono: ${confirmedSectionsList.length})`
                     : "Formularz dobowy"}
                 </span>
-                <div className="w-10 h-10 rounded-2xl bg-slate-900 text-white flex items-center justify-center shrink-0">
+                <div className={`w-10 h-10 rounded-2xl text-white flex items-center justify-center shrink-0 shadow-md ${todayReport ? "bg-green-600" : "bg-blue-600"}`}>
                   <ArrowLeft className="w-5 h-5 rotate-180" />
                 </div>
               </div>
-              <h2 className="text-2xl font-black text-slate-900 mb-1">
+              <h2 className="text-2xl font-black text-gray-900 mb-1">
                 {todayReport ? "Edytuj Raport Dzienny" : "Otwórz Raport Dzienny"}
               </h2>
-              <p className="text-xs font-semibold text-slate-500">
+              <p className="text-xs font-semibold text-gray-600">
                 Uzupełnij stany magazynowe (np. Farutex), braki sosów lub zamknij utarg na koniec zmiany.
               </p>
             </div>
 
             {confirmedSectionsList.length > 0 && (
-              <div className="mt-4 pt-3 border-t border-slate-100 flex flex-wrap gap-1.5">
+              <div className="mt-4 pt-3 border-t border-blue-200/60 flex flex-wrap gap-1.5">
                 {confirmedSectionsList.map((sec) => (
-                  <span key={sec.key} className="text-[10px] font-black bg-emerald-50 text-emerald-700 border border-emerald-200 px-2 py-0.5 rounded-md">
+                  <span key={sec.key} className="text-[10px] font-black bg-emerald-100 text-emerald-800 border border-emerald-300 px-2.5 py-0.5 rounded-md">
                     ✓ {sec.label || sec.key} ({sec.time})
                   </span>
                 ))}
@@ -1075,23 +1106,23 @@ const LocationDashboard = memo(({
             <button
               type="button"
               onClick={onOpenNysaWarehouse}
-              className={`p-6 rounded-3xl text-left transition-all active:scale-[0.99] border-2 shadow-sm hover:shadow-md flex flex-col justify-between ${
-                todayNysaWarehouse ? "bg-white border-purple-400" : "bg-white border-slate-200 hover:border-purple-400"
+              className={`p-6 rounded-[2rem] text-left transition-all active:scale-[0.99] border-2 shadow-sm hover:shadow-md flex flex-col justify-between ${
+                todayNysaWarehouse ? "bg-purple-50/70 border-purple-300" : "bg-white border-purple-300 hover:border-purple-400"
               }`}
             >
               <div>
                 <div className="flex items-center justify-between gap-2 mb-3">
-                  <span className="text-[11px] font-black uppercase px-3 py-1 rounded-full bg-purple-100 text-purple-800">
+                  <span className="text-[11px] font-black uppercase px-3 py-1 rounded-full bg-purple-200 text-purple-900">
                     Magazyn Główny Nysa
                   </span>
-                  <div className="w-10 h-10 rounded-2xl bg-purple-600 text-white flex items-center justify-center shrink-0">
+                  <div className="w-10 h-10 rounded-2xl bg-purple-600 text-white flex items-center justify-center shrink-0 shadow-md">
                     <Warehouse className="w-5 h-5" />
                   </div>
                 </div>
-                <h2 className="text-2xl font-black text-slate-900 mb-1">
+                <h2 className="text-2xl font-black text-gray-900 mb-1">
                   {todayNysaWarehouse ? "Aktualizuj Magazyn Nysa" : "Uzupełnij Magazyn Nysa"}
                 </h2>
-                <p className="text-xs font-semibold text-slate-500">
+                <p className="text-xs font-semibold text-gray-600">
                   Osobny formularz stanów żywności i opakowań dla magazynu głównego w Nysie.
                 </p>
               </div>
@@ -1099,23 +1130,26 @@ const LocationDashboard = memo(({
           )}
         </div>
 
-        <div className="bg-amber-50/70 p-5 rounded-3xl border border-amber-200/90 shadow-sm">
-          <div className="flex items-center justify-between mb-2">
-            <h3 className="font-extrabold text-amber-950 text-sm sm:text-base flex items-center">
-              <StickyNote className="w-4 h-4 mr-2 text-amber-600" /> Szybki Brudnopis Zmiany ({location})
+        <div className="bg-yellow-50 p-6 rounded-[2rem] border-2 border-yellow-200 shadow-sm relative overflow-hidden">
+          <div className="absolute -right-4 -bottom-4 opacity-10 pointer-events-none">
+            <StickyNote className="w-36 h-36 text-yellow-600" />
+          </div>
+          <div className="flex items-center justify-between mb-1 relative z-10">
+            <h3 className="font-extrabold text-yellow-900 text-base flex items-center">
+              <StickyNote className="w-5 h-5 mr-2 text-yellow-700" /> Brudnopis Zmiany ({location})
             </h3>
-            <span className="text-[10px] font-bold text-amber-700 bg-amber-100 px-2.5 py-0.5 rounded-full">
-              Zapisuje się automatycznie
+            <span className="text-[10px] font-black text-yellow-800 bg-yellow-200/80 px-2.5 py-0.5 rounded-full">
+              Zapisuje się w telefonie
             </span>
           </div>
-          <p className="text-xs text-amber-800/80 mb-3 font-medium">
-            Zapisuj tu braki lub uwagi w trakcie dnia, żeby pamiętać o nich przy zamykaniu zmiany.
+          <p className="text-xs text-yellow-800/80 mb-3 font-semibold relative z-10">
+            Zapisuj tu braki „na gorąco” w trakcie dnia, żeby pamiętać o nich przy zamykaniu zmiany.
           </p>
           <textarea
             value={quickNote}
             onChange={handleNoteChange}
             rows="3"
-            className="w-full p-3.5 bg-white border border-amber-200 rounded-2xl outline-none focus:border-amber-400 font-medium text-sm text-slate-800"
+            className="w-full p-4 bg-white/90 border border-yellow-300 rounded-xl outline-none focus:ring-2 focus:ring-yellow-400 font-medium text-sm text-gray-800 relative z-10"
             placeholder="Wpisz np. kończy się folia, brak widelców, awaria opiekacza..."
           />
         </div>
@@ -1587,25 +1621,25 @@ export default function App() {
   );
 
   return (
-    <div className="min-h-screen max-w-full overflow-x-hidden bg-slate-50 text-slate-900 font-sans selection:bg-blue-200">
+    <div className="min-h-screen max-w-full overflow-x-hidden bg-gray-50 text-gray-900 font-sans selection:bg-blue-200">
       <Modal message={modalMsg} onClose={() => setModalMsg("")} />
 
       {view === "select" && (
         <div className="flex flex-col items-center justify-center p-6 min-h-screen max-w-lg mx-auto">
           <div className="mb-8 text-center">
-            <div className="w-20 h-20 bg-slate-900 rounded-3xl flex items-center justify-center mx-auto mb-5 shadow-xl shadow-slate-900/15">
-              <ChefHat className="w-10 h-10 text-white" />
+            <div className="w-24 h-24 bg-gradient-to-br from-blue-600 to-indigo-700 rounded-[2rem] flex items-center justify-center mx-auto mb-6 shadow-xl shadow-blue-600/20 transform rotate-3">
+              <ChefHat className="w-12 h-12 text-white -rotate-3" />
             </div>
-            <h1 className="text-3xl sm:text-4xl font-extrabold text-slate-900 tracking-tight mb-1.5">System Raportów</h1>
-            <p className="text-slate-500 font-medium text-sm">
-              Wybierz lokal gastronomiczny • <strong className="text-slate-800">{activeGastroDate}</strong>
+            <h1 className="text-4xl font-extrabold text-gray-900 tracking-tight mb-2">System Raportów</h1>
+            <p className="text-gray-500 font-medium">
+              Wybierz swój punkt <strong className="text-gray-800">{activeGastroDate}</strong>
             </p>
           </div>
 
           {inNightWindow && (
-            <div className="w-full mb-6 bg-slate-900 text-white p-4 rounded-3xl border border-slate-800 shadow-lg">
-              <div className="flex items-center gap-2 text-xs font-black uppercase text-slate-300 mb-2.5">
-                <Moon className="w-4 h-4 text-amber-400" /> Tryb Nocny (Po północy) — Wybierz datę zmiany:
+            <div className="w-full mb-6 bg-indigo-950 text-white p-4 rounded-2xl border border-indigo-700 shadow-lg">
+              <div className="flex items-center gap-2 text-xs font-black uppercase text-indigo-300 mb-2">
+                <Moon className="w-4 h-4 text-amber-400" /> Tryb Nocny (Po północy) — Wybierz datę zamykanej zmiany:
               </div>
               <div className="grid grid-cols-2 gap-2">
                 {[
@@ -1618,8 +1652,8 @@ export default function App() {
                     onClick={() => setActiveGastroDate(opt.date)}
                     className={`py-2.5 px-3 rounded-xl font-black text-xs transition-colors border ${
                       activeGastroDate === opt.date
-                        ? "bg-amber-400 text-slate-950 border-amber-300 shadow-sm"
-                        : "bg-slate-800 text-slate-300 border-slate-700 hover:bg-slate-700"
+                        ? "bg-amber-400 text-gray-950 border-amber-300 shadow-sm"
+                        : "bg-white/10 text-gray-300 border-white/10 hover:bg-white/20"
                     }`}
                   >
                     {opt.label} ({opt.date})
@@ -1629,7 +1663,7 @@ export default function App() {
             </div>
           )}
 
-          <div className="w-full flex flex-col gap-3.5">
+          <div className="w-full flex flex-col gap-4">
             {LOCATIONS.map((loc) => {
               const isDone = !!todayReports[loc];
               const draft = todayLiveDrafts[loc];
@@ -1642,53 +1676,58 @@ export default function App() {
                   key={loc}
                   type="button"
                   onClick={() => handleNav(loc)}
-                  className={`relative p-5 rounded-3xl flex items-center justify-between transition-all active:scale-[0.99] border shadow-sm hover:shadow-md ${
-                    isDone ? "bg-white border-emerald-300" : "bg-white border-slate-200 hover:border-slate-400"
+                  className={`relative p-5 rounded-[2rem] flex items-center justify-between transition-transform active:scale-95 border-2 shadow-sm hover:shadow-md ${
+                    isDone ? "bg-white border-green-200 hover:border-green-300" : "bg-white border-gray-100 hover:border-blue-300"
                   }`}
                 >
                   <div className="flex flex-col items-start text-left">
-                    <div className="flex items-center gap-2 mb-1.5 flex-wrap">
-                      <span className={`w-2.5 h-2.5 rounded-full ${LOCATION_COLORS[loc] || "bg-slate-900"}`} />
-                      <span className="text-xl sm:text-2xl font-black text-slate-900">{loc}</span>
+                    <div className="flex items-center gap-2 mb-1 flex-wrap">
+                      <span className={`w-3 h-3 rounded-full ${LOCATION_COLORS[loc] || "bg-blue-600"}`} />
+                      <span className="text-2xl font-black text-gray-900">{loc}</span>
                       {locActiveWorkers.length > 0 && (
-                        <span className="bg-emerald-50 text-emerald-700 border border-emerald-200 text-[11px] font-black px-2.5 py-0.5 rounded-full flex items-center">
-                          <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse mr-1.5" />
+                        <span className="bg-emerald-100 text-emerald-800 text-[11px] font-black px-2.5 py-0.5 rounded-full flex items-center">
+                          <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse mr-1.5" />
                           W pracy: {locActiveWorkers.length}
                         </span>
                       )}
                       {locTasksCount > 0 && (
-                        <span className="bg-rose-50 text-rose-700 border border-rose-200 text-[11px] font-black px-2.5 py-0.5 rounded-full flex items-center">
-                          <ClipboardList className="w-3 h-3 mr-1" /> Zadania: {locTasksCount}
+                        <span className="bg-amber-100 text-amber-800 text-[11px] font-black px-2.5 py-0.5 rounded-full flex items-center">
+                          <ClipboardList className="w-3.5 h-3.5 mr-1" /> Zadania: {locTasksCount}
                         </span>
                       )}
                       {isUnlockedHere && (
-                        <span className="bg-slate-100 text-slate-600 text-[10px] font-black px-2 py-0.5 rounded-full uppercase">
+                        <span className="bg-blue-50 text-blue-700 text-[10px] font-black px-2 py-0.5 rounded-full uppercase">
                           Odblokowano
                         </span>
                       )}
                     </div>
-                    <div className="flex items-center gap-2 flex-wrap">
+                    <div className="flex items-center opacity-90">
                       {isDone ? (
-                        <span className="text-xs font-bold text-emerald-600 flex items-center">
-                          <CheckCircle2 className="w-4 h-4 mr-1" /> Raport wysłany pomyślnie
-                        </span>
+                        <>
+                          <CheckCircle2 className="w-4 h-4 text-green-500 mr-1.5" />
+                          <span className="text-sm font-bold text-green-600">Raport wysłany pomyślnie</span>
+                        </>
                       ) : confirmedCount > 0 ? (
-                        <span className="text-xs font-bold text-blue-600 flex items-center">
-                          <Clock className="w-4 h-4 mr-1" /> W trakcie (Zatwierdzone sekcje: {confirmedCount})
-                        </span>
+                        <>
+                          <Clock className="w-4 h-4 text-blue-500 mr-1.5" />
+                          <span className="text-sm font-bold text-blue-600">
+                            W trakcie (Zatwierdzone sekcje: {confirmedCount})
+                          </span>
+                        </>
                       ) : (
-                        <span className="text-xs font-semibold text-slate-400 flex items-center">
-                          <XCircle className="w-4 h-4 mr-1 text-slate-300" /> Raport jeszcze niewysłany
-                        </span>
+                        <>
+                          <XCircle className="w-4 h-4 text-red-400 mr-1.5" />
+                          <span className="text-sm font-bold text-red-500">Raport nie zrobiony</span>
+                        </>
                       )}
                     </div>
                   </div>
                   <div
-                    className={`w-11 h-11 rounded-2xl flex items-center justify-center transition-colors ${
-                      isDone ? "bg-emerald-50 text-emerald-600" : "bg-slate-100 text-slate-700"
+                    className={`w-12 h-12 rounded-full flex items-center justify-center transition-colors ${
+                      isDone ? "bg-green-50 text-green-600" : "bg-gray-100 text-gray-500"
                     }`}
                   >
-                    <ArrowLeft className="w-5 h-5 rotate-180" />
+                    <ArrowLeft className="w-6 h-6 rotate-180" />
                   </div>
                 </button>
               );
@@ -1697,9 +1736,9 @@ export default function App() {
             <button
               type="button"
               onClick={() => setView("adminLogin")}
-              className="mt-6 flex items-center justify-center py-4.5 rounded-3xl bg-slate-900 text-white font-bold text-sm shadow-lg shadow-slate-900/15 active:scale-[0.99] transition-all hover:bg-slate-800"
+              className="mt-8 flex items-center justify-center py-5 rounded-[2rem] bg-gray-900 text-white font-bold text-sm shadow-xl shadow-gray-900/20 active:scale-95 transition-transform hover:bg-gray-800 border border-gray-700"
             >
-              <ShieldAlert className="w-5 h-5 mr-2.5" /> PANEL ADMINISTRATORA / MANAGERA
+              <ShieldAlert className="w-5 h-5 mr-3" /> LOGOWANIE WŁAŚCICIEL / MANAGER
             </button>
           </div>
         </div>
@@ -1708,15 +1747,15 @@ export default function App() {
       {view === "employeeLogin" && (
         <PinLoginScreen
           icon={Lock}
-          iconBgClass="bg-slate-900"
+          iconBgClass="bg-blue-600 shadow-blue-600/20"
           title={`Punkt: ${currentLocation}`}
           subtitle={
             <>
-              Wprowadź kod PIN przypisany do punktu <strong className="text-slate-800">{currentLocation}</strong>
+              Wprowadź unikalny kod PIN przypisany wyłącznie do punktu <strong className="text-gray-800">{currentLocation}</strong>
             </>
           }
-          submitLabel={`Otwórz pulpit ${currentLocation}`}
-          submitBtnClass="bg-slate-900 hover:bg-slate-800"
+          submitLabel={`Odblokuj punkt ${currentLocation}`}
+          submitBtnClass="bg-blue-600 shadow-blue-600/20 hover:bg-blue-700"
           onSubmitPin={handleEmployeeAuth}
           onBack={() => setView("select")}
         />
@@ -1749,11 +1788,11 @@ export default function App() {
       {view === "adminLogin" && (
         <PinLoginScreen
           icon={ShieldAlert}
-          iconBgClass="bg-slate-900"
-          title="Autoryzacja Zarządu"
+          iconBgClass="bg-gray-900 shadow-gray-900/20"
+          title="Autoryzacja"
           subtitle="Właściciel / Admin Kłodzko / Manager"
-          submitLabel="Zaloguj do Panelu"
-          submitBtnClass="bg-slate-900 hover:bg-slate-800"
+          submitLabel="Zaloguj się"
+          submitBtnClass="bg-gray-900 hover:bg-gray-800"
           onSubmitPin={handleAdminAuth}
           onBack={() => setView("select")}
         />
@@ -2155,12 +2194,12 @@ function EmployeeForm({
     return (
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2.5">
         {conf ? (
-          <div className="flex items-center text-xs font-extrabold text-emerald-700 bg-emerald-50 border border-emerald-200 px-3.5 py-2 rounded-xl">
+          <div className="flex items-center text-xs font-extrabold text-emerald-800 bg-emerald-100 border border-emerald-300 px-3.5 py-2 rounded-xl">
             <CheckCircle2 className="w-4 h-4 mr-2 text-emerald-600 shrink-0" />
             Zatwierdzono dla managera o godz. {conf.time} {conf.by ? `(${conf.by})` : ""}
           </div>
         ) : (
-          <span className="text-xs font-semibold text-slate-400">
+          <span className="text-xs font-semibold text-gray-500">
             Po przeliczeniu towaru kliknij przycisk obok, aby manager widział gotowe stany bez wysyłania całego raportu.
           </span>
         )}
@@ -2169,7 +2208,7 @@ function EmployeeForm({
           onClick={() => handleConfirmSection(sectionKey, sectionLabel)}
           className={`px-4 py-2.5 rounded-xl font-black text-xs flex items-center justify-center transition-colors shrink-0 shadow-sm ${
             conf
-              ? "bg-slate-100 hover:bg-emerald-600 text-slate-700 hover:text-white border border-slate-200"
+              ? "bg-white hover:bg-emerald-600 text-emerald-800 hover:text-white border border-emerald-300"
               : "bg-emerald-600 hover:bg-emerald-700 text-white"
           }`}
         >
@@ -2405,7 +2444,7 @@ function EmployeeForm({
     const list = Array.isArray(rawArr) ? rawArr.map(Number) : [];
     if (list.length === 0) return "Brak przypisanych dni";
     const names = DAYS_OF_WEEK.filter((d) => list.includes(d.id)).map((d) => d.name);
-    return `Harmonogram: ${names.join(", ")}`;
+    return `Zadanie na: ${names.join(", ")}`;
   };
 
   const isVegDay = isDeliveryDayFor("vegetables", DEFAULT_DELIVERY_DAYS.vegetables);
@@ -2424,24 +2463,24 @@ function EmployeeForm({
 
   const totalShiftExpenses = useMemo(() => calculateTotalExpenses(expenses), [expenses]);
 
-  const renderDeliveryBadge = (sectionKey, filled, total, isToday) => {
+  const renderDeliveryBadge = (sectionKey, filled, total, isToday, activeColorClass = "bg-blue-600") => {
     const isConfirmed = !!confirmedSections?.[sectionKey];
     return (
       <div className="flex items-center gap-1.5 flex-wrap">
-        <span className="bg-slate-100 text-slate-700 text-[11px] font-black px-2.5 py-1 rounded-lg">
+        <span className="bg-gray-100 text-gray-800 text-[11px] font-black px-2.5 py-1 rounded-full border border-gray-200">
           {filled} / {total}
         </span>
         {isConfirmed && (
-          <span className="bg-emerald-100 text-emerald-800 text-[10px] font-black px-2.5 py-1 rounded-lg uppercase">
+          <span className="bg-emerald-100 text-emerald-800 border border-emerald-300 text-[10px] font-black px-2.5 py-1 rounded-full uppercase">
             ✓ Zatwierdzono ({confirmedSections[sectionKey].time})
           </span>
         )}
         {isToday ? (
-          <span className="bg-slate-900 text-white text-[10px] font-black px-2.5 py-1 rounded-lg uppercase tracking-wider">
-            Na dziś
+          <span className={`${activeColorClass} text-white text-[10px] font-black px-3 py-1 rounded-full uppercase tracking-wider shadow-sm`}>
+            Do uzupełnienia dziś
           </span>
         ) : (
-          <span className="bg-slate-100 text-slate-500 text-[10px] font-bold px-2.5 py-1 rounded-lg uppercase">
+          <span className="bg-gray-200 text-gray-600 text-[10px] font-black px-3 py-1 rounded-full uppercase">
             Inny dzień
           </span>
         )}
@@ -2450,7 +2489,7 @@ function EmployeeForm({
   };
 
   return (
-    <div className="pb-28 bg-slate-50 min-h-screen">
+    <div className="pb-28 bg-gray-50 min-h-screen">
       <ConfirmExitModal
         isOpen={showExitConfirm}
         onCancel={() => setShowExitConfirm(false)}
@@ -2460,36 +2499,36 @@ function EmployeeForm({
         }}
       />
 
-      <div className="sticky top-0 z-40 bg-white/95 backdrop-blur-lg border-b border-slate-200 px-4 py-3 shadow-sm max-w-full">
+      <div className="sticky top-0 z-40 bg-white/95 backdrop-blur-lg border-b border-gray-200 px-4 py-3 shadow-sm max-w-full">
         <div className="max-w-4xl mx-auto flex items-center justify-between">
           <div className="flex items-center min-w-0">
             <button
               type="button"
               onClick={() => (isDirty ? setShowExitConfirm(true) : onBack())}
-              className="shrink-0 w-10 h-10 flex items-center justify-center bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-2xl mr-3 transition-colors"
+              className="shrink-0 w-10 h-10 flex items-center justify-center bg-gray-100 hover:bg-gray-200 text-gray-700 rounded-full mr-3 transition-colors"
             >
               <ArrowLeft className="w-5 h-5" />
             </button>
             <div className="min-w-0 truncate">
-              <h1 className="font-extrabold text-slate-900 text-base sm:text-xl truncate">
+              <h1 className="font-extrabold text-gray-900 text-base sm:text-xl truncate">
                 {isAdminEdit ? `Edycja Archiwum: ${location}` : `Raport Dzienny: ${location}`}
               </h1>
-              <p className="text-xs font-semibold text-slate-500 truncate flex items-center gap-2">
+              <p className="text-xs font-semibold text-gray-500 truncate flex items-center gap-2">
                 <span>Data: {todayStr}</span>
                 {isDirty && !isAdminEdit && (
-                  <span className="inline-flex items-center text-[10px] font-black text-emerald-700 bg-emerald-50 border border-emerald-200 px-2 py-0.5 rounded-md">
+                  <span className="inline-flex items-center text-[10px] font-black text-emerald-700 bg-emerald-100 px-2 py-0.5 rounded-full">
                     <Save className="w-3 h-3 mr-1" /> Szkic w chmurze aktywny
                   </span>
                 )}
               </p>
             </div>
           </div>
-          <div className={`shrink-0 px-3 py-1.5 rounded-xl text-xs font-black border ml-2 ${LOCATION_BADGE_STYLES[location] || "bg-slate-100 text-slate-800 border-slate-200"}`}>
+          <div className={`shrink-0 px-3 py-1.5 rounded-full text-xs font-black shadow-inner ml-2 ${isAdminEdit ? "bg-purple-100 text-purple-700" : isEdit ? "bg-green-100 text-green-700" : "bg-blue-100 text-blue-700"}`}>
             {todayStr}
           </div>
         </div>
 
-        <div className="max-w-4xl mx-auto mt-3 pt-2 border-t border-slate-100 grid grid-cols-2 sm:grid-cols-4 gap-1.5">
+        <div className="max-w-4xl mx-auto mt-3 pt-2 border-t border-gray-100 grid grid-cols-2 sm:grid-cols-4 gap-1.5">
           {[
             { id: "general", label: "1. Kasa & Obsada" },
             {
@@ -2511,8 +2550,8 @@ function EmployeeForm({
               onClick={() => setActiveFormTab(t.id)}
               className={`px-3 py-2.5 rounded-xl font-extrabold text-xs text-center transition-all ${
                 activeFormTab === t.id
-                  ? "bg-slate-900 text-white shadow-sm"
-                  : "bg-slate-100 text-slate-600 hover:bg-slate-200"
+                  ? "bg-blue-600 text-white shadow-sm"
+                  : "bg-gray-100 text-gray-600 hover:bg-gray-200"
               }`}
             >
               {t.label}
@@ -2521,15 +2560,15 @@ function EmployeeForm({
         </div>
       </div>
 
-      <form onSubmit={handleSubmit} noValidate className="p-4 sm:p-6 max-w-4xl mx-auto space-y-5 overflow-x-hidden">
+      <form onSubmit={handleSubmit} noValidate className="p-4 sm:p-6 max-w-4xl mx-auto space-y-6 overflow-x-hidden">
         <UrgentTasksBanner tasks={tasks} location={location} todayStr={todayStr} onCompleteTask={onCompleteTask} />
 
         {showGeneral && (
           <>
-            <Section title="Obsada i Osoba Raportująca" icon={Users}>
+            <Section title="Informacje Ogólne i Obsada" icon={Users} bgClass="bg-white border-gray-200">
               <div className="space-y-5">
                 <div>
-                  <label className="text-xs font-black text-slate-500 uppercase ml-1 block mb-1.5">
+                  <label className="text-xs font-black text-gray-500 uppercase ml-2 block mb-1.5">
                     Osoba wypełniająca raport (Punkt: {location})
                   </label>
                   <select
@@ -2539,7 +2578,7 @@ function EmployeeForm({
                       setIsDirty(true);
                       setReporter(e.target.value);
                     }}
-                    className="w-full p-4 bg-slate-50 border border-slate-200 focus:bg-white rounded-2xl outline-none focus:border-slate-900 font-bold text-slate-900"
+                    className="w-full p-4 bg-gray-50 border border-gray-200 focus:bg-white rounded-xl outline-none focus:ring-2 focus:ring-blue-500 font-bold text-gray-900 shadow-inner"
                   >
                     <option value="">— Wybierz swoje imię z listy ({location}) —</option>
                     {reporter && !locationEmployeesList.includes(reporter) && <option value={reporter}>{reporter}</option>}
@@ -2551,9 +2590,9 @@ function EmployeeForm({
                   </select>
                 </div>
 
-                <div className="pt-4 border-t border-slate-100">
+                <div className="pt-4 border-t border-gray-100">
                   <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 mb-3">
-                    <label className="text-xs font-black text-slate-500 uppercase ml-1 block">
+                    <label className="text-xs font-black text-gray-500 uppercase ml-2 block">
                       Godziny pracy personelu (automatycznie z czytnika RCP lub ręcznie)
                     </label>
                     {todayCompletedShifts.filter((s) => s?.location === location).length > 0 && (
@@ -2563,13 +2602,13 @@ function EmployeeForm({
                           setIsDirty(true);
                           applyCompletedShiftsToForm(todayCompletedShifts);
                         }}
-                        className="text-[11px] font-black text-slate-700 bg-slate-100 hover:bg-slate-200 px-3 py-1 rounded-lg self-start sm:self-center transition-colors"
+                        className="text-[11px] font-black text-indigo-700 bg-indigo-50 hover:bg-indigo-100 border border-indigo-200 px-3 py-1 rounded-lg self-start sm:self-center transition-colors"
                       >
                         Pobierz ponownie z czytnika RCP
                       </button>
                     )}
                   </div>
-                  <div className="space-y-2.5">
+                  <div className="space-y-3">
                     {[0, 1, 2].map((i) => {
                       const currentEmpName = employees[i]?.name || "";
                       return (
@@ -2577,7 +2616,7 @@ function EmployeeForm({
                           <select
                             value={currentEmpName}
                             onChange={(e) => updateEmployee(i, "name", e.target.value)}
-                            className="flex-[2] min-w-[150px] p-3.5 bg-slate-50 border border-slate-200 focus:bg-white rounded-2xl outline-none focus:border-slate-900 font-semibold text-sm text-slate-900"
+                            className="flex-[2] min-w-[150px] p-4 bg-gray-50 border border-gray-200 focus:bg-white rounded-xl outline-none focus:ring-2 focus:ring-blue-500 font-semibold text-sm shadow-inner text-gray-900"
                           >
                             <option value="">{`— Pracownik ${i + 1} (${location}) —`}</option>
                             {currentEmpName && !locationEmployeesList.includes(currentEmpName) && (
@@ -2593,7 +2632,7 @@ function EmployeeForm({
                             type="text"
                             value={employees[i]?.hours || ""}
                             onChange={(e) => updateEmployee(i, "hours", e.target.value)}
-                            className="flex-1 min-w-[110px] p-3.5 bg-slate-50 border border-slate-200 focus:bg-white rounded-2xl outline-none focus:border-slate-900 font-bold text-sm text-center"
+                            className="flex-1 min-w-[110px] p-4 bg-gray-50 border border-gray-200 focus:bg-white rounded-xl outline-none focus:ring-2 focus:ring-blue-500 font-semibold text-sm text-center shadow-inner"
                             placeholder="np. 10:00-22:00"
                           />
                         </div>
@@ -2604,17 +2643,22 @@ function EmployeeForm({
               </div>
             </Section>
 
-            <Section title="Zestawienie Utargów i Kasy" icon={Banknote}>
+            <Section
+              title="Zestawienie Utargów i Kasy"
+              icon={Banknote}
+              titleColor="text-emerald-800"
+              bgClass="bg-emerald-50/40 border-emerald-200"
+            >
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 {[
                   { key: "gotowka", label: "Gotówka w kasie" },
                   { key: "karta", label: "Karta Płatnicza (Terminal)" },
                   { key: "aplikacje", label: "Aplikacje (Pyszne / Glovo / Uber)" },
-                  { key: "raportFiskalny", label: "Raport Fiskalny (Z-ka)", isFiscal: true },
+                  { key: "raportFiskalny", label: "Raport Fiskalny (Do Płatności)", isFiscal: true },
                   { key: "roznica", label: "Brak / Nadwyżka" },
                 ].map(({ key, label, isFiscal }) => (
                   <div key={key} className="sm:col-span-1">
-                    <label className={`block text-[11px] font-black mb-1.5 uppercase ml-1 ${isFiscal ? "text-blue-700" : "text-slate-500"}`}>
+                    <label className={`block text-[11px] font-black mb-1.5 uppercase ml-2 ${isFiscal ? "text-indigo-800" : "text-emerald-800"}`}>
                       {label}
                     </label>
                     <div className="relative">
@@ -2629,18 +2673,18 @@ function EmployeeForm({
                             setRevenue((prev) => ({ ...prev, [key]: val }));
                           }
                         }}
-                        className={`w-full p-3.5 pl-4 pr-12 bg-slate-50 focus:bg-white border rounded-2xl outline-none font-black text-xl text-slate-900 transition-colors ${
-                          isFiscal ? "border-blue-300 focus:border-blue-600" : "border-slate-200 focus:border-slate-900"
+                        className={`w-full p-4 pl-4 pr-12 bg-white border rounded-xl outline-none font-black text-xl text-gray-900 shadow-inner transition-colors ${
+                          isFiscal ? "border-indigo-300 focus:ring-2 focus:ring-indigo-500" : "border-emerald-200 focus:ring-2 focus:ring-emerald-500"
                         }`}
                         placeholder="0.00"
                       />
-                      <span className="absolute right-4 top-1/2 -translate-y-1/2 text-slate-400 font-bold text-xs">PLN</span>
+                      <span className="absolute right-4 top-1/2 -translate-y-1/2 text-gray-400 font-bold">PLN</span>
                     </div>
                   </div>
                 ))}
 
                 <div className="sm:col-span-1">
-                  <label className="block text-[11px] font-black mb-1.5 uppercase ml-1 text-slate-500">
+                  <label className="block text-[11px] font-black mb-1.5 uppercase ml-2 text-blue-800">
                     Liczba zamówień / paragonów (opcjonalnie)
                   </label>
                   <div className="relative">
@@ -2655,30 +2699,33 @@ function EmployeeForm({
                           setOrdersCount(val);
                         }
                       }}
-                      className="w-full p-3.5 pl-4 pr-16 bg-slate-50 focus:bg-white border border-slate-200 focus:border-slate-900 rounded-2xl outline-none font-black text-xl text-slate-900 transition-colors"
+                      className="w-full p-4 pl-4 pr-16 bg-white border border-blue-300 focus:ring-2 focus:ring-blue-500 rounded-xl outline-none font-black text-xl text-gray-900 shadow-inner transition-colors"
                       placeholder={estimatedOrdersFromRevenue > 0 ? `auto: ~${estimatedOrdersFromRevenue}` : "0"}
                     />
-                    <span className="absolute right-4 top-1/2 -translate-y-1/2 text-slate-400 font-bold text-xs">ZAM.</span>
+                    <span className="absolute right-4 top-1/2 -translate-y-1/2 text-blue-500 font-bold text-xs">ZAM.</span>
                   </div>
+                  <span className="block text-[10px] font-bold text-emerald-800/70 mt-1 ml-2">
+                    Jeśli puste, wyliczy automatycznie z utargu (~{DEFAULT_AVG_ORDER_VALUE} zł / zam.)
+                  </span>
                 </div>
               </div>
 
-              <div className="mt-6 pt-5 border-t border-slate-100">
+              <div className="mt-6 pt-5 border-t border-emerald-200/70">
                 <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 mb-3">
                   <div>
-                    <h4 className="font-extrabold text-sm text-slate-900 flex items-center">
-                      <Wallet className="w-4 h-4 mr-1.5 text-slate-600" /> Wydatki z kasy na zmianie (KW / Zakupy z gotówki)
+                    <h4 className="font-extrabold text-sm text-emerald-950 flex items-center">
+                      <Wallet className="w-4 h-4 mr-1.5 text-emerald-700" /> Wydatki z kasy na zmianie (KW / Zakupy towaru z gotówki)
                     </h4>
-                    <p className="text-xs text-slate-500 font-medium">
-                      Jeśli brałeś gotówkę z kasy na zakupy towaru lub serwis, dodaj pozycję poniżej.
+                    <p className="text-xs text-emerald-700/80 font-medium">
+                      Jeśli brałeś gotówkę z kasy na zakupy (np. sałata, cytryna, serwis), dodaj pozycję poniżej.
                     </p>
                   </div>
                   <button
                     type="button"
                     onClick={handleAddExpenseRow}
-                    className="self-start sm:self-center shrink-0 px-3.5 py-2 bg-slate-900 hover:bg-slate-800 text-white font-black text-xs rounded-xl flex items-center transition-colors"
+                    className="self-start sm:self-center shrink-0 px-3.5 py-2 bg-emerald-700 hover:bg-emerald-800 text-white font-black text-xs rounded-xl flex items-center transition-colors shadow-sm"
                   >
-                    <PlusCircle className="w-4 h-4 mr-1.5" /> Dodaj wydatek (KW)
+                    <PlusCircle className="w-4 h-4 mr-1.5" /> Dodaj wydatek z kasy
                   </button>
                 </div>
 
@@ -2687,14 +2734,14 @@ function EmployeeForm({
                     {expenses.map((exp, idx) => (
                       <div
                         key={idx}
-                        className="flex flex-wrap sm:flex-nowrap items-center gap-2 bg-slate-50 p-2.5 rounded-2xl border border-slate-200"
+                        className="flex flex-wrap sm:flex-nowrap items-center gap-2 bg-white p-2.5 rounded-xl border border-emerald-200 shadow-sm"
                       >
                         <input
                           type="text"
                           value={exp.description}
                           onChange={(e) => handleUpdateExpenseRow(idx, "description", e.target.value)}
-                          placeholder="Na co wydano? (np. Sałata, ręczniki)"
-                          className="flex-[2] min-w-[160px] p-3 bg-white border border-slate-200 rounded-xl text-sm font-bold text-slate-900 outline-none focus:border-slate-900"
+                          placeholder="Na co wydano? (np. Sałata Biedronka, ręczniki)"
+                          className="flex-[2] min-w-[160px] p-3 bg-gray-50 border border-gray-200 rounded-lg text-sm font-bold text-gray-900 outline-none focus:bg-white focus:border-emerald-500"
                         />
                         <div className="relative flex-1 min-w-[110px]">
                           <input
@@ -2706,21 +2753,21 @@ function EmployeeForm({
                               if (v === "" || /^\d*[.,]?\d*$/.test(v)) handleUpdateExpenseRow(idx, "amount", v);
                             }}
                             placeholder="Kwota"
-                            className="w-full p-3 pr-10 bg-white border border-slate-200 rounded-xl text-sm font-black text-slate-900 outline-none focus:border-slate-900"
+                            className="w-full p-3 pr-10 bg-gray-50 border border-gray-200 rounded-lg text-sm font-black text-gray-900 outline-none focus:bg-white focus:border-emerald-500"
                           />
-                          <span className="absolute right-3 top-1/2 -translate-y-1/2 text-xs font-bold text-slate-400">zł</span>
+                          <span className="absolute right-3 top-1/2 -translate-y-1/2 text-xs font-bold text-gray-400">zł</span>
                         </div>
                         <button
                           type="button"
                           onClick={() => handleRemoveExpenseRow(idx)}
-                          className="p-3 text-rose-500 hover:bg-rose-50 rounded-xl transition-colors shrink-0"
+                          className="p-3 text-red-500 hover:bg-red-50 rounded-lg transition-colors shrink-0"
                           title="Usuń wydatek"
                         >
                           <Trash2 className="w-4 h-4" />
                         </button>
                       </div>
                     ))}
-                    <div className="flex justify-end items-center text-xs font-black text-slate-800 pt-1 pr-2">
+                    <div className="flex justify-end items-center text-xs font-black text-emerald-900 pt-1 pr-2">
                       Suma wydatków z kasy: {totalShiftExpenses.toFixed(2)} PLN
                     </div>
                   </div>
@@ -2732,20 +2779,20 @@ function EmployeeForm({
 
         {showInventorySearchBar && (
           <div className="flex flex-col sm:flex-row gap-2.5">
-            <div className="flex-1 bg-white p-3 rounded-2xl border border-slate-200 shadow-sm flex items-center gap-2.5">
-              <Search className="w-5 h-5 text-slate-400 ml-1 shrink-0" />
+            <div className="flex-1 bg-white p-3.5 rounded-2xl border border-gray-200 shadow-sm flex items-center gap-3">
+              <Search className="w-5 h-5 text-blue-600 ml-1 shrink-0" />
               <input
                 type="text"
                 value={itemSearchQuery}
                 onChange={(e) => setItemSearchQuery(e.target.value)}
-                placeholder="Szukaj produktu w tej zakładce..."
-                className="w-full bg-transparent font-bold text-sm text-slate-900 outline-none"
+                placeholder="Filtruj asortyment przypisany do tego punktu..."
+                className="w-full bg-transparent font-bold text-sm text-gray-900 outline-none"
               />
               {itemSearchQuery && (
                 <button
                   type="button"
                   onClick={() => setItemSearchQuery("")}
-                  className="text-xs font-black text-slate-500 hover:text-slate-800 bg-slate-100 px-2.5 py-1 rounded-lg shrink-0"
+                  className="text-xs font-black text-gray-500 hover:text-gray-800 bg-gray-100 px-2.5 py-1 rounded-lg shrink-0"
                 >
                   Wyczyść
                 </button>
@@ -2757,8 +2804,8 @@ function EmployeeForm({
                 onClick={() => setShowAllDaysCategories((prev) => !prev)}
                 className={`px-4 py-3 rounded-2xl font-extrabold text-xs border transition-colors shrink-0 ${
                   showAllDaysCategories
-                    ? "bg-slate-900 text-white border-slate-900"
-                    : "bg-white text-slate-700 border-slate-200 hover:bg-slate-100"
+                    ? "bg-blue-600 text-white border-blue-600 shadow-sm"
+                    : "bg-white text-gray-700 border-gray-200 hover:bg-gray-100"
                 }`}
               >
                 {showAllDaysCategories ? "Ukryj kategorie spoza dzisiaj" : "Pokaż też kategorie z innych dni"}
@@ -2773,10 +2820,12 @@ function EmployeeForm({
               <Section
                 title="Warzywa i Inne"
                 icon={Leaf}
+                titleColor={isVegDay ? "text-green-800" : "text-gray-900"}
+                bgClass={isVegDay ? "bg-green-50/40 border-green-200" : "bg-white border-gray-200"}
                 collapsible={true}
                 defaultExpanded={true}
                 subtitle={getDeliverySubtitle("vegetables", DEFAULT_DELIVERY_DAYS.vegetables)}
-                badge={renderDeliveryBadge("vegetables", countFilledInRecord(vegetables, vegList), vegList.length, isVegDay)}
+                badge={renderDeliveryBadge("vegetables", countFilledInRecord(vegetables, vegList), vegList.length, isVegDay, "bg-green-600")}
                 footerAction={renderSectionConfirmFooter("vegetables", "Warzywa i Inne")}
               >
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-x-4">
@@ -2798,10 +2847,12 @@ function EmployeeForm({
               <Section
                 title="Stan Zamrażarek"
                 icon={Snowflake}
+                titleColor={isFreezerDay ? "text-blue-800" : "text-gray-900"}
+                bgClass={isFreezerDay ? "bg-blue-50/40 border-blue-200" : "bg-white border-gray-200"}
                 collapsible={true}
                 defaultExpanded={true}
                 subtitle={getDeliverySubtitle("freezer", DEFAULT_DELIVERY_DAYS.freezer)}
-                badge={renderDeliveryBadge("freezer", countFilledInRecord(freezer, freezerList), freezerList.length, isFreezerDay)}
+                badge={renderDeliveryBadge("freezer", countFilledInRecord(freezer, freezerList), freezerList.length, isFreezerDay, "bg-blue-600")}
                 footerAction={renderSectionConfirmFooter("freezer", "Stan Zamrażarek")}
               >
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-x-4">
@@ -2824,14 +2875,14 @@ function EmployeeForm({
         {showDeliveries && (
           <>
             {!isFarutexDay && !isMeat1Day && !isMeat2Day && !showAllDaysCategories && !itemSearchQuery && (
-              <div className="bg-white p-6 rounded-3xl border border-slate-200 text-center space-y-3">
-                <p className="text-sm font-bold text-slate-700">
+              <div className="bg-orange-50/60 p-6 rounded-[2rem] border-2 border-orange-200 text-center space-y-3">
+                <p className="text-sm font-bold text-orange-950">
                   Na dzisiaj ({todayStr}) w harmonogramie nie przypisano dostaw Farutex / Mięso.
                 </p>
                 <button
                   type="button"
                   onClick={() => setShowAllDaysCategories(true)}
-                  className="px-4 py-2.5 bg-slate-900 text-white rounded-xl font-black text-xs"
+                  className="px-4 py-2.5 bg-orange-600 hover:bg-orange-700 text-white rounded-xl font-black text-xs shadow-sm"
                 >
                   Pokaż mimo to wszystkie sekcje dostaw (Farutex / Mięso 1 / Mięso 2)
                 </button>
@@ -2842,10 +2893,12 @@ function EmployeeForm({
               <Section
                 title="Farutex"
                 icon={Truck}
+                titleColor={isFarutexDay ? "text-orange-800" : "text-gray-900"}
+                bgClass={isFarutexDay ? "bg-orange-50/60 border-orange-200" : "bg-white border-gray-200"}
                 collapsible={true}
                 defaultExpanded={true}
                 subtitle={getDeliverySubtitle("farutex", DEFAULT_DELIVERY_DAYS.farutex)}
-                badge={renderDeliveryBadge("farutex", countFilledInRecord(farutex, farutexList), farutexList.length, isFarutexDay)}
+                badge={renderDeliveryBadge("farutex", countFilledInRecord(farutex, farutexList), farutexList.length, isFarutexDay, "bg-orange-600")}
                 footerAction={renderSectionConfirmFooter("farutex", "Farutex")}
               >
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-x-4">
@@ -2867,10 +2920,12 @@ function EmployeeForm({
               <Section
                 title="Dostawa Mięso 1"
                 icon={Package}
+                titleColor={isMeat1Day ? "text-red-800" : "text-gray-900"}
+                bgClass={isMeat1Day ? "bg-red-50/60 border-red-200" : "bg-white border-gray-200"}
                 collapsible={true}
                 defaultExpanded={true}
                 subtitle={getDeliverySubtitle("meat1", DEFAULT_DELIVERY_DAYS.meat1)}
-                badge={renderDeliveryBadge("meat1", countFilledInRecord(meat1, meat1List), meat1List.length, isMeat1Day)}
+                badge={renderDeliveryBadge("meat1", countFilledInRecord(meat1, meat1List), meat1List.length, isMeat1Day, "bg-red-600")}
                 footerAction={renderSectionConfirmFooter("meat1", "Dostawa Mięso 1")}
               >
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-x-4">
@@ -2892,10 +2947,12 @@ function EmployeeForm({
               <Section
                 title="Dostawa Mięso 2"
                 icon={Package}
+                titleColor={isMeat2Day ? "text-red-800" : "text-gray-900"}
+                bgClass={isMeat2Day ? "bg-red-50/60 border-red-200" : "bg-white border-gray-200"}
                 collapsible={true}
                 defaultExpanded={true}
                 subtitle={getDeliverySubtitle("meat2", DEFAULT_DELIVERY_DAYS.meat2)}
-                badge={renderDeliveryBadge("meat2", countFilledInRecord(meat2, meat2List), meat2List.length, isMeat2Day)}
+                badge={renderDeliveryBadge("meat2", countFilledInRecord(meat2, meat2List), meat2List.length, isMeat2Day, "bg-red-600")}
                 footerAction={renderSectionConfirmFooter("meat2", "Dostawa Mięso 2")}
               >
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-x-4">
@@ -2919,13 +2976,15 @@ function EmployeeForm({
           <>
             <Section
               title="Braki: Sosy"
+              titleColor={isSaucesDay ? "text-blue-800" : "text-gray-900"}
+              bgClass={isSaucesDay ? "bg-blue-50/30 border-blue-200" : "bg-white border-gray-200"}
               collapsible={true}
               defaultExpanded={true}
               subtitle={getDeliverySubtitle("sauces", DEFAULT_DELIVERY_DAYS.sauces)}
-              badge={renderDeliveryBadge("sauces", sauces.length, saucesList.length, isSaucesDay)}
+              badge={renderDeliveryBadge("sauces", sauces.length, saucesList.length, isSaucesDay, "bg-blue-600")}
               footerAction={renderSectionConfirmFooter("sauces", "Braki: Sosy")}
             >
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 {filterBySearch(saucesList).map((s) => {
                   const checked = Array.isArray(sauces) && sauces.includes(s);
                   return (
@@ -2941,27 +3000,27 @@ function EmployeeForm({
                           handleSauceToggle(s);
                         }
                       }}
-                      className={`flex items-center p-4 rounded-2xl cursor-pointer transition-all border select-none touch-manipulation ${
+                      className={`flex items-center p-4 rounded-xl cursor-pointer transition-colors border-2 select-none touch-manipulation ${
                         checked
-                          ? "bg-slate-900 border-slate-900 text-white shadow-sm"
-                          : "bg-slate-50 border-slate-200 text-slate-800 hover:bg-slate-100"
+                          ? "bg-blue-50 border-blue-400 shadow-sm"
+                          : "bg-gray-50 border-transparent hover:bg-gray-100"
                       }`}
                     >
                       <div
-                        className={`shrink-0 w-6 h-6 rounded-lg flex items-center justify-center mr-3 transition-colors border ${
-                          checked ? "bg-emerald-500 border-emerald-500" : "bg-white border-slate-300"
+                        className={`shrink-0 w-7 h-7 rounded-lg flex items-center justify-center mr-3 transition-colors border-2 ${
+                          checked ? "bg-blue-600 border-blue-600" : "bg-white border-gray-300"
                         }`}
                       >
-                        {checked && <CheckCircle2 className="w-4 h-4 text-white" />}
+                        {checked && <CheckCircle2 className="w-5 h-5 text-white" />}
                       </div>
-                      <span className="text-sm font-bold truncate">{s}</span>
+                      <span className={`text-sm font-bold truncate ${checked ? "text-blue-900" : "text-gray-700"}`}>{s}</span>
                     </div>
                   );
                 })}
               </div>
 
-              <div className="mt-4 pt-4 border-t border-slate-100">
-                <label className="text-xs font-black text-slate-500 uppercase ml-1 block mb-1.5">
+              <div className="mt-4 pt-4 border-t border-gray-100">
+                <label className="text-xs font-black text-gray-500 uppercase ml-2 block mb-1.5">
                   Uwagi do sosów / dodatkowe informacje
                 </label>
                 <input
@@ -2971,7 +3030,7 @@ function EmployeeForm({
                     setIsDirty(true);
                     setSaucesNote(e.target.value);
                   }}
-                  className="w-full p-3.5 bg-slate-50 focus:bg-white border border-slate-200 rounded-2xl outline-none focus:border-slate-900 transition-colors font-medium text-slate-900 text-sm"
+                  className="w-full p-4 bg-gray-50 focus:bg-white border border-gray-200 rounded-xl outline-none focus:ring-2 focus:ring-blue-500 transition-colors font-medium text-gray-900 shadow-inner text-sm"
                   placeholder="Np. zostało pół wiadra czosnkowego, trzeba dorobić ostry rano..."
                 />
               </div>
@@ -2981,10 +3040,12 @@ function EmployeeForm({
               <Section
                 title="Inne: Opakowania / Chemia"
                 icon={Package}
+                titleColor={isOtherDay ? "text-purple-800" : "text-gray-900"}
+                bgClass={isOtherDay ? "bg-purple-50/40 border-purple-200" : "bg-white border-gray-200"}
                 collapsible={true}
                 defaultExpanded={isOtherDay || showAllDaysCategories || !!itemSearchQuery}
                 subtitle={getDeliverySubtitle("otherItems", DEFAULT_DELIVERY_DAYS.otherItems)}
-                badge={renderDeliveryBadge("otherItems", countFilledInRecord(otherItems, otherItemsList), otherItemsList.length, isOtherDay)}
+                badge={renderDeliveryBadge("otherItems", countFilledInRecord(otherItems, otherItemsList), otherItemsList.length, isOtherDay, "bg-purple-600")}
                 footerAction={renderSectionConfirmFooter("otherItems", "Opakowania i Chemia")}
               >
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-x-4">
@@ -3017,13 +3078,15 @@ function EmployeeForm({
                     key={cat.id}
                     title={cat.name}
                     icon={Package}
+                    titleColor={isCustomDay ? "text-indigo-800" : "text-gray-900"}
+                    bgClass={isCustomDay ? "bg-indigo-50/40 border-indigo-200" : "bg-white border-gray-200"}
                     collapsible={true}
                     defaultExpanded={isCustomDay || showAllDaysCategories || !!itemSearchQuery}
                     subtitle={customSub}
-                    badge={renderDeliveryBadge(customScheduleKey, checkedList.length, catItems.length, isCustomDay)}
+                    badge={renderDeliveryBadge(customScheduleKey, checkedList.length, catItems.length, isCustomDay, "bg-indigo-600")}
                     footerAction={renderSectionConfirmFooter(customScheduleKey, cat.name)}
                   >
-                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                       {filterBySearch(catItems).map((item) => {
                         const checked = checkedList.includes(item);
                         return (
@@ -3039,20 +3102,20 @@ function EmployeeForm({
                                 handleCustomCheckboxToggle(cat.id, item);
                               }
                             }}
-                            className={`flex items-center p-4 rounded-2xl cursor-pointer transition-all border select-none touch-manipulation ${
+                            className={`flex items-center p-4 rounded-xl cursor-pointer transition-colors border-2 select-none touch-manipulation ${
                               checked
-                                ? "bg-slate-900 border-slate-900 text-white"
-                                : "bg-slate-50 border-slate-200 text-slate-800 hover:bg-slate-100"
+                                ? "bg-indigo-50 border-indigo-400 shadow-sm"
+                                : "bg-gray-50 border-transparent hover:bg-gray-100"
                             }`}
                           >
                             <div
-                              className={`shrink-0 w-6 h-6 rounded-lg flex items-center justify-center mr-3 transition-colors border ${
-                                checked ? "bg-emerald-500 border-emerald-500" : "bg-white border-slate-300"
+                              className={`shrink-0 w-7 h-7 rounded-lg flex items-center justify-center mr-3 transition-colors border-2 ${
+                                checked ? "bg-indigo-600 border-indigo-600" : "bg-white border-gray-300"
                               }`}
                             >
-                              {checked && <CheckCircle2 className="w-4 h-4 text-white" />}
+                              {checked && <CheckCircle2 className="w-5 h-5 text-white" />}
                             </div>
-                            <span className="text-sm font-bold truncate">{item}</span>
+                            <span className={`text-sm font-bold truncate ${checked ? "text-indigo-900" : "text-gray-700"}`}>{item}</span>
                           </div>
                         );
                       })}
@@ -3067,10 +3130,12 @@ function EmployeeForm({
                   key={cat.id}
                   title={cat.name}
                   icon={Package}
+                  titleColor={isCustomDay ? "text-indigo-800" : "text-gray-900"}
+                  bgClass={isCustomDay ? "bg-indigo-50/40 border-indigo-200" : "bg-white border-gray-200"}
                   collapsible={true}
                   defaultExpanded={isCustomDay || showAllDaysCategories || !!itemSearchQuery}
                   subtitle={customSub}
-                  badge={renderDeliveryBadge(customScheduleKey, countFilledInRecord(valObj, catItems), catItems.length, isCustomDay)}
+                  badge={renderDeliveryBadge(customScheduleKey, countFilledInRecord(valObj, catItems), catItems.length, isCustomDay, "bg-indigo-600")}
                   footerAction={renderSectionConfirmFooter(customScheduleKey, cat.name)}
                 >
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-x-4">
@@ -3089,7 +3154,7 @@ function EmployeeForm({
               );
             })}
 
-            <Section title="Uwagi końcowe do raportu" icon={Beaker}>
+            <Section title="Uwagi końcowe do raportu" icon={Beaker} bgClass="bg-white border-gray-200">
               <textarea
                 value={notes}
                 onChange={(e) => {
@@ -3097,46 +3162,46 @@ function EmployeeForm({
                   setNotes(e.target.value);
                 }}
                 rows="4"
-                className="w-full p-4 bg-slate-50 focus:bg-white border border-slate-200 rounded-2xl outline-none focus:border-slate-900 transition-colors font-medium text-slate-900"
+                className="w-full p-4 bg-gray-50 focus:bg-white border border-gray-200 rounded-xl outline-none focus:ring-2 focus:ring-blue-500 transition-colors font-medium text-gray-900 shadow-inner"
                 placeholder="Nietypowe braki, awarie sprzętu, informacje dla właściciela..."
               />
             </Section>
           </>
         )}
 
-        <div className="fixed bottom-0 left-0 right-0 p-3.5 bg-white/95 backdrop-blur-md border-t border-slate-200 z-50">
+        <div className="fixed bottom-0 left-0 right-0 p-3.5 bg-white/95 backdrop-blur-md border-t border-gray-200 z-50">
           <div className="max-w-4xl mx-auto flex gap-2.5">
             <button
               type="button"
               onClick={() => syncDraftToCloud().then(() => onShowModal("Szkic roboczy został zapisany w chmurze dla managera!"))}
-              className="px-4 py-4 bg-slate-100 hover:bg-slate-200 text-slate-800 font-extrabold text-xs sm:text-sm rounded-2xl flex items-center justify-center transition-colors shrink-0"
+              className="px-4 py-4 bg-gray-100 hover:bg-gray-200 text-gray-800 font-extrabold text-xs sm:text-sm rounded-2xl flex items-center justify-center transition-colors shrink-0 border border-gray-300"
             >
               <Save className="w-4 h-4 mr-1.5" /> Zapisz szkic
             </button>
             <button
               type="submit"
               disabled={loading}
-              className={`flex-1 py-4 text-white font-black text-base sm:text-lg rounded-2xl shadow-lg flex justify-center items-center active:scale-[0.99] transition-all disabled:opacity-70 ${
+              className={`flex-1 py-4 text-white font-black text-base sm:text-xl rounded-2xl shadow-xl flex justify-center items-center active:scale-[0.98] transition-transform disabled:opacity-70 ${
                 isAdminEdit
-                  ? "bg-purple-600 hover:bg-purple-700"
+                  ? "bg-purple-600 hover:bg-purple-700 shadow-purple-600/30"
                   : isEdit
-                  ? "bg-emerald-600 hover:bg-emerald-700"
-                  : "bg-slate-900 hover:bg-slate-800"
+                  ? "bg-green-600 hover:bg-green-700 shadow-green-600/30"
+                  : "bg-blue-600 hover:bg-blue-700 shadow-blue-600/30"
               }`}
             >
               {loading ? (
-                "Zapisywanie..."
+                "Przetwarzanie danych..."
               ) : isAdminEdit ? (
                 <>
-                  <CheckCircle2 className="w-5 h-5 mr-2" /> Zapisz w Archiwum ({todayStr})
+                  <CheckCircle2 className="w-6 h-6 mr-2" /> Zapisz Zmiany w Archiwum ({todayStr})
                 </>
               ) : isEdit ? (
                 <>
-                  <CheckCircle2 className="w-5 h-5 mr-2" /> Zaktualizuj Raport Dzienny
+                  <CheckCircle2 className="w-6 h-6 mr-2" /> Zaktualizuj Raport
                 </>
               ) : (
                 <>
-                  <Send className="w-5 h-5 mr-2" /> Wyślij Raport Końcowy
+                  <Send className="w-6 h-6 mr-2" /> Wyślij Raport Dzienny
                 </>
               )}
             </button>
@@ -3244,7 +3309,7 @@ function NysaWarehouseForm({
   };
 
   return (
-    <div className="pb-28 bg-slate-50 min-h-screen">
+    <div className="pb-28 bg-gray-50 min-h-screen">
       <ConfirmExitModal
         isOpen={showExitConfirm}
         onCancel={() => setShowExitConfirm(false)}
@@ -3254,39 +3319,39 @@ function NysaWarehouseForm({
         }}
       />
 
-      <div className="sticky top-0 z-40 bg-white/95 backdrop-blur-lg border-b border-slate-200 px-4 py-4 flex items-center justify-between shadow-sm">
+      <div className="sticky top-0 z-40 bg-white/95 backdrop-blur-lg border-b border-gray-200 px-4 py-4 flex items-center justify-between shadow-sm">
         <div className="flex items-center min-w-0">
           <button
             type="button"
             onClick={() => (isDirty ? setShowExitConfirm(true) : onBack())}
-            className="shrink-0 w-10 h-10 flex items-center justify-center bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-2xl mr-3 transition-colors"
+            className="shrink-0 w-10 h-10 flex items-center justify-center bg-gray-100 hover:bg-gray-200 text-gray-700 rounded-full mr-3 transition-colors"
           >
             <ArrowLeft className="w-5 h-5" />
           </button>
           <div className="min-w-0 truncate">
-            <h1 className="font-extrabold text-slate-900 text-lg sm:text-xl truncate">Magazyn Główny Nysa</h1>
-            <p className="text-xs font-semibold text-slate-500 truncate">
+            <h1 className="font-extrabold text-gray-900 text-lg sm:text-xl truncate">Magazyn Główny Nysa</h1>
+            <p className="text-xs font-semibold text-gray-500 truncate">
               {isEdit ? `Edycja stanu (${todayStr})` : `Uzupełniasz stan (${todayStr})`}
             </p>
           </div>
         </div>
       </div>
 
-      <form onSubmit={handleSubmit} noValidate className="p-4 sm:p-6 max-w-4xl mx-auto space-y-5 overflow-x-hidden">
-        <div className="bg-white p-3.5 rounded-2xl border border-slate-200 shadow-sm flex items-center gap-3">
-          <Search className="w-5 h-5 text-slate-400 ml-1 shrink-0" />
+      <form onSubmit={handleSubmit} noValidate className="p-4 sm:p-6 max-w-4xl mx-auto space-y-6 overflow-x-hidden">
+        <div className="bg-white p-3.5 rounded-2xl border border-purple-200 shadow-sm flex items-center gap-3">
+          <Search className="w-5 h-5 text-purple-600 ml-1 shrink-0" />
           <input
             type="text"
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
-            placeholder="Szukaj w magazynie głównym Nysa..."
-            className="w-full bg-transparent font-bold text-sm text-slate-900 outline-none"
+            placeholder="Filtruj asortyment magazynu Nysa..."
+            className="w-full bg-transparent font-bold text-sm text-gray-900 outline-none"
           />
           {searchQuery && (
             <button
               type="button"
               onClick={() => setSearchQuery("")}
-              className="text-xs font-black text-slate-500 hover:text-slate-800 bg-slate-100 px-2.5 py-1 rounded-lg shrink-0"
+              className="text-xs font-black text-gray-500 hover:text-gray-800 bg-gray-100 px-2.5 py-1 rounded-lg shrink-0"
             >
               Wyczyść
             </button>
@@ -3297,7 +3362,7 @@ function NysaWarehouseForm({
           { title: "Żywność (Magazyn Nysa)", icon: ChefHat, list: nysaFoodList, state: food, handler: handleFoodChange },
           { title: "Opakowania (Magazyn Nysa)", icon: Package, list: nysaPackList, state: pack, handler: handlePackChange },
         ].map(({ title, icon: Icon, list, state, handler }) => (
-          <Section key={title} title={title} icon={Icon}>
+          <Section key={title} title={title} icon={Icon} titleColor="text-purple-900" bgClass="bg-purple-50/30 border-purple-200">
             <div className="grid grid-cols-1 md:grid-cols-2 gap-x-4">
               {filterList(list).map((item) => (
                 <Counter
@@ -3313,12 +3378,12 @@ function NysaWarehouseForm({
           </Section>
         ))}
 
-        <div className="fixed bottom-0 left-0 right-0 p-4 bg-white/95 backdrop-blur-md border-t border-slate-200 z-50">
+        <div className="fixed bottom-0 left-0 right-0 p-4 bg-white/95 backdrop-blur-md border-t border-gray-200 z-50">
           <div className="max-w-4xl mx-auto">
             <button
               type="submit"
               disabled={loading}
-              className="w-full py-4 text-white font-black text-lg rounded-2xl shadow-lg flex justify-center items-center active:scale-[0.99] transition-all bg-slate-900 hover:bg-slate-800 disabled:opacity-70"
+              className="w-full py-5 text-white font-black text-xl rounded-2xl shadow-xl shadow-purple-600/30 flex justify-center items-center active:scale-95 transition-transform bg-purple-600 hover:bg-purple-700 disabled:opacity-70"
             >
               {loading ? "Trwa zapis..." : isEdit ? "Zaktualizuj Stan Magazynu" : "Zapisz Stan Magazynu"}
             </button>
@@ -3397,6 +3462,7 @@ function NysaWarehouseForm({
   const [selectedCatalogCategory, setSelectedCatalogCategory] = useState("vegetables");
   const [newItemName, setNewItemName] = useState("");
   const [newItemUnit, setNewItemUnit] = useState("szt.");
+  const [newItemStep, setNewItemStep] = useState(1);
   const [newCategoryName, setNewCategoryName] = useState("");
   const [newCategoryType, setNewCategoryType] = useState("counter");
   const [pinDrafts, setPinDrafts] = useState(catalog?.locationPins || DEFAULT_LOCATION_PINS);
@@ -3614,22 +3680,22 @@ function NysaWarehouseForm({
     const statuses = [
       {
         label: "Do załatwienia",
-        activeClass: "bg-rose-600 text-white border-rose-600 shadow-sm",
-        inactiveClass: "bg-white text-slate-500 border-slate-200 hover:bg-rose-50 hover:text-rose-700",
+        activeClass: "bg-red-600 text-white border-red-600 shadow-sm",
+        inactiveClass: "bg-white text-gray-500 border-gray-200 hover:bg-red-50 hover:text-red-700",
       },
       {
         label: "Zamówione",
         activeClass: "bg-amber-500 text-white border-amber-500 shadow-sm",
-        inactiveClass: "bg-white text-slate-500 border-slate-200 hover:bg-amber-50 hover:text-amber-700",
+        inactiveClass: "bg-white text-gray-500 border-gray-200 hover:bg-amber-50 hover:text-amber-700",
       },
       {
         label: "Załatwione",
         activeClass: "bg-emerald-600 text-white border-emerald-600 shadow-sm",
-        inactiveClass: "bg-white text-slate-500 border-slate-200 hover:bg-emerald-50 hover:text-emerald-700",
+        inactiveClass: "bg-white text-gray-500 border-gray-200 hover:bg-emerald-50 hover:text-emerald-700",
       },
     ];
     return (
-      <div className="flex flex-wrap items-center gap-1 mt-2 pt-2 border-t border-slate-200/60">
+      <div className="flex flex-wrap items-center gap-1 mt-2 pt-2 border-t border-gray-200/60">
         {statuses.map((st) => (
           <button
             key={st.label}
@@ -3674,6 +3740,8 @@ function NysaWarehouseForm({
     const clean = newItemName.trim();
     if (!clean) return;
     const nextUnits = { ...(catalog?.itemUnits || DEFAULT_ITEM_UNITS), [clean]: newItemUnit || "szt." };
+    const nextSteps = { ...(catalog?.itemSteps || DEFAULT_ITEM_STEPS), [clean]: Number(newItemStep) || 1 };
+    globalItemSteps = nextSteps;
 
     if (selectedCatalogCategory.startsWith("custom:")) {
       const catId = selectedCatalogCategory.replace("custom:", "");
@@ -3683,8 +3751,8 @@ function NysaWarehouseForm({
         return curr.some((x) => x.toLowerCase() === clean.toLowerCase()) ? cat : { ...cat, items: [...curr, clean] };
       });
       await onSaveCatalog(
-        { ...catalog, customCategories: nextCustom, itemUnits: nextUnits },
-        `Dodano pozycję "${clean}" (${newItemUnit}) do kategorii!`
+        { ...catalog, customCategories: nextCustom, itemUnits: nextUnits, itemSteps: nextSteps },
+        `Dodano pozycję "${clean}" (${newItemUnit}, domyślny skok: ${newItemStep})!`
       );
     } else {
       const currentList = Array.isArray(catalog?.[selectedCatalogCategory]) ? catalog[selectedCatalogCategory] : [];
@@ -3693,8 +3761,8 @@ function NysaWarehouseForm({
         return;
       }
       await onSaveCatalog(
-        { ...catalog, [selectedCatalogCategory]: [...currentList, clean], itemUnits: nextUnits },
-        `Dodano pozycję "${clean}" (${newItemUnit})!`
+        { ...catalog, [selectedCatalogCategory]: [...currentList, clean], itemUnits: nextUnits, itemSteps: nextSteps },
+        `Dodano pozycję "${clean}" (${newItemUnit}, domyślny skok: ${newItemStep})!`
       );
     }
     setNewItemName("");
@@ -3703,6 +3771,12 @@ function NysaWarehouseForm({
   const handleChangeCatalogItemUnit = async (itemName, nextUnit) => {
     const nextUnits = { ...(catalog?.itemUnits || DEFAULT_ITEM_UNITS), [itemName]: nextUnit };
     await onSaveCatalog({ ...catalog, itemUnits: nextUnits });
+  };
+
+  const handleChangeCatalogItemStep = async (itemName, nextStep) => {
+    const nextSteps = { ...(catalog?.itemSteps || DEFAULT_ITEM_STEPS), [itemName]: Number(nextStep) };
+    globalItemSteps = nextSteps;
+    await onSaveCatalog({ ...catalog, itemSteps: nextSteps });
   };
 
   const handleRemoveCatalogItem = async (itemToRemove) => {
@@ -4229,7 +4303,15 @@ function NysaWarehouseForm({
     hoursEndDate,
   ]);
 
-  const renderInventoryGroup = (title, sectionKey, itemsList, recordObj, confirmedMap = {}, ordersCountForReport = 0) => {
+  const renderInventoryGroup = (
+    title,
+    sectionKey,
+    itemsList,
+    recordObj,
+    colorClass = "text-gray-800",
+    confirmedMap = {},
+    ordersCountForReport = 0
+  ) => {
     const extraKeys = recordObj ? Object.keys(recordObj).filter((k) => !itemsList.includes(k)) : [];
     const combinedItems = [...itemsList, ...extraKeys];
     if (combinedItems.length === 0) return null;
@@ -4237,11 +4319,11 @@ function NysaWarehouseForm({
     const confInfo = confirmedMap?.[sectionKey];
 
     return (
-      <div className="bg-slate-50 p-4 rounded-2xl border border-slate-200/80">
+      <div className="bg-gray-50 p-4 rounded-2xl border border-gray-200/80">
         <div className="flex items-center justify-between gap-2 flex-wrap mb-3">
-          <h4 className="text-xs font-black uppercase tracking-wider text-slate-700">{title}</h4>
+          <h4 className={`text-xs font-black uppercase tracking-wider ${colorClass}`}>{title}</h4>
           {confInfo && (
-            <span className="bg-emerald-100 text-emerald-800 border border-emerald-200 text-[10px] font-black px-2.5 py-0.5 rounded-md">
+            <span className="bg-emerald-100 text-emerald-800 border border-emerald-300 text-[10px] font-black px-2.5 py-0.5 rounded-md">
               ✓ Zatwierdzone o {confInfo.time} {confInfo.by ? `(${confInfo.by})` : ""}
             </span>
           )}
@@ -4258,8 +4340,8 @@ function NysaWarehouseForm({
                 key={item}
                 className={`p-2.5 rounded-xl border flex flex-col justify-between text-xs ${
                   isLowOrZero
-                    ? "bg-rose-50/60 border-rose-200/80 text-rose-900"
-                    : "bg-white border-slate-200 text-slate-800"
+                    ? "bg-red-50/70 border-red-200 text-red-900"
+                    : "bg-white border-gray-200 text-gray-800"
                 }`}
               >
                 <div className="flex items-center justify-between gap-1">
@@ -4268,16 +4350,16 @@ function NysaWarehouseForm({
                   </span>
                   <span
                     className={`font-black px-2 py-0.5 rounded-md shrink-0 ${
-                      isLowOrZero ? "bg-rose-200/70 text-rose-800" : "bg-emerald-100 text-emerald-800"
+                      isLowOrZero ? "bg-red-200/80 text-red-800" : "bg-emerald-100 text-emerald-800"
                     }`}
                   >
                     {rawVal !== undefined ? rawVal : "0"} {unit}
                   </span>
                 </div>
                 {ordersCountForReport > 0 && numVal > 0 && (
-                  <div className="mt-1.5 pt-1 border-t border-slate-100 flex items-center justify-between text-[10px] text-slate-500 font-extrabold">
+                  <div className="mt-1.5 pt-1 border-t border-gray-100 flex items-center justify-between text-[10px] text-indigo-700 font-extrabold">
                     <span>Śr. na 1 zam.:</span>
-                    <span className="text-slate-800">
+                    <span>
                       {perOrderVal.toFixed(3)} {unit}
                     </span>
                   </div>
@@ -4297,13 +4379,13 @@ function NysaWarehouseForm({
       : DEFAULT_EMPLOYEES_BY_LOCATION[selectedEmpManageLoc] || [];
 
     return (
-      <div className="bg-white p-6 rounded-3xl border border-slate-200 shadow-sm space-y-5">
+      <div className="bg-white p-6 rounded-[2rem] border border-gray-200 shadow-sm space-y-5">
         <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
           <div>
-            <h3 className="text-xl font-black text-slate-900 flex items-center">
-              <Users className="w-6 h-6 mr-2.5 text-slate-700" /> Zarządzanie Pracownikami Punktów
+            <h3 className="text-xl font-black text-gray-900 flex items-center">
+              <Users className="w-6 h-6 mr-2.5 text-blue-600" /> Zarządzanie Pracownikami Punktów
             </h3>
-            <p className="text-xs font-semibold text-slate-500 mt-1">
+            <p className="text-xs font-semibold text-gray-500 mt-1">
               Dodawaj i usuwaj imiona pracowników przypisanych do konkretnych lokali. Lista wyświetla się w czytniku RCP oraz w raporcie dziennym.
             </p>
           </div>
@@ -4316,8 +4398,8 @@ function NysaWarehouseForm({
                   onClick={() => setSelectedEmpManageLoc(loc)}
                   className={`px-3.5 py-2 rounded-xl font-black text-xs border transition-colors ${
                     selectedEmpManageLoc === loc
-                      ? "bg-slate-900 text-white border-slate-900 shadow-sm"
-                      : "bg-slate-50 text-slate-700 border-slate-200 hover:bg-slate-100"
+                      ? "bg-blue-600 text-white border-blue-600 shadow-sm"
+                      : "bg-gray-50 text-gray-700 border-gray-200 hover:bg-gray-100"
                   }`}
                 >
                   {loc}
@@ -4333,22 +4415,22 @@ function NysaWarehouseForm({
             value={newEmployeeName}
             onChange={(e) => setNewEmployeeName(e.target.value)}
             placeholder={`Wpisz imię nowego pracownika dla punktu ${selectedEmpManageLoc}...`}
-            className="flex-1 p-4 bg-slate-50 border border-slate-200 rounded-2xl font-bold text-slate-900 outline-none focus:bg-white focus:border-slate-900"
+            className="flex-1 p-4 bg-gray-50 border border-gray-200 rounded-xl font-bold text-gray-900 outline-none focus:bg-white focus:ring-2 focus:ring-blue-500"
           />
           <button
             type="submit"
-            className="px-6 py-4 bg-slate-900 hover:bg-slate-800 text-white font-black rounded-2xl shadow-md flex items-center justify-center transition-colors shrink-0 text-sm"
+            className="px-6 py-4 bg-blue-600 hover:bg-blue-700 text-white font-black rounded-xl shadow-md flex items-center justify-center transition-colors shrink-0 text-sm"
           >
             <PlusCircle className="w-5 h-5 mr-2" /> Dodaj pracownika ({selectedEmpManageLoc})
           </button>
         </form>
 
-        <div className="pt-3 border-t border-slate-100">
-          <span className="block text-xs font-black uppercase text-slate-400 mb-3">
+        <div className="pt-3 border-t border-gray-100">
+          <span className="block text-xs font-black uppercase text-gray-400 mb-3">
             Przypisani pracownicy — {selectedEmpManageLoc} ({currentLocEmployees.length}):
           </span>
           {currentLocEmployees.length === 0 ? (
-            <p className="text-sm text-slate-400 font-bold py-4 text-center bg-slate-50 rounded-2xl">
+            <p className="text-sm text-gray-400 font-bold py-4 text-center bg-gray-50 rounded-xl">
               Brak pracowników przypisanych do tego lokalu.
             </p>
           ) : (
@@ -4356,13 +4438,13 @@ function NysaWarehouseForm({
               {currentLocEmployees.map((empName) => (
                 <div
                   key={empName}
-                  className="p-3 bg-slate-50 hover:bg-white border border-slate-200 rounded-2xl flex items-center justify-between gap-2 shadow-sm transition-colors"
+                  className="p-3 bg-gray-50 hover:bg-white border border-gray-200 rounded-xl flex items-center justify-between gap-2 shadow-sm transition-colors"
                 >
-                  <span className="font-extrabold text-slate-800 text-sm truncate">{empName}</span>
+                  <span className="font-extrabold text-gray-800 text-sm truncate">{empName}</span>
                   <button
                     type="button"
                     onClick={() => handleRemoveEmployeeFromLocation(selectedEmpManageLoc, empName)}
-                    className="p-1.5 text-rose-500 hover:bg-rose-50 hover:text-rose-700 rounded-lg transition-colors shrink-0"
+                    className="p-1.5 text-red-500 hover:bg-red-50 hover:text-red-700 rounded-lg transition-colors shrink-0"
                     title="Usuń pracownika z tego lokalu"
                   >
                     <Trash2 className="w-4 h-4" />
@@ -4397,51 +4479,51 @@ function NysaWarehouseForm({
     return (
       <div
         key={t.id}
-        className="p-5 rounded-3xl border bg-white border-slate-200 shadow-sm flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4"
+        className="p-5 rounded-2xl border bg-white border-gray-200 shadow-sm flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4"
       >
         <div className="space-y-2.5 flex-1">
           <div className="flex flex-wrap items-center gap-2">
-            <span className="text-[10px] font-black bg-slate-900 text-white px-3 py-1 rounded-full uppercase tracking-wider">
-              {t.location === "All" ? "Cała sieć (All)" : t.location}
+            <span className="text-[10px] font-black bg-amber-100 text-amber-800 px-3 py-1 rounded-full uppercase tracking-wider">
+              {t.location === "All" ? "Wszystkie punkty (All)" : t.location}
             </span>
             {isRecurring ? (
-              <span className="text-[10px] font-black bg-indigo-50 text-indigo-800 border border-indigo-200 px-3 py-1 rounded-full uppercase tracking-wider flex items-center">
+              <span className="text-[10px] font-black bg-indigo-100 text-indigo-800 px-3 py-1 rounded-full uppercase tracking-wider flex items-center">
                 <Calendar className="w-3.5 h-3.5 mr-1" /> Stałe harmonogramowe
               </span>
             ) : (
-              <span className="text-[10px] font-black bg-blue-50 text-blue-800 border border-blue-200 px-3 py-1 rounded-full uppercase tracking-wider">
+              <span className="text-[10px] font-black bg-blue-100 text-blue-800 px-3 py-1 rounded-full uppercase tracking-wider">
                 Jednorazowe / Doraźne
               </span>
             )}
-            <span className="text-[10px] font-black bg-rose-50 text-rose-700 border border-rose-200 px-3 py-1 rounded-full uppercase tracking-wider flex items-center">
+            <span className="text-[10px] font-black bg-red-100 text-red-700 px-3 py-1 rounded-full uppercase tracking-wider flex items-center">
               <Clock className="w-3.5 h-3.5 mr-1" /> Do wykonania do godziny: {t.deadlineTime || "22:00"}
             </span>
             {isRecurring && (
               <span
                 className={`text-[10px] font-black px-2.5 py-1 rounded-full uppercase ${
-                  isScheduledForToday ? "bg-emerald-50 text-emerald-800" : "bg-slate-100 text-slate-500"
+                  isScheduledForToday ? "bg-emerald-100 text-emerald-800" : "bg-gray-100 text-gray-500"
                 }`}
               >
                 {isScheduledForToday ? `Aktywne dziś (${todayStr})` : "Dziś poza harmonogramem"}
               </span>
             )}
           </div>
-          <p className="font-bold text-slate-900 text-lg leading-tight">{t.text}</p>
+          <p className="font-bold text-gray-900 text-lg leading-tight">{t.text}</p>
           {isRecurring && scheduledDaysObjs.length > 0 && (
             <div className="flex flex-wrap items-center gap-1.5 pt-0.5">
-              <span className="text-xs font-bold text-slate-400 mr-1">Dni wykonywania:</span>
+              <span className="text-xs font-bold text-gray-400 mr-1">Dni wykonywania:</span>
               {scheduledDaysObjs.map((d) => (
                 <span
                   key={d.id}
-                  className="text-[11px] font-black bg-slate-100 text-slate-700 border border-slate-200 px-2.5 py-0.5 rounded-lg"
+                  className="text-[11px] font-black bg-indigo-50 text-indigo-700 border border-indigo-200 px-2.5 py-0.5 rounded-lg"
                 >
                   {d.name}
                 </span>
               ))}
             </div>
           )}
-          <div className="pt-2 border-t border-slate-100">
-            <span className="block text-[11px] font-black uppercase text-slate-400 mb-1.5">
+          <div className="pt-2 border-t border-gray-100">
+            <span className="block text-[11px] font-black uppercase text-gray-400 mb-1.5">
               {isRecurring ? `Stan realizacji w dniu dzisiejszym (${todayStr}):` : "Stan realizacji w punktach:"}
             </span>
             <div className="flex flex-wrap gap-2">
@@ -4453,13 +4535,13 @@ function NysaWarehouseForm({
                     className={`inline-flex items-center px-3 py-1 rounded-xl text-xs font-black border transition-colors ${
                       done
                         ? "bg-emerald-50 border-emerald-300 text-emerald-800"
-                        : "bg-rose-50/70 border-rose-200 text-rose-700"
+                        : "bg-red-50/70 border-red-200 text-red-700"
                     }`}
                   >
                     {done ? (
                       <CheckCircle2 className="w-3.5 h-3.5 mr-1.5 text-emerald-600 shrink-0" />
                     ) : (
-                      <XCircle className="w-3.5 h-3.5 mr-1.5 text-rose-500 shrink-0" />
+                      <XCircle className="w-3.5 h-3.5 mr-1.5 text-red-500 shrink-0" />
                     )}
                     {loc}: {done ? "Wykonane" : "Niewykonane"}
                   </span>
@@ -4467,12 +4549,12 @@ function NysaWarehouseForm({
               })}
             </div>
           </div>
-          <p className="text-xs text-slate-400 font-semibold">Zlecone przez: {t.createdBy}</p>
+          <p className="text-xs text-gray-400 font-semibold">Zlecone przez: {t.createdBy}</p>
         </div>
         <button
           type="button"
           onClick={() => handleDeleteTask(t.id)}
-          className="shrink-0 w-full lg:w-auto px-4 py-3 lg:py-2.5 flex items-center justify-center rounded-2xl bg-rose-50 text-rose-600 font-bold hover:bg-rose-100 transition-colors"
+          className="shrink-0 w-full lg:w-auto px-4 py-3 lg:py-2.5 flex items-center justify-center rounded-xl bg-red-50 text-red-600 font-bold hover:bg-red-100 transition-colors"
         >
           <Trash2 className="w-4 h-4 mr-2" /> Usuń
         </button>
@@ -4481,13 +4563,13 @@ function NysaWarehouseForm({
   };
 
   return (
-    <div className="flex flex-col min-h-screen bg-slate-50">
-      <div className="bg-slate-900 text-white px-5 py-4 sticky top-0 z-40 flex justify-between items-center shadow-md w-full">
+    <div className="flex flex-col min-h-screen bg-gray-50">
+      <div className="bg-gray-900 text-white px-5 py-4 sticky top-0 z-40 flex justify-between items-center shadow-lg w-full">
         <div>
           <h1 className="font-extrabold text-lg tracking-tight">
-            Panel Zarządzania {isKlodzkoAdmin ? "— Punkt Kłodzko" : ""}
+            Panel Sterowania {isKlodzkoAdmin ? "— Punkt Kłodzko" : ""}
           </h1>
-          <p className="text-xs text-slate-400 font-medium mt-0.5">
+          <p className="text-xs text-gray-400 font-medium mt-0.5">
             Zalogowano: <span className="text-white font-bold">{name}</span> (
             {isOwner ? "Właściciel" : isKlodzkoAdmin ? "Administrator Punktu Kłodzko" : "Manager"})
           </p>
@@ -4495,13 +4577,13 @@ function NysaWarehouseForm({
         <button
           type="button"
           onClick={onLogout}
-          className="bg-slate-800 hover:bg-slate-700 px-4 py-2 rounded-xl font-bold text-xs sm:text-sm transition-colors border border-slate-700"
+          className="bg-white/10 hover:bg-white/20 px-4 py-2 rounded-xl font-bold text-sm transition-colors border border-gray-700"
         >
           Wyloguj
         </button>
       </div>
 
-      <div className="flex bg-white border-b border-slate-200 w-full overflow-x-auto no-scrollbar">
+      <div className="flex bg-white border-b border-gray-200 w-full overflow-x-auto no-scrollbar">
         {[
           ...(hasFullAnalytics
             ? [
@@ -4509,22 +4591,22 @@ function NysaWarehouseForm({
                   id: "reports",
                   label: "Utargi i Finanse",
                   icon: Banknote,
-                  activeClass: "border-slate-900 text-slate-900 bg-slate-50",
-                  minW: "min-w-[150px]",
+                  activeClass: "border-emerald-600 text-emerald-700 bg-emerald-50/40",
+                  minW: "min-w-[155px]",
                 },
                 {
                   id: "inventory",
                   label: "Magazyn / Szkice Live",
                   icon: Warehouse,
-                  activeClass: "border-slate-900 text-slate-900 bg-slate-50",
+                  activeClass: "border-purple-600 text-purple-700 bg-purple-50/30",
                   minW: "min-w-[175px]",
                 },
                 {
                   id: "stats",
                   label: "Statystyka Dni",
                   icon: BarChart3,
-                  activeClass: "border-slate-900 text-slate-900 bg-slate-50",
-                  minW: "min-w-[145px]",
+                  activeClass: "border-emerald-600 text-emerald-700 bg-emerald-50/30",
+                  minW: "min-w-[155px]",
                 },
               ]
             : []),
@@ -4532,15 +4614,15 @@ function NysaWarehouseForm({
             id: "hours",
             label: `Czytnik RCP & Godziny (${activeLiveShifts.length} live)`,
             icon: Timer,
-            activeClass: "border-slate-900 text-slate-900 bg-slate-50",
+            activeClass: "border-indigo-600 text-indigo-700 bg-indigo-50/30",
             minW: "min-w-[185px]",
           },
           {
             id: "tasks",
             label: "Zadania Dnia",
             icon: ClipboardList,
-            activeClass: "border-slate-900 text-slate-900 bg-slate-50",
-            minW: "min-w-[145px]",
+            activeClass: "border-blue-600 text-blue-600 bg-blue-50/30",
+            minW: "min-w-[150px]",
           },
           ...(isOwner
             ? [
@@ -4548,8 +4630,8 @@ function NysaWarehouseForm({
                   id: "catalog",
                   label: "Ustawienia & Asortyment",
                   icon: Settings,
-                  activeClass: "border-slate-900 text-slate-900 bg-slate-50",
-                  minW: "min-w-[185px]",
+                  activeClass: "border-amber-600 text-amber-700 bg-amber-50/40",
+                  minW: "min-w-[190px]",
                 },
               ]
             : []),
@@ -4559,7 +4641,7 @@ function NysaWarehouseForm({
             type="button"
             onClick={() => setTab(id)}
             className={`flex-1 ${minW} py-4 px-3 font-extrabold text-xs sm:text-sm border-b-2 transition-colors flex items-center justify-center gap-1.5 ${
-              tab === id ? activeClass : "border-transparent text-slate-400 hover:text-slate-600"
+              tab === id ? activeClass : "border-transparent text-gray-400 hover:text-gray-600"
             }`}
           >
             <Icon className="w-4 h-4" /> {label}
@@ -4569,32 +4651,32 @@ function NysaWarehouseForm({
 
       <div className="p-4 sm:p-6 w-full max-w-6xl mx-auto flex-1 overflow-x-hidden">
         {tab === "reports" && hasFullAnalytics && (
-          <div className="space-y-6">
-            <div className="bg-white p-5 rounded-3xl border border-slate-200 shadow-sm flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4">
+          <div className="space-y-8">
+            <div className="bg-white p-5 rounded-[2rem] border border-gray-200 shadow-sm flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4">
               <div>
-                <h2 className="text-xl sm:text-2xl font-black text-slate-900 flex items-center">
-                  <Banknote className="w-6 h-6 mr-2.5 text-emerald-600" /> Zestawienie Utargów{" "}
+                <h2 className="text-2xl font-black text-gray-900 flex items-center">
+                  <Banknote className="w-7 h-7 mr-3 text-emerald-600" /> Zestawienie Utargów{" "}
                   {isKlodzkoAdmin ? "(Punkt Kłodzko)" : "i Historia"}
                 </h2>
-                <p className="text-xs font-semibold text-slate-500 mt-1">
+                <p className="text-xs font-semibold text-gray-500 mt-1">
                   Wybierz datę lub okres do podsumowania sieci. Poniżej możesz przeglądać i edytować raporty poszczególnych dni.
                 </p>
               </div>
               <div className="flex flex-wrap items-center gap-2">
-                <div className="flex items-center bg-slate-50 border border-slate-200 rounded-2xl px-3.5 py-2">
-                  <Calendar className="w-4 h-4 text-slate-500 mr-2" />
+                <div className="flex items-center bg-gray-50 border border-gray-200 rounded-xl px-3 py-2">
+                  <Calendar className="w-4 h-4 text-gray-500 mr-2" />
                   <input
                     type="date"
                     value={selectedReportDate}
                     onChange={(e) => setSelectedReportDate(e.target.value)}
-                    className="bg-transparent font-black text-sm text-slate-900 outline-none"
+                    className="bg-transparent font-black text-sm text-gray-900 outline-none"
                   />
                 </div>
                 {selectedReportDate !== todayStr && (
                   <button
                     type="button"
                     onClick={() => setSelectedReportDate(todayStr)}
-                    className="px-3.5 py-2.5 bg-slate-900 text-white rounded-2xl text-xs font-black hover:bg-slate-800 transition-colors"
+                    className="px-3.5 py-2.5 bg-blue-600 text-white rounded-xl text-xs font-black hover:bg-blue-700 transition-colors"
                   >
                     Wróć do dziś ({todayStr})
                   </button>
@@ -4602,35 +4684,35 @@ function NysaWarehouseForm({
                 <button
                   type="button"
                   onClick={handleDownloadCSV}
-                  className="px-3.5 py-2.5 bg-emerald-50 hover:bg-emerald-100 text-emerald-800 border border-emerald-200 rounded-2xl text-xs font-black flex items-center transition-colors"
+                  className="px-3.5 py-2.5 bg-emerald-50 hover:bg-emerald-100 text-emerald-800 border border-emerald-200 rounded-xl text-xs font-black flex items-center transition-colors"
                 >
                   <FileSpreadsheet className="w-4 h-4 mr-1.5" /> Eksport CSV
                 </button>
                 <button
                   type="button"
                   onClick={handleDownloadFullBackupJSON}
-                  className="px-3.5 py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-800 border border-slate-200 rounded-2xl text-xs font-black flex items-center transition-colors"
+                  className="px-3.5 py-2.5 bg-gray-100 hover:bg-gray-200 text-gray-800 border border-gray-200 rounded-xl text-xs font-black flex items-center transition-colors"
                 >
                   <Download className="w-4 h-4 mr-1.5" /> Kopia JSON
                 </button>
               </div>
             </div>
 
-            <div className="bg-slate-900 text-white p-6 sm:p-8 rounded-3xl shadow-xl border border-slate-800 space-y-6">
-              <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-5 border-b border-slate-800 pb-6">
+            <div className="bg-gradient-to-br from-gray-900 via-gray-900 to-emerald-950 text-white p-6 sm:p-8 rounded-[2rem] shadow-xl border border-gray-800 space-y-6">
+              <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-5 border-b border-white/10 pb-6">
                 <div className="space-y-3">
                   <div className="flex items-center gap-2 flex-wrap">
                     <span className="bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 text-[11px] font-black uppercase px-3 py-1 rounded-full flex items-center">
                       <PieChart className="w-3.5 h-3.5 mr-1.5" />
                       {isKlodzkoAdmin ? "Podsumowanie Finansowe: Punkt Kłodzko" : "Karta Podsumowania Sieci"}
                     </span>
-                    <span className="text-xs font-bold text-slate-400">
-                      Zliczone raporty: {dailyNetworkSummary.reportedCount} • Zamówienia: {dailyNetworkSummary.sumOrders}
+                    <span className="text-xs font-bold text-gray-400">
+                      Liczba zliczonych raportów: {dailyNetworkSummary.reportedCount} • Zamówienia: {dailyNetworkSummary.sumOrders}
                     </span>
                   </div>
 
                   <div className="flex flex-wrap items-center gap-2 pt-1">
-                    <span className="text-xs font-bold text-slate-400 mr-1">Okres:</span>
+                    <span className="text-xs font-bold text-gray-300 mr-1">Okres podsumowania:</span>
                     {[
                       { id: "day", label: "Pojedynczy dzień" },
                       { id: "week", label: "Wybrany tydzień" },
@@ -4642,8 +4724,8 @@ function NysaWarehouseForm({
                         onClick={() => setSummaryPeriodMode(m.id)}
                         className={`px-3 py-1.5 rounded-xl font-black text-xs transition-colors ${
                           summaryPeriodMode === m.id
-                            ? "bg-emerald-500 text-slate-950 shadow-sm"
-                            : "bg-slate-800 text-slate-300 hover:bg-slate-700"
+                            ? "bg-emerald-500 text-gray-950 shadow-sm"
+                            : "bg-white/10 text-gray-300 hover:bg-white/20"
                         }`}
                       >
                         {m.label}
@@ -4652,9 +4734,9 @@ function NysaWarehouseForm({
                   </div>
 
                   {summaryPeriodMode === "range" && (
-                    <div className="flex flex-wrap items-center gap-2 bg-slate-800/80 p-2.5 rounded-2xl border border-slate-700">
-                      <div className="flex items-center bg-slate-900 px-3 py-1.5 rounded-xl">
-                        <span className="text-[11px] font-bold text-slate-400 mr-2">Od:</span>
+                    <div className="flex flex-wrap items-center gap-2 bg-white/5 p-2.5 rounded-2xl border border-white/10">
+                      <div className="flex items-center bg-white/10 px-3 py-1.5 rounded-xl">
+                        <span className="text-[11px] font-bold text-gray-300 mr-2">Od:</span>
                         <input
                           type="date"
                           value={summaryStartDate}
@@ -4662,8 +4744,8 @@ function NysaWarehouseForm({
                           className="font-black text-xs text-white outline-none bg-transparent"
                         />
                       </div>
-                      <div className="flex items-center bg-slate-900 px-3 py-1.5 rounded-xl">
-                        <span className="text-[11px] font-bold text-slate-400 mr-2">Do:</span>
+                      <div className="flex items-center bg-white/10 px-3 py-1.5 rounded-xl">
+                        <span className="text-[11px] font-bold text-gray-300 mr-2">Do:</span>
                         <input
                           type="date"
                           value={summaryEndDate}
@@ -4678,63 +4760,70 @@ function NysaWarehouseForm({
                     {formatMoney(dailyNetworkSummary.totalRevenue)}{" "}
                     <span className="text-lg font-bold text-emerald-400">PLN</span>
                   </h3>
+                  <p className="text-xs text-gray-400 font-semibold mt-0.5">
+                    {summaryPeriodMode === "day"
+                      ? `Łączny utarg brutto w dniu ${selectedReportDate}`
+                      : summaryPeriodMode === "week"
+                      ? `Łączny utarg brutto za tydzień (${getWeekBounds(selectedReportDate).start} — ${getWeekBounds(selectedReportDate).end})`
+                      : `Łączny utarg brutto w zakresie (${summaryStartDate || "?"} — ${summaryEndDate || "?"})`}
+                  </p>
                 </div>
 
                 <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-                  <div className="bg-slate-800/80 border border-slate-700 p-3.5 rounded-2xl">
+                  <div className="bg-white/5 border border-white/10 p-3.5 rounded-2xl">
                     <span className="text-[10px] font-black uppercase text-indigo-300 block mb-1 flex items-center">
                       <Receipt className="w-3 h-3 mr-1" /> Raporty Fiskalne
                     </span>
                     <span className="text-lg font-black text-white">
-                      {formatMoney(dailyNetworkSummary.sumFiskalny)} <span className="text-xs text-slate-400">zł</span>
+                      {formatMoney(dailyNetworkSummary.sumFiskalny)} <span className="text-xs text-gray-400">zł</span>
                     </span>
                   </div>
-                  <div className="bg-slate-800/80 border border-slate-700 p-3.5 rounded-2xl">
+                  <div className="bg-white/5 border border-white/10 p-3.5 rounded-2xl">
                     <span className="text-[10px] font-black uppercase text-amber-300 block mb-1 flex items-center">
                       <Wallet className="w-3 h-3 mr-1" /> Wydatki z kasy (KW)
                     </span>
                     <span className="text-lg font-black text-amber-300">
-                      -{formatMoney(dailyNetworkSummary.sumExpenses)} <span className="text-xs text-slate-400">zł</span>
+                      -{formatMoney(dailyNetworkSummary.sumExpenses)} <span className="text-xs text-gray-400">zł</span>
                     </span>
                   </div>
-                  <div className="bg-slate-800/80 border border-slate-700 p-3.5 rounded-2xl">
+                  <div className="bg-white/5 border border-white/10 p-3.5 rounded-2xl">
                     <span className="text-[10px] font-black uppercase text-emerald-300 block mb-1">Gotówka po KW</span>
                     <span className="text-lg font-black text-emerald-300">
                       {formatMoney(dailyNetworkSummary.netCashInDrawer)}{" "}
-                      <span className="text-xs text-slate-400">zł</span>
+                      <span className="text-xs text-gray-400">zł</span>
                     </span>
                   </div>
                   <div
                     className={`p-3.5 rounded-2xl border ${
                       dailyNetworkSummary.sumRoznica < 0
-                        ? "bg-rose-500/15 border-rose-500/30"
-                        : "bg-slate-800/80 border-slate-700"
+                        ? "bg-red-500/15 border-red-500/30"
+                        : "bg-white/5 border-white/10"
                     }`}
                   >
-                    <span className="text-[10px] font-black uppercase text-slate-300 block mb-1">Brak / Nadwyżka</span>
+                    <span className="text-[10px] font-black uppercase text-gray-300 block mb-1">Brak / Nadwyżka</span>
                     <span
                       className={`text-lg font-black ${
                         dailyNetworkSummary.sumRoznica < 0
-                          ? "text-rose-400"
+                          ? "text-red-400"
                           : dailyNetworkSummary.sumRoznica > 0
                           ? "text-emerald-400"
                           : "text-white"
                       }`}
                     >
                       {dailyNetworkSummary.sumRoznica > 0 ? "+" : ""}
-                      {formatMoney(dailyNetworkSummary.sumRoznica)} <span className="text-xs text-slate-400">zł</span>
+                      {formatMoney(dailyNetworkSummary.sumRoznica)} <span className="text-xs text-gray-400">zł</span>
                     </span>
                   </div>
                 </div>
               </div>
 
               {!isKlodzkoAdmin && (
-                <div className="space-y-3 border-b border-slate-800 pb-6">
-                  <div className="flex items-center justify-between text-xs font-bold text-slate-300">
-                    <span>Udział poszczególnych lokali w łącznym utargu sieci</span>
-                    <span className="text-slate-400">Kliknij lokal, aby filtrować metody płatności</span>
+                <div className="space-y-3 border-b border-white/10 pb-6">
+                  <div className="flex items-center justify-between text-xs font-bold text-gray-300">
+                    <span>Udział poszczególnych lokali w łącznym utargu sieci (w wybranym okresie)</span>
+                    <span>Kliknij lokal poniżej, aby filtrować metody płatności</span>
                   </div>
-                  <div className="w-full h-3.5 bg-slate-800 rounded-full overflow-hidden flex p-0.5 gap-0.5">
+                  <div className="w-full h-4 bg-white/10 rounded-full overflow-hidden flex p-0.5 gap-0.5">
                     {dailyNetworkSummary.totalRevenue > 0 ? (
                       dailyNetworkSummary.locationShares.map((locItem) =>
                         locItem.sharePct > 0 ? (
@@ -4754,7 +4843,7 @@ function NysaWarehouseForm({
                         ) : null
                       )
                     ) : (
-                      <div className="w-full h-full bg-slate-800 rounded-full" />
+                      <div className="w-full h-full bg-white/5 rounded-full" />
                     )}
                   </div>
                   <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 pt-1">
@@ -4768,8 +4857,8 @@ function NysaWarehouseForm({
                           onClick={() => setPaymentBreakdownLoc(isSelectedLoc ? "All" : locItem.location)}
                           className={`p-3.5 rounded-2xl border text-left transition-colors flex items-center justify-between ${
                             isSelectedLoc
-                              ? "bg-slate-800 border-emerald-400 shadow-md"
-                              : "bg-slate-800/50 border-slate-700/80 hover:bg-slate-800"
+                              ? "bg-white/15 border-emerald-400 shadow-md"
+                              : "bg-white/5 border-white/10 hover:bg-white/10"
                           }`}
                         >
                           <div className="flex items-center gap-2.5 min-w-0">
@@ -4778,12 +4867,12 @@ function NysaWarehouseForm({
                               <span className="text-xs font-extrabold text-white block truncate">
                                 {locItem.location}
                               </span>
-                              <span className="text-sm font-black text-emerald-400">
+                              <span className="text-sm font-black text-emerald-300">
                                 {formatMoney(locItem.total)} zł
                               </span>
                             </div>
                           </div>
-                          <span className="text-xs font-black bg-slate-900 text-white px-2.5 py-1 rounded-lg shrink-0 ml-2">
+                          <span className="text-xs font-black bg-white/10 text-white px-2.5 py-1 rounded-lg shrink-0 ml-2">
                             {locItem.sharePct}%
                           </span>
                         </button>
@@ -4796,11 +4885,53 @@ function NysaWarehouseForm({
               <div className="space-y-3">
                 <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
                   <div className="flex items-center gap-2">
-                    <span className="text-xs font-bold text-slate-300">Rozbicie form płatności:</span>
+                    <span className="text-xs font-bold text-gray-300">Rozbicie form płatności:</span>
                     <span className="text-xs font-black text-emerald-300 bg-emerald-500/20 border border-emerald-500/30 px-2.5 py-0.5 rounded-lg">
                       {activePaymentBreakdown.label} ({formatMoney(activePaymentBreakdown.total)} zł)
                     </span>
                   </div>
+                  {!isKlodzkoAdmin && (
+                    <div className="flex flex-wrap gap-1.5">
+                      {["All", ...LOCATIONS].map((loc) => (
+                        <button
+                          key={loc}
+                          type="button"
+                          onClick={() => setPaymentBreakdownLoc(loc)}
+                          className={`px-3 py-1 rounded-lg text-[11px] font-black transition-colors ${
+                            paymentBreakdownLoc === loc
+                              ? "bg-emerald-500 text-gray-950"
+                              : "bg-white/10 text-gray-300 hover:bg-white/20"
+                          }`}
+                        >
+                          {loc === "All" ? "Cała sieć" : loc}
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                </div>
+
+                <div className="w-full h-4 bg-white/10 rounded-full overflow-hidden flex p-0.5 gap-0.5">
+                  {activePaymentBreakdown.total > 0 ? (
+                    <>
+                      <div
+                        style={{ width: `${activePaymentBreakdown.pctGotowka}%` }}
+                        className="h-full bg-amber-400 rounded-l-full"
+                        title={`Gotówka: ${activePaymentBreakdown.pctGotowka}%`}
+                      />
+                      <div
+                        style={{ width: `${activePaymentBreakdown.pctKarta}%` }}
+                        className="h-full bg-blue-500"
+                        title={`Karta: ${activePaymentBreakdown.pctKarta}%`}
+                      />
+                      <div
+                        style={{ width: `${activePaymentBreakdown.pctAplikacje}%` }}
+                        className="h-full bg-purple-500 rounded-r-full"
+                        title={`Aplikacje: ${activePaymentBreakdown.pctAplikacje}%`}
+                      />
+                    </>
+                  ) : (
+                    <div className="w-full h-full bg-white/5 rounded-full" />
+                  )}
                 </div>
 
                 <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 pt-1">
@@ -4829,12 +4960,12 @@ function NysaWarehouseForm({
                   ].map((m) => (
                     <div
                       key={m.label}
-                      className="bg-slate-800/80 border border-slate-700 p-3.5 rounded-2xl flex items-center justify-between"
+                      className="bg-white/5 border border-white/10 p-3.5 rounded-2xl flex items-center justify-between"
                     >
                       <div className="flex items-center gap-2.5">
                         <span className={`w-3 h-3 rounded-full ${m.dot} shrink-0`} />
                         <div>
-                          <span className="text-xs font-bold text-slate-300 block">{m.label}</span>
+                          <span className="text-xs font-bold text-gray-300 block">{m.label}</span>
                           <span className="text-sm font-black text-white">{formatMoney(m.val)} zł</span>
                         </div>
                       </div>
@@ -4846,10 +4977,11 @@ function NysaWarehouseForm({
             </div>
 
             <div className="pt-2">
-              <h3 className="text-lg font-black text-slate-900 mb-4">
-                Raporty dzienne punktów z dnia: <span className="text-blue-600 underline">{selectedReportDate}</span>
+              <h3 className="text-lg font-black text-gray-900 mb-4">
+                Szczegółowe raporty dzienne punktów z dnia:{" "}
+                <span className="text-blue-600 underline">{selectedReportDate}</span>
               </h3>
-              <div className={`grid grid-cols-1 ${allowedLocations.length > 1 ? "lg:grid-cols-2" : ""} gap-5`}>
+              <div className={`grid grid-cols-1 ${allowedLocations.length > 1 ? "lg:grid-cols-2" : ""} gap-6`}>
                 {allowedLocations.map((loc) => {
                   const report = reportsForSelectedDate.find((r) => r?.location === loc);
                   const draft = draftsForSelectedDate.find((d) => d?.location === loc);
@@ -4859,12 +4991,12 @@ function NysaWarehouseForm({
                     return (
                       <div
                         key={loc}
-                        className="bg-white p-6 rounded-3xl border border-slate-200 flex flex-col items-center justify-center text-center min-h-[210px]"
+                        className="bg-white p-6 rounded-[2rem] border-2 border-dashed border-gray-200 flex flex-col items-center justify-center text-center min-h-[220px]"
                       >
-                        <XCircle className="w-9 h-9 text-slate-300 mb-2.5" />
-                        <h3 className="text-xl font-black text-slate-800">{loc}</h3>
-                        <p className="text-slate-400 font-bold text-xs mt-1 mb-3">
-                          Raport końcowy na dzień {selectedReportDate} nie został jeszcze wysłany
+                        <XCircle className="w-10 h-10 text-gray-300 mb-3" />
+                        <h3 className="text-xl font-black text-gray-800">{loc}</h3>
+                        <p className="text-gray-400 font-bold text-xs mt-1 mb-3">
+                          Brak wysłanego raportu końcowego na dzień {selectedReportDate}
                         </p>
                         {confirmedList.length > 0 && (
                           <div className="mb-4 flex flex-wrap justify-center gap-1.5">
@@ -4881,7 +5013,7 @@ function NysaWarehouseForm({
                         <button
                           type="button"
                           onClick={() => onEditHistoricalReport(loc, selectedReportDate, null)}
-                          className="px-4 py-2.5 bg-slate-900 hover:bg-slate-800 text-white text-xs font-black rounded-xl flex items-center transition-colors shadow-sm"
+                          className="px-4 py-2.5 bg-gray-900 hover:bg-gray-800 text-white text-xs font-black rounded-xl flex items-center transition-colors shadow-sm"
                         >
                           <PlusCircle className="w-4 h-4 mr-1.5" /> Utwórz raport za ten dzień
                         </button>
@@ -4906,82 +5038,90 @@ function NysaWarehouseForm({
                   return (
                     <div
                       key={loc}
-                      className="bg-white rounded-3xl border border-slate-200 shadow-sm overflow-hidden flex flex-col hover:shadow-md transition-shadow"
+                      className="bg-white rounded-[2rem] border border-gray-200 shadow-sm overflow-hidden flex flex-col hover:shadow-md transition-shadow"
                     >
-                      <div className="bg-slate-50 border-b border-slate-200 p-5 flex justify-between items-center gap-2">
+                      <div className="bg-emerald-50 border-b border-emerald-100 p-5 flex justify-between items-center gap-2">
                         <div>
-                          <div className="flex items-center gap-2">
-                            <span className={`w-2.5 h-2.5 rounded-full ${LOCATION_COLORS[loc] || "bg-slate-900"}`} />
-                            <h3 className="text-xl font-black text-slate-900">{loc}</h3>
-                          </div>
-                          <span className="text-xs font-bold text-slate-500">
+                          <h3 className="text-2xl font-black text-emerald-900">{loc}</h3>
+                          <span className="text-xs font-bold text-emerald-700">
                             Zgłosił(a): {report.reporter} • Zamówienia: {effOrders}
                           </span>
                         </div>
                         <button
                           type="button"
                           onClick={() => onEditHistoricalReport(loc, selectedReportDate, report)}
-                          className="bg-white hover:bg-slate-100 text-slate-800 border border-slate-300 px-3.5 py-2 rounded-xl text-xs font-black flex items-center transition-colors shadow-sm"
+                          className="bg-white hover:bg-emerald-100 text-emerald-900 border border-emerald-300 px-3.5 py-2 rounded-xl text-xs font-black flex items-center transition-colors shadow-sm"
                         >
-                          <Edit3 className="w-4 h-4 mr-1.5 text-slate-600" /> Edytuj raport
+                          <Edit3 className="w-4 h-4 mr-1.5 text-emerald-700" /> Edytuj raport
                         </button>
                       </div>
                       <div className="p-5 flex-1 flex flex-col">
-                        <div className="grid grid-cols-2 sm:grid-cols-3 gap-2.5 mb-4">
-                          <div className="bg-slate-50 p-3 rounded-2xl border border-slate-100 text-center">
-                            <span className="block text-[10px] font-bold text-slate-400 uppercase mb-0.5">
+                        <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 mb-4">
+                          <div className="bg-gray-50 p-3.5 rounded-xl border border-gray-100 text-center">
+                            <span className="block text-[11px] font-bold text-gray-400 uppercase tracking-wide mb-1">
                               Gotówka ({pGot}%)
                             </span>
-                            <span className="text-sm sm:text-base font-black text-slate-900">
-                              {formatMoney(got)} zł
+                            <span className="text-base font-black text-gray-800">
+                              {formatMoney(got)} <span className="text-xs text-gray-500">zł</span>
                             </span>
                           </div>
-                          <div className="bg-slate-50 p-3 rounded-2xl border border-slate-100 text-center">
-                            <span className="block text-[10px] font-bold text-slate-400 uppercase mb-0.5">
+                          <div className="bg-gray-50 p-3.5 rounded-xl border border-gray-100 text-center">
+                            <span className="block text-[11px] font-bold text-gray-400 uppercase tracking-wide mb-1">
                               Karta ({pKar}%)
                             </span>
-                            <span className="text-sm sm:text-base font-black text-slate-900">
-                              {formatMoney(kar)} zł
+                            <span className="text-base font-black text-gray-800">
+                              {formatMoney(kar)} <span className="text-xs text-gray-500">zł</span>
                             </span>
                           </div>
-                          <div className="bg-slate-50 p-3 rounded-2xl border border-slate-100 text-center">
-                            <span className="block text-[10px] font-bold text-slate-400 uppercase mb-0.5">
+                          <div className="bg-gray-50 p-3.5 rounded-xl border border-gray-100 text-center">
+                            <span className="block text-[11px] font-bold text-gray-400 uppercase tracking-wide mb-1">
                               Aplikacje ({pApl}%)
                             </span>
-                            <span className="text-sm sm:text-base font-black text-slate-900">
-                              {formatMoney(apl)} zł
+                            <span className="text-base font-black text-gray-800">
+                              {formatMoney(apl)} <span className="text-xs text-gray-500">zł</span>
                             </span>
                           </div>
-                          <div className="bg-blue-50/50 p-3 rounded-2xl border border-blue-100 text-center">
-                            <span className="block text-[10px] font-bold text-blue-600 uppercase mb-0.5">
+                          <div className="bg-indigo-50/60 p-3.5 rounded-xl border border-indigo-100 text-center">
+                            <span className="block text-[11px] font-bold text-indigo-600 uppercase tracking-wide mb-1">
                               Raport Fiskalny
                             </span>
-                            <span className="text-sm sm:text-base font-black text-blue-950">
-                              {formatMoney(report.revenue?.raportFiskalny)} zł
+                            <span className="text-base font-black text-indigo-950">
+                              {formatMoney(report.revenue?.raportFiskalny)}{" "}
+                              <span className="text-xs text-indigo-500">zł</span>
                             </span>
                           </div>
                           <div
-                            className={`p-3 rounded-2xl border text-center sm:col-span-2 ${
+                            className={`p-3.5 rounded-xl border text-center sm:col-span-2 ${
                               parseSafeNumber(report.revenue?.roznica) < 0
-                                ? "bg-rose-50 border-rose-100"
-                                : "bg-slate-50 border-slate-100"
+                                ? "bg-red-50 border-red-100"
+                                : "bg-gray-50 border-gray-100"
                             }`}
                           >
-                            <span className="block text-[10px] font-bold text-slate-400 uppercase mb-0.5">
+                            <span className="block text-[11px] font-bold text-gray-400 uppercase tracking-wide mb-1">
                               Brak / Nadwyżka
                             </span>
                             <span
-                              className={`text-sm sm:text-base font-black ${
-                                parseSafeNumber(report.revenue?.roznica) < 0 ? "text-rose-600" : "text-slate-900"
+                              className={`text-base font-black ${
+                                parseSafeNumber(report.revenue?.roznica) < 0 ? "text-red-600" : "text-gray-800"
                               }`}
                             >
-                              {formatMoney(report.revenue?.roznica)} zł
+                              {formatMoney(report.revenue?.roznica)} <span className="text-xs text-gray-500">zł</span>
                             </span>
                           </div>
                         </div>
 
+                        {total > 0 && (
+                          <div className="mb-4">
+                            <div className="w-full h-2 bg-gray-100 rounded-full overflow-hidden flex">
+                              <div style={{ width: `${pGot}%` }} className="h-full bg-amber-400" />
+                              <div style={{ width: `${pKar}%` }} className="h-full bg-blue-500" />
+                              <div style={{ width: `${pApl}%` }} className="h-full bg-purple-500" />
+                            </div>
+                          </div>
+                        )}
+
                         {locExpenses.length > 0 && (
-                          <div className="mb-4 p-3.5 bg-amber-50/60 border border-amber-200 rounded-2xl text-xs">
+                          <div className="mb-4 p-3.5 bg-amber-50/70 border border-amber-200 rounded-xl text-xs">
                             <div className="flex justify-between items-center mb-1.5">
                               <span className="font-black text-amber-900 uppercase flex items-center">
                                 <Wallet className="w-3.5 h-3.5 mr-1 text-amber-700" /> Wydatki z kasy (KW):
@@ -4994,7 +5134,7 @@ function NysaWarehouseForm({
                               {locExpenses.map((ex, i) => (
                                 <span
                                   key={i}
-                                  className="bg-white border border-amber-200 px-2.5 py-1 rounded-lg font-bold text-slate-800"
+                                  className="bg-white border border-amber-200 px-2.5 py-1 rounded-lg font-bold text-gray-800"
                                 >
                                   {ex.description || "Wydatek"}:{" "}
                                   <strong className="text-amber-800">{formatMoney(ex.amount)} zł</strong>
@@ -5005,15 +5145,15 @@ function NysaWarehouseForm({
                         )}
 
                         {Array.isArray(report.employees) && report.employees.some((e) => e?.name || e?.hours) && (
-                          <div className="mb-4 p-3.5 bg-slate-50 border border-slate-100 rounded-2xl text-xs">
-                            <span className="font-black text-slate-400 uppercase block mb-1.5">Obsada zmiany:</span>
+                          <div className="mb-4 p-3.5 bg-gray-50 border border-gray-100 rounded-xl text-xs">
+                            <span className="font-black text-gray-500 uppercase block mb-1.5">Obsada zmiany:</span>
                             <div className="flex flex-wrap gap-2">
                               {report.employees
                                 .filter((e) => e?.name || e?.hours)
                                 .map((emp, idx) => (
                                   <span
                                     key={idx}
-                                    className="bg-white border border-slate-200 px-2.5 py-1 rounded-lg font-bold text-slate-800"
+                                    className="bg-white border border-gray-200 px-2.5 py-1 rounded-lg font-bold text-gray-800"
                                   >
                                     {emp.name || "Pracownik"}: <span className="text-blue-600">{emp.hours || "-"}</span>
                                   </span>
@@ -5022,12 +5162,12 @@ function NysaWarehouseForm({
                           </div>
                         )}
 
-                        <div className="flex justify-between items-end border-t border-slate-100 pt-4 mt-auto">
-                          <span className="text-xs font-bold text-slate-400 uppercase tracking-wider">
+                        <div className="flex justify-between items-end border-t border-gray-100 pt-5 mt-auto">
+                          <span className="text-sm font-bold text-gray-500 uppercase tracking-wider">
                             Utarg całkowity:
                           </span>
-                          <span className="text-2xl sm:text-3xl font-black text-emerald-600">
-                            {formatMoney(total)} <span className="text-base text-emerald-500">zł</span>
+                          <span className="text-3xl font-black text-emerald-600">
+                            {formatMoney(total)} <span className="text-lg text-emerald-500">zł</span>
                           </span>
                         </div>
                       </div>
@@ -5041,23 +5181,23 @@ function NysaWarehouseForm({
 
         {tab === "inventory" && hasFullAnalytics && (
           <div className="space-y-6">
-            <div className="bg-white p-5 rounded-3xl border border-slate-200 shadow-sm flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4">
+            <div className="bg-white p-5 rounded-[2rem] border border-gray-200 shadow-sm flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4">
               <div>
-                <h2 className="text-xl sm:text-2xl font-black text-slate-900 flex items-center">
-                  <Warehouse className="w-6 h-6 mr-2.5 text-slate-700" /> Magazyn, Szkice Na Żywo i Braki
+                <h2 className="text-2xl font-black text-gray-900 flex items-center">
+                  <Warehouse className="w-7 h-7 mr-3 text-purple-600" /> Magazyn, Szkice Na Żywo i Braki
                 </h2>
-                <p className="text-xs font-semibold text-slate-500 mt-1">
+                <p className="text-xs font-semibold text-gray-500 mt-1">
                   Podgląd stanów z wysłanych raportów ORAZ szkiców roboczych na żywo (gdy pracownik zatwierdzi np. Farutex w ciągu dnia).
                 </p>
               </div>
               <div className="flex flex-wrap items-center gap-3">
-                <div className="flex items-center bg-slate-50 border border-slate-200 rounded-2xl px-3.5 py-2">
-                  <Calendar className="w-4 h-4 text-slate-500 mr-2" />
+                <div className="flex items-center bg-gray-50 border border-gray-200 rounded-xl px-3 py-2">
+                  <Calendar className="w-4 h-4 text-gray-500 mr-2" />
                   <input
                     type="date"
                     value={selectedReportDate}
                     onChange={(e) => setSelectedReportDate(e.target.value)}
-                    className="bg-transparent font-black text-sm text-slate-900 outline-none"
+                    className="bg-transparent font-black text-sm text-gray-900 outline-none"
                   />
                 </div>
                 {!isKlodzkoAdmin && (
@@ -5069,8 +5209,8 @@ function NysaWarehouseForm({
                         onClick={() => setInventoryLocFilter(loc)}
                         className={`px-3.5 py-2 rounded-xl font-bold text-xs border transition-colors ${
                           inventoryLocFilter === loc
-                            ? "bg-slate-900 text-white border-slate-900"
-                            : "bg-white text-slate-600 border-slate-200 hover:bg-slate-50"
+                            ? "bg-purple-600 text-white border-purple-600 shadow-sm"
+                            : "bg-white text-gray-600 border-gray-200 hover:bg-gray-50"
                         }`}
                       >
                         {loc === "All" ? "Wszystkie punkty" : loc}
@@ -5081,10 +5221,10 @@ function NysaWarehouseForm({
               </div>
             </div>
 
-            <div className="bg-slate-900 text-white rounded-3xl border border-slate-800 shadow-md overflow-hidden">
+            <div className="bg-indigo-950 text-white rounded-[2rem] border border-indigo-800 shadow-lg overflow-hidden">
               <div
                 onClick={() => setShowAvgUsagePanel((o) => !o)}
-                className="p-5 flex flex-col sm:flex-row sm:items-center justify-between gap-3 cursor-pointer select-none hover:bg-slate-800/60 transition-colors"
+                className="p-5 flex flex-col sm:flex-row sm:items-center justify-between gap-3 cursor-pointer select-none hover:bg-indigo-900/50 transition-colors"
               >
                 <div className="flex items-center gap-3">
                   <div className="w-10 h-10 rounded-2xl bg-indigo-500/20 border border-indigo-400/30 flex items-center justify-center shrink-0">
@@ -5094,14 +5234,14 @@ function NysaWarehouseForm({
                     <h3 className="font-extrabold text-base sm:text-lg text-white">
                       Analityka: Średnie zużycie produktów na 1 zamówienie ({selectedReportDate})
                     </h3>
-                    <p className="text-xs text-slate-400 font-medium">
-                      Łączna liczba zamówień z wybranego filtra: <strong className="text-white">{averageUsagePerOrderData.totalOrders}</strong> • Kliknij, aby {showAvgUsagePanel ? "zwinąć" : "rozwinąć"} tabelę przeliczników
+                    <p className="text-xs text-indigo-200 font-medium">
+                      Łączna liczba zamówień: <strong className="text-white">{averageUsagePerOrderData.totalOrders}</strong> • Kliknij, aby {showAvgUsagePanel ? "zwinąć" : "rozwinąć"} przeliczniki
                     </p>
                   </div>
                 </div>
                 <button
                   type="button"
-                  className="self-start sm:self-center px-3.5 py-2 rounded-xl bg-slate-800 text-slate-200 font-bold text-xs flex items-center shrink-0"
+                  className="self-start sm:self-center px-3.5 py-2 rounded-xl bg-white/10 text-indigo-100 font-bold text-xs flex items-center shrink-0"
                 >
                   {showAvgUsagePanel ? (
                     <>Ukryj przeliczniki <ChevronUp className="w-4 h-4 ml-1.5" /></>
@@ -5112,10 +5252,10 @@ function NysaWarehouseForm({
               </div>
 
               {showAvgUsagePanel && (
-                <div className="p-5 pt-2 border-t border-slate-800 space-y-4">
-                  <div className="flex flex-wrap items-center justify-between gap-3 bg-slate-800/70 p-3.5 rounded-2xl">
-                    <span className="text-xs font-semibold text-slate-300">
-                      Domyślna średnia wartość koszyka (używana, gdy w raporcie nie wpisano liczby paragonów):
+                <div className="p-5 pt-2 border-t border-white/10 space-y-4">
+                  <div className="flex flex-wrap items-center justify-between gap-3 bg-white/10 p-3.5 rounded-2xl">
+                    <span className="text-xs font-semibold text-indigo-200">
+                      Domyślna średnia wartość koszyka (gdy w raporcie nie wpisano liczby paragonów):
                     </span>
                     <div className="flex items-center gap-2">
                       <input
@@ -5126,14 +5266,14 @@ function NysaWarehouseForm({
                           const v = e.target.value;
                           if (v === "" || /^\d*[.,]?\d*$/.test(v)) setAvgOrderFallbackVal(v);
                         }}
-                        className="w-20 p-1.5 text-center font-black text-sm text-slate-900 bg-white rounded-xl outline-none"
+                        className="w-20 p-1.5 text-center font-black text-sm text-gray-900 bg-white rounded-lg outline-none"
                       />
-                      <span className="text-xs font-bold text-slate-300">PLN / zam.</span>
+                      <span className="text-xs font-bold text-indigo-200">PLN / zam.</span>
                     </div>
                   </div>
 
                   {averageUsagePerOrderData.totalOrders === 0 ? (
-                    <p className="text-sm text-slate-400 font-bold py-4 text-center">
+                    <p className="text-sm text-indigo-200 font-bold py-4 text-center bg-white/5 rounded-2xl">
                       Brak raportów z liczbą zamówień lub utargiem w dniu {selectedReportDate}.
                     </p>
                   ) : (
@@ -5149,10 +5289,10 @@ function NysaWarehouseForm({
                         const secTotals = averageUsagePerOrderData.totalsBySection[sec.key] || {};
                         const entries = Object.entries(secTotals).filter(([, v]) => v > 0);
                         return (
-                          <div key={sec.key} className="bg-slate-800/60 border border-slate-700/80 p-4 rounded-2xl">
+                          <div key={sec.key} className="bg-white/5 border border-white/10 p-4 rounded-2xl">
                             <h4 className="text-xs font-black uppercase text-amber-300 mb-2.5">{sec.label}</h4>
                             {entries.length === 0 ? (
-                              <p className="text-xs text-slate-500 italic">Brak pozycji powyżej 0</p>
+                              <p className="text-xs text-gray-400 italic">Brak pozycji powyżej 0</p>
                             ) : (
                               <div className="space-y-1.5">
                                 {entries.map(([itemName, sumVal]) => {
@@ -5161,12 +5301,12 @@ function NysaWarehouseForm({
                                   return (
                                     <div
                                       key={itemName}
-                                      className="flex items-center justify-between text-xs bg-slate-900/60 px-2.5 py-1.5 rounded-lg"
+                                      className="flex items-center justify-between text-xs bg-white/5 px-2.5 py-1.5 rounded-lg"
                                     >
-                                      <span className="font-bold text-slate-200 truncate pr-2">
+                                      <span className="font-bold text-gray-200 truncate pr-2">
                                         {itemName} (Σ {sumVal} {unit})
                                       </span>
-                                      <span className="font-black text-emerald-400 shrink-0">
+                                      <span className="font-black text-emerald-300 shrink-0">
                                         {perOrder.toFixed(3)} {unit} / zam.
                                       </span>
                                     </div>
@@ -5183,14 +5323,14 @@ function NysaWarehouseForm({
               )}
             </div>
 
-            <div className="bg-white p-6 rounded-3xl border border-slate-200 shadow-sm">
-              <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 mb-4 pb-3 border-b border-slate-100">
-                <h3 className="text-lg font-black text-slate-900 flex items-center">
-                  <MessageSquare className="w-5 h-5 mr-2 text-amber-500" /> Braki sosów, notatki i uwagi końcowe (
+            <div className="bg-amber-50/70 p-6 rounded-[2rem] border-2 border-amber-200 shadow-sm">
+              <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 mb-4">
+                <h3 className="text-lg font-black text-amber-950 flex items-center">
+                  <MessageSquare className="w-5 h-5 mr-2 text-amber-600" /> Braki sosów, notatki i uwagi końcowe (
                   {selectedReportDate})
                 </h3>
-                <span className="text-xs font-bold text-slate-500 bg-slate-100 px-3 py-1 rounded-full">
-                  Statusy realizacji braków
+                <span className="text-xs font-bold text-amber-800 bg-amber-200/70 px-3 py-1 rounded-full">
+                  Interaktywne statusy realizacji
                 </span>
               </div>
 
@@ -5210,17 +5350,17 @@ function NysaWarehouseForm({
                     return (
                       <div
                         key={loc}
-                        className="bg-slate-50 p-4 rounded-2xl border border-slate-200/80 flex flex-col justify-between"
+                        className="bg-white p-4 rounded-2xl border border-amber-200/80 shadow-sm flex flex-col justify-between"
                       >
                         <div>
-                          <div className="flex items-center justify-between border-b border-slate-200/70 pb-2.5 mb-3">
-                            <span className="font-black text-slate-900">{loc}</span>
+                          <div className="flex items-center justify-between border-b border-gray-100 pb-2.5 mb-3">
+                            <span className="font-black text-gray-900">{loc}</span>
                             <span
                               className={`text-[10px] font-black px-2 py-0.5 rounded-full uppercase ${
                                 !rep
-                                  ? "bg-slate-200 text-slate-500"
+                                  ? "bg-gray-100 text-gray-400"
                                   : missingSauces.length > 0
-                                  ? "bg-rose-100 text-rose-700"
+                                  ? "bg-red-100 text-red-700"
                                   : "bg-emerald-100 text-emerald-700"
                               }`}
                             >
@@ -5232,20 +5372,20 @@ function NysaWarehouseForm({
                             </span>
                           </div>
                           {!rep ? (
-                            <p className="text-xs text-slate-400 italic">
+                            <p className="text-xs text-gray-400 italic">
                               Brak raportu ani szkicu na dzień {selectedReportDate}.
                             </p>
                           ) : (
                             <div className="space-y-3 text-xs">
-                              <div className="p-2.5 bg-white rounded-xl border border-slate-200/80">
-                                <span className="font-bold text-slate-400 block mb-1">Brakujące sosy:</span>
+                              <div className="p-2.5 bg-gray-50 rounded-xl border border-gray-100">
+                                <span className="font-bold text-gray-500 block mb-1">Brakujące sosy:</span>
                                 {missingSauces.length > 0 ? (
                                   <>
                                     <div className="flex flex-wrap gap-1">
                                       {missingSauces.map((s) => (
                                         <span
                                           key={s}
-                                          className="bg-rose-50 text-rose-700 border border-rose-200 font-black px-2 py-0.5 rounded-md"
+                                          className="bg-red-50 text-red-700 border border-red-200 font-black px-2 py-0.5 rounded-md"
                                         >
                                           {s}
                                         </span>
@@ -5269,13 +5409,13 @@ function NysaWarehouseForm({
                               {hasFinalNote ? (
                                 <div className="p-2.5 bg-amber-50/80 rounded-xl border border-amber-200">
                                   <span className="font-black text-[10px] uppercase text-amber-800 block mb-0.5">
-                                    Uwagi końcowe:
+                                    Uwagi końcowe (Magazyn / Braki):
                                   </span>
-                                  <p className="font-bold text-slate-900 whitespace-pre-wrap">{rep.notes}</p>
+                                  <p className="font-bold text-gray-900 whitespace-pre-wrap">{rep.notes}</p>
                                   {renderIssueStatusSwitcher(rep, "notes")}
                                 </div>
                               ) : (
-                                <p className="text-[11px] text-slate-400 italic pt-1">Brak dodatkowych uwag końcowych.</p>
+                                <p className="text-[11px] text-gray-400 italic pt-1">Brak dodatkowych uwag końcowych.</p>
                               )}
                             </div>
                           )}
@@ -5297,12 +5437,12 @@ function NysaWarehouseForm({
                   const confirmedEntries = rep?.confirmedSections ? Object.values(rep.confirmedSections) : [];
 
                   return (
-                    <div key={loc} className="bg-white rounded-3xl border border-slate-200 shadow-sm overflow-hidden">
-                      <div className="bg-slate-900 text-white p-5 flex flex-wrap justify-between items-center gap-3">
+                    <div key={loc} className="bg-white rounded-[2rem] border border-gray-200 shadow-sm overflow-hidden">
+                      <div className="bg-gray-900 text-white p-5 flex flex-wrap justify-between items-center gap-3">
                         <div>
                           <div className="flex items-center gap-2.5 flex-wrap">
                             <h3 className="text-xl font-black flex items-center">
-                              <Store className="w-5 h-5 mr-2 text-slate-400" /> Punkt: {loc}
+                              <Store className="w-5 h-5 mr-2 text-purple-400" /> Punkt: {loc}
                             </h3>
                             {rep && (
                               <span
@@ -5318,7 +5458,7 @@ function NysaWarehouseForm({
                               </span>
                             )}
                           </div>
-                          <p className="text-xs text-slate-400 font-semibold mt-1">
+                          <p className="text-xs text-gray-400 font-semibold mt-1">
                             Data: {selectedReportDate}{" "}
                             {rep ? `• Osoba: ${rep.reporter || "W trakcie wpisywania"} • Zamówienia: ${repOrders}` : ""}
                           </p>
@@ -5339,15 +5479,15 @@ function NysaWarehouseForm({
                           <button
                             type="button"
                             onClick={() => onEditHistoricalReport(loc, selectedReportDate, rep)}
-                            className="bg-slate-800 hover:bg-slate-700 text-white px-3.5 py-2 rounded-xl text-xs font-bold flex items-center transition-colors border border-slate-700"
+                            className="bg-white/10 hover:bg-white/20 text-white px-3.5 py-2 rounded-xl text-xs font-bold flex items-center transition-colors"
                           >
-                            <Edit3 className="w-4 h-4 mr-1.5" /> Edytuj stany
+                            <Edit3 className="w-4 h-4 mr-1.5" /> Edytuj stany w raporcie
                           </button>
                         )}
                       </div>
                       {!rep ? (
                         <div className="p-8 text-center">
-                          <p className="text-slate-400 font-bold text-sm">
+                          <p className="text-gray-400 font-bold text-sm">
                             Brak raportu ani szkicu magazynowego dla punktu {loc} w dniu {selectedReportDate}.
                           </p>
                         </div>
@@ -5361,6 +5501,7 @@ function NysaWarehouseForm({
                                 isItemAllowedForLocation(catalog, "vegetables", it, loc)
                               ),
                               rep.vegetables,
+                              "text-green-700",
                               rep.confirmedSections,
                               repOrders
                             )}
@@ -5371,6 +5512,7 @@ function NysaWarehouseForm({
                                 isItemAllowedForLocation(catalog, "freezer", it, loc)
                               ),
                               rep.freezer,
+                              "text-blue-700",
                               rep.confirmedSections,
                               repOrders
                             )}
@@ -5382,6 +5524,7 @@ function NysaWarehouseForm({
                               isItemAllowedForLocation(catalog, "farutex", it, loc)
                             ),
                             rep.farutex,
+                            "text-orange-700",
                             rep.confirmedSections,
                             repOrders
                           )}
@@ -5393,6 +5536,7 @@ function NysaWarehouseForm({
                                 isItemAllowedForLocation(catalog, "meat1", it, loc)
                               ),
                               rep.meat1,
+                              "text-red-700",
                               rep.confirmedSections,
                               repOrders
                             )}
@@ -5403,6 +5547,7 @@ function NysaWarehouseForm({
                                 isItemAllowedForLocation(catalog, "meat2", it, loc)
                               ),
                               rep.meat2,
+                              "text-red-700",
                               rep.confirmedSections,
                               repOrders
                             )}
@@ -5414,6 +5559,7 @@ function NysaWarehouseForm({
                               isItemAllowedForLocation(catalog, "otherItems", it, loc)
                             ),
                             rep.otherItems,
+                            "text-purple-700",
                             rep.confirmedSections,
                             repOrders
                           )}
@@ -5425,8 +5571,8 @@ function NysaWarehouseForm({
                             if (cat.type === "checkbox") {
                               const checkedArr = Array.isArray(secData) ? secData : [];
                               return (
-                                <div key={cat.id} className="bg-slate-50 p-4 rounded-2xl border border-slate-200/80">
-                                  <h4 className="text-xs font-black uppercase tracking-wider mb-2 text-slate-700">
+                                <div key={cat.id} className="bg-gray-50 p-4 rounded-2xl border border-gray-100">
+                                  <h4 className="text-xs font-black uppercase tracking-wider mb-2 text-indigo-700">
                                     {cat.name}
                                   </h4>
                                   {checkedArr.length > 0 ? (
@@ -5435,7 +5581,7 @@ function NysaWarehouseForm({
                                         {checkedArr.map((it) => (
                                           <span
                                             key={it}
-                                            className="bg-slate-900 text-white font-black text-xs px-2.5 py-1 rounded-lg"
+                                            className="bg-indigo-100 text-indigo-800 font-black text-xs px-2.5 py-1 rounded-lg"
                                           >
                                             {it}
                                           </span>
@@ -5444,7 +5590,7 @@ function NysaWarehouseForm({
                                       {renderIssueStatusSwitcher(rep, `custom_${cat.id}`)}
                                     </>
                                   ) : (
-                                    <p className="text-xs text-slate-400 font-semibold">Brak zaznaczonych pozycji</p>
+                                    <p className="text-xs text-gray-400 font-semibold">Brak zaznaczonych pozycji</p>
                                   )}
                                 </div>
                               );
@@ -5456,6 +5602,7 @@ function NysaWarehouseForm({
                                   `custom_${cat.id}`,
                                   allowedCatItems,
                                   secData,
+                                  "text-indigo-700",
                                   rep.confirmedSections,
                                   repOrders
                                 )}
@@ -5469,15 +5616,15 @@ function NysaWarehouseForm({
                 })}
 
               {!isKlodzkoAdmin && (inventoryLocFilter === "All" || inventoryLocFilter === "Nysa") && (
-                <div className="bg-white rounded-3xl border border-slate-200 shadow-sm overflow-hidden">
-                  <div className="bg-purple-950 text-white p-5 flex justify-between items-center">
+                <div className="bg-purple-50/40 rounded-[2rem] border-2 border-purple-200 shadow-sm overflow-hidden">
+                  <div className="bg-purple-900 text-white p-5 flex justify-between items-center">
                     <div>
                       <h3 className="text-xl font-black">Magazyn Główny Nysa (Osobny formularz)</h3>
                       <p className="text-xs text-purple-200 font-semibold mt-0.5">Data: {selectedReportDate}</p>
                     </div>
                   </div>
                   {!nysaWarehouseForSelectedDate ? (
-                    <div className="p-6 text-center text-slate-400 font-bold text-sm">
+                    <div className="p-6 text-center text-gray-400 font-bold text-sm">
                       Brak wypełnionego formularza Magazynu Głównego Nysa na dzień {selectedReportDate}.
                     </div>
                   ) : (
@@ -5486,13 +5633,15 @@ function NysaWarehouseForm({
                         "Magazyn Nysa - Żywność",
                         "nysaFood",
                         catalog?.nysaFood || DEFAULT_CATALOG.nysaFood,
-                        nysaWarehouseForSelectedDate.food
+                        nysaWarehouseForSelectedDate.food,
+                        "text-purple-800"
                       )}
                       {renderInventoryGroup(
                         "Magazyn Nysa - Opakowania",
                         "nysaPack",
                         catalog?.nysaPack || DEFAULT_CATALOG.nysaPack,
-                        nysaWarehouseForSelectedDate.pack
+                        nysaWarehouseForSelectedDate.pack,
+                        "text-purple-800"
                       )}
                     </div>
                   )}
@@ -5504,15 +5653,15 @@ function NysaWarehouseForm({
 
         {tab === "stats" && hasFullAnalytics && dayStats && (
           <div className="space-y-6">
-            <div className="bg-white p-6 rounded-3xl border border-slate-200 shadow-sm space-y-5">
+            <div className="bg-white p-6 rounded-[2rem] border border-gray-200 shadow-sm space-y-5">
               <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4">
                 <div>
-                  <h2 className="text-2xl font-black text-slate-900 flex items-center">
+                  <h2 className="text-2xl font-black text-gray-900 flex items-center">
                     <BarChart3 className="w-7 h-7 mr-3 text-emerald-600" /> Statystyka Dni Tygodnia{" "}
                     {isKlodzkoAdmin ? "(Kłodzko)" : ""}
                   </h2>
-                  <p className="text-sm text-slate-500 font-medium mt-1">
-                    Przeanalizowane raporty: <span className="font-black text-slate-900">{dayStats.totalReportsCount}</span> •
+                  <p className="text-sm text-gray-500 font-medium mt-1">
+                    Przeanalizowane raporty: <span className="font-black text-gray-900">{dayStats.totalReportsCount}</span> •
                     Łączny utarg: <span className="font-black text-emerald-600">{formatMoney(dayStats.totalPeriodRevenue)} zł</span>
                   </p>
                 </div>
@@ -5525,8 +5674,10 @@ function NysaWarehouseForm({
                         onClick={() => setStatsLocation(loc)}
                         className={`px-4 py-2 rounded-xl font-bold text-xs transition-colors border ${
                           statsLocation === loc
-                            ? "bg-slate-900 text-white border-slate-900 shadow-sm"
-                            : "bg-white text-slate-600 border-slate-200 hover:bg-slate-50"
+                            ? loc === "All"
+                              ? "bg-gray-900 text-white border-gray-900 shadow-sm"
+                              : "bg-emerald-600 text-white border-emerald-600 shadow-sm"
+                            : "bg-white text-gray-600 border-gray-200 hover:bg-gray-50"
                         }`}
                       >
                         {loc === "All" ? "Cała sieć" : loc}
@@ -5536,11 +5687,11 @@ function NysaWarehouseForm({
                 )}
               </div>
 
-              <div className="pt-4 border-t border-slate-100 flex flex-col md:flex-row md:items-center justify-between gap-4">
+              <div className="pt-4 border-t border-gray-100 flex flex-col md:flex-row md:items-center justify-between gap-4">
                 <div className="flex flex-wrap gap-2">
                   {[
-                    { id: "week", label: "Tydzień z kalendarza", hasIcon: true },
-                    { id: "range", label: "Zakres dat (Od - Do)" },
+                    { id: "week", label: "Wybierz Tydzień z kalendarza", hasIcon: true },
+                    { id: "range", label: "Dowolny zakres dat (Od - Do)" },
                     { id: "all", label: "Cała historia" },
                   ].map((m) => (
                     <button
@@ -5549,8 +5700,8 @@ function NysaWarehouseForm({
                       onClick={() => setStatsFilterMode(m.id)}
                       className={`px-4 py-2.5 rounded-xl font-extrabold text-xs transition-colors flex items-center ${
                         statsFilterMode === m.id
-                          ? "bg-slate-900 text-white shadow-sm"
-                          : "bg-slate-100 text-slate-700 hover:bg-slate-200"
+                          ? "bg-blue-600 text-white shadow-sm"
+                          : "bg-gray-100 text-gray-700 hover:bg-gray-200"
                       }`}
                     >
                       {m.hasIcon && <Calendar className="w-4 h-4 mr-1.5" />} {m.label}
@@ -5559,53 +5710,53 @@ function NysaWarehouseForm({
                 </div>
 
                 {statsFilterMode === "week" && (
-                  <div className="flex flex-wrap items-center gap-2 bg-slate-50 p-2.5 rounded-2xl border border-slate-200">
+                  <div className="flex flex-wrap items-center gap-2 bg-blue-50/70 p-2.5 rounded-2xl border border-blue-200">
                     <button
                       type="button"
                       onClick={() => shiftStatsWeek(-7)}
-                      className="px-3 py-1.5 bg-white hover:bg-slate-100 text-slate-800 rounded-xl font-black text-xs border border-slate-200 shadow-sm"
+                      className="px-3 py-1.5 bg-white hover:bg-gray-100 text-gray-800 rounded-xl font-black text-xs border border-gray-200 shadow-sm"
                     >
                       Poprzedni tydz.
                     </button>
-                    <div className="flex items-center bg-white px-3 py-1.5 rounded-xl border border-slate-200">
+                    <div className="flex items-center bg-white px-3 py-1.5 rounded-xl border border-blue-200">
                       <input
                         type="date"
                         value={statsWeekRefDate}
                         onChange={(e) => setStatsWeekRefDate(e.target.value)}
-                        className="font-black text-xs text-slate-900 outline-none bg-transparent"
+                        className="font-black text-xs text-blue-900 outline-none bg-transparent"
                       />
                     </div>
                     <button
                       type="button"
                       onClick={() => shiftStatsWeek(7)}
-                      className="px-3 py-1.5 bg-white hover:bg-slate-100 text-slate-800 rounded-xl font-black text-xs border border-slate-200 shadow-sm"
+                      className="px-3 py-1.5 bg-white hover:bg-gray-100 text-gray-800 rounded-xl font-black text-xs border border-gray-200 shadow-sm"
                     >
                       Następny tydz.
                     </button>
-                    <span className="text-xs font-black text-slate-700 px-2">
+                    <span className="text-xs font-black text-blue-900 px-2">
                       {dayStats.activeStart} — {dayStats.activeEnd}
                     </span>
                   </div>
                 )}
 
                 {statsFilterMode === "range" && (
-                  <div className="flex flex-wrap items-center gap-2 bg-slate-50 p-2.5 rounded-2xl border border-slate-200">
-                    <div className="flex items-center bg-white px-3 py-1.5 rounded-xl border border-slate-200">
-                      <span className="text-[11px] font-bold text-slate-400 mr-2">Od:</span>
+                  <div className="flex flex-wrap items-center gap-2 bg-blue-50/70 p-2.5 rounded-2xl border border-blue-200">
+                    <div className="flex items-center bg-white px-3 py-1.5 rounded-xl border border-blue-200">
+                      <span className="text-[11px] font-bold text-gray-400 mr-2">Od:</span>
                       <input
                         type="date"
                         value={statsCustomStart}
                         onChange={(e) => setStatsCustomStart(e.target.value)}
-                        className="font-black text-xs text-slate-900 outline-none bg-transparent"
+                        className="font-black text-xs text-gray-900 outline-none bg-transparent"
                       />
                     </div>
-                    <div className="flex items-center bg-white px-3 py-1.5 rounded-xl border border-slate-200">
-                      <span className="text-[11px] font-bold text-slate-400 mr-2">Do:</span>
+                    <div className="flex items-center bg-white px-3 py-1.5 rounded-xl border border-blue-200">
+                      <span className="text-[11px] font-bold text-gray-400 mr-2">Do:</span>
                       <input
                         type="date"
                         value={statsCustomEnd}
                         onChange={(e) => setStatsCustomEnd(e.target.value)}
-                        className="font-black text-xs text-slate-900 outline-none bg-transparent"
+                        className="font-black text-xs text-gray-900 outline-none bg-transparent"
                       />
                     </div>
                   </div>
@@ -5615,85 +5766,92 @@ function NysaWarehouseForm({
 
             {dayStats.bestDay ? (
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                <div className="bg-white border-2 border-emerald-400 p-6 rounded-3xl flex items-center justify-between shadow-sm">
+                <div className="bg-emerald-50 border-2 border-emerald-200 p-6 rounded-[2rem] flex items-center justify-between shadow-sm">
                   <div>
-                    <span className="text-[11px] font-black uppercase tracking-wider text-emerald-800 bg-emerald-100 px-3 py-1 rounded-full">
-                      Najlepszy dzień tygodnia
+                    <span className="text-[11px] font-black uppercase tracking-wider text-emerald-700 bg-emerald-200/70 px-3 py-1 rounded-full">
+                      Najlepszy dzień w wybranym okresie
                     </span>
-                    <h3 className="text-3xl font-black text-slate-900 mt-3">{dayStats.bestDay.name}</h3>
-                    <p className="text-lg font-extrabold text-emerald-600 mt-1">śr. {formatMoney(dayStats.bestDay.avg)} zł</p>
-                    <p className="text-xs font-semibold text-slate-500 mt-1">
+                    <h3 className="text-3xl font-black text-emerald-950 mt-3">{dayStats.bestDay.name}</h3>
+                    <p className="text-lg font-extrabold text-emerald-700 mt-1">śr. {formatMoney(dayStats.bestDay.avg)} zł</p>
+                    <p className="text-xs font-semibold text-emerald-600/80 mt-1">
                       Na podstawie {dayStats.bestDay.count} raportów (łącznie {formatMoney(dayStats.bestDay.sum)} zł)
                     </p>
                   </div>
-                  <div className="w-14 h-14 rounded-2xl bg-emerald-600 text-white flex items-center justify-center shrink-0 shadow-md">
+                  <div className="w-14 h-14 rounded-2xl bg-emerald-600 text-white flex items-center justify-center shrink-0 shadow-lg shadow-emerald-600/20">
                     <TrendingUp className="w-7 h-7" />
                   </div>
                 </div>
-                <div className="bg-white border-2 border-amber-300 p-6 rounded-3xl flex items-center justify-between shadow-sm">
+                <div className="bg-orange-50 border-2 border-orange-200 p-6 rounded-[2rem] flex items-center justify-between shadow-sm">
                   <div>
-                    <span className="text-[11px] font-black uppercase tracking-wider text-amber-800 bg-amber-100 px-3 py-1 rounded-full">
-                      Najsłabszy dzień tygodnia
+                    <span className="text-[11px] font-black uppercase tracking-wider text-orange-800 bg-orange-200/70 px-3 py-1 rounded-full">
+                      Najsłabszy dzień w wybranym okresie
                     </span>
-                    <h3 className="text-3xl font-black text-slate-900 mt-3">{dayStats.worstDay.name}</h3>
-                    <p className="text-lg font-extrabold text-amber-600 mt-1">śr. {formatMoney(dayStats.worstDay.avg)} zł</p>
-                    <p className="text-xs font-semibold text-slate-500 mt-1">
+                    <h3 className="text-3xl font-black text-orange-950 mt-3">{dayStats.worstDay.name}</h3>
+                    <p className="text-lg font-extrabold text-orange-700 mt-1">śr. {formatMoney(dayStats.worstDay.avg)} zł</p>
+                    <p className="text-xs font-semibold text-orange-600/80 mt-1">
                       Na podstawie {dayStats.worstDay.count} raportów (łącznie {formatMoney(dayStats.worstDay.sum)} zł)
                     </p>
                   </div>
-                  <div className="w-14 h-14 rounded-2xl bg-amber-500 text-white flex items-center justify-center shrink-0 shadow-md">
+                  <div className="w-14 h-14 rounded-2xl bg-orange-500 text-white flex items-center justify-center shrink-0 shadow-lg shadow-orange-500/20">
                     <TrendingDown className="w-7 h-7" />
                   </div>
                 </div>
               </div>
             ) : (
-              <div className="bg-white p-8 rounded-3xl border border-slate-200 text-center">
-                <p className="text-slate-400 font-bold">Brak zapisanych raportów z utargiem dla wybranego okresu.</p>
+              <div className="bg-white p-8 rounded-[2rem] border-2 border-dashed border-gray-200 text-center">
+                <p className="text-gray-400 font-bold">Brak zapisanych raportów z utargiem dla wybranego okresu.</p>
               </div>
             )}
 
-            <div className="bg-white p-6 rounded-3xl border border-slate-200 shadow-sm space-y-5">
-              <h3 className="font-extrabold text-lg text-slate-900">
+            <div className="bg-white p-6 rounded-[2rem] border border-gray-200 shadow-sm space-y-5">
+              <h3 className="font-extrabold text-lg text-gray-900">
                 Utarg według dni tygodnia (Poniedziałek – Niedziela)
               </h3>
-              <div className="space-y-3.5">
+              <div className="space-y-4">
                 {dayStats.statsList.map((d) => {
                   const percent = dayStats.maxAvg > 0 ? Math.round((d.avg / dayStats.maxAvg) * 100) : 0;
                   const isBest = dayStats.bestDay?.id === d.id && d.count > 0;
                   const isWorst =
                     dayStats.worstDay?.id === d.id && d.count > 0 && dayStats.bestDay?.id !== dayStats.worstDay?.id;
                   return (
-                    <div key={d.id} className="p-4 rounded-2xl bg-slate-50 border border-slate-100">
+                    <div key={d.id} className="p-4 rounded-2xl bg-gray-50 border border-gray-100">
                       <div className="flex flex-wrap items-center justify-between gap-2 mb-2">
                         <div className="flex items-center gap-2">
-                          <span className="font-black text-slate-900 text-base">{d.name}</span>
-                          <span className="text-xs font-bold text-slate-400">({d.count} rap.)</span>
+                          <span className="font-black text-gray-900 text-base">{d.name}</span>
+                          <span className="text-xs font-bold text-gray-400">({d.count} rap.)</span>
                           {isBest && (
                             <span className="text-[10px] font-black uppercase bg-emerald-100 text-emerald-700 px-2.5 py-0.5 rounded-full">
                               Najlepszy
                             </span>
                           )}
                           {isWorst && (
-                            <span className="text-[10px] font-black uppercase bg-amber-100 text-amber-800 px-2.5 py-0.5 rounded-full">
+                            <span className="text-[10px] font-black uppercase bg-orange-100 text-orange-700 px-2.5 py-0.5 rounded-full">
                               Najsłabszy
                             </span>
                           )}
                         </div>
                         <div className="text-right">
-                          <span className="text-xs font-bold text-slate-400 uppercase mr-1.5">Średnio:</span>
-                          <span className="text-lg font-black text-slate-900">
-                            {formatMoney(d.avg)} <span className="text-xs text-slate-500">zł</span>
+                          <span className="text-xs font-bold text-gray-400 uppercase mr-1.5">Średnio:</span>
+                          <span className="text-lg font-black text-gray-900">
+                            {formatMoney(d.avg)} <span className="text-xs text-gray-500">zł</span>
                           </span>
                         </div>
                       </div>
-                      <div className="w-full h-2.5 bg-slate-200 rounded-full overflow-hidden">
+                      <div className="w-full h-3 bg-gray-200 rounded-full overflow-hidden">
                         <div
                           className={`h-full rounded-full transition-all duration-300 ${
-                            isBest ? "bg-emerald-500" : isWorst ? "bg-amber-400" : "bg-slate-800"
+                            isBest ? "bg-emerald-500" : isWorst ? "bg-orange-400" : "bg-blue-500"
                           }`}
                           style={{ width: `${percent}%` }}
                         />
                       </div>
+                      {d.count > 0 && (
+                        <div className="mt-2 text-right">
+                          <span className="text-[11px] font-semibold text-gray-400">
+                            Suma całkowita z tych dni: {formatMoney(d.sum)} zł
+                          </span>
+                        </div>
+                      )}
                     </div>
                   );
                 })}
@@ -5704,10 +5862,10 @@ function NysaWarehouseForm({
 
         {tab === "hours" && (
           <div className="space-y-6">
-            <div className="bg-slate-900 text-white p-6 rounded-3xl border border-slate-800 shadow-lg space-y-5">
-              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-slate-800 pb-4">
+            <div className="bg-gradient-to-br from-slate-900 via-indigo-950 to-slate-900 text-white p-6 rounded-[2rem] border border-indigo-700/70 shadow-xl space-y-5">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-white/10 pb-4">
                 <div className="flex items-center gap-3">
-                  <div className="w-11 h-11 rounded-2xl bg-emerald-500/20 border border-emerald-400/30 flex items-center justify-center shrink-0">
+                  <div className="w-12 h-12 rounded-2xl bg-emerald-500/20 border border-emerald-400/40 flex items-center justify-center shrink-0">
                     <Timer className="w-6 h-6 text-emerald-400" />
                   </div>
                   <div>
@@ -5718,7 +5876,7 @@ function NysaWarehouseForm({
                         Aktywnych: {activeLiveShifts.length}
                       </span>
                     </div>
-                    <p className="text-xs text-slate-400 font-medium mt-0.5">
+                    <p className="text-xs text-indigo-200/80 font-medium mt-0.5">
                       Widzisz tu każdego pracownika na zmianie. Jeśli ktoś zapomniał odbić wyjścia, możesz zamknąć zmianę ręcznie.
                     </p>
                   </div>
@@ -5726,8 +5884,8 @@ function NysaWarehouseForm({
               </div>
 
               {activeLiveShifts.length === 0 ? (
-                <div className="bg-slate-800/60 border border-slate-700/80 p-6 rounded-2xl text-center">
-                  <p className="text-sm font-bold text-slate-300">
+                <div className="bg-white/5 border border-white/10 p-6 rounded-2xl text-center">
+                  <p className="text-sm font-bold text-indigo-200">
                     Aktualnie żaden pracownik nie ma włączonej aktywnej zmiany na czytniku.
                   </p>
                 </div>
@@ -5738,21 +5896,21 @@ function NysaWarehouseForm({
                     return (
                       <div
                         key={sh.id}
-                        className="bg-slate-800 border border-slate-700 p-4 rounded-2xl flex flex-col justify-between gap-3"
+                        className="bg-white/10 border border-emerald-400/40 p-4 rounded-2xl flex flex-col justify-between gap-3"
                       >
                         <div className="flex items-start justify-between gap-2">
                           <div>
                             <div className="flex items-center gap-2 flex-wrap">
-                              <span className="text-[10px] font-black uppercase bg-slate-700 text-slate-200 px-2.5 py-0.5 rounded-md">
+                              <span className="text-[10px] font-black uppercase bg-indigo-500/40 text-indigo-100 px-2.5 py-0.5 rounded-md border border-indigo-400/30">
                                 {sh.location}
                               </span>
-                              <span className="text-[10px] font-bold text-slate-400">Data: {sh.date}</span>
+                              <span className="text-[10px] font-bold text-indigo-200">Data: {sh.date}</span>
                             </div>
                             <h4 className="font-black text-lg text-white mt-1 flex items-center gap-2">
-                              <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
+                              <span className="w-2.5 h-2.5 rounded-full bg-emerald-400 animate-pulse" />
                               {sh.employeeName}
                             </h4>
-                            <p className="text-xs font-bold text-slate-300 mt-1">
+                            <p className="text-xs font-bold text-indigo-200 mt-1">
                               Start: <strong className="text-white">{sh.startHM}</strong> • Czas:{" "}
                               <strong className="text-emerald-300 bg-emerald-500/20 px-2 py-0.5 rounded-md">
                                 {formatLiveDuration(sh.startTime, nowMs)}
@@ -5766,7 +5924,7 @@ function NysaWarehouseForm({
                                 setClosingShiftId(sh.id);
                                 setCustomEndTimeInput(formatTimeHM(new Date()));
                               }}
-                              className="shrink-0 bg-rose-600 hover:bg-rose-500 text-white font-black text-xs px-3.5 py-2.5 rounded-xl flex items-center shadow-sm transition-colors"
+                              className="shrink-0 bg-red-500 hover:bg-red-600 text-white font-black text-xs px-3.5 py-2.5 rounded-xl flex items-center shadow-md transition-colors"
                             >
                               <Square className="w-3.5 h-3.5 mr-1.5 fill-current" /> Zakończ z panelu
                             </button>
@@ -5774,7 +5932,7 @@ function NysaWarehouseForm({
                         </div>
 
                         {isClosingThis && (
-                          <div className="pt-3 border-t border-slate-700 bg-slate-900/80 p-3 rounded-xl space-y-2.5">
+                          <div className="pt-3 border-t border-white/15 bg-black/25 p-3 rounded-xl space-y-2.5">
                             <label className="block text-[11px] font-black uppercase text-amber-300">
                               Podaj godzinę zakończenia zmiany:
                             </label>
@@ -5783,7 +5941,7 @@ function NysaWarehouseForm({
                                 type="time"
                                 value={customEndTimeInput}
                                 onChange={(e) => setCustomEndTimeInput(e.target.value)}
-                                className="px-3 py-2 bg-white text-slate-900 font-black text-sm rounded-xl outline-none"
+                                className="px-3 py-2 bg-white text-gray-900 font-black text-sm rounded-xl outline-none"
                               />
                               <button
                                 type="button"
@@ -5791,14 +5949,14 @@ function NysaWarehouseForm({
                                   await onClockOut(sh, customEndTimeInput || formatTimeHM(new Date()), name);
                                   setClosingShiftId(null);
                                 }}
-                                className="flex-1 bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-black text-xs py-2.5 px-4 rounded-xl transition-colors"
+                                className="flex-1 bg-emerald-500 hover:bg-emerald-400 text-gray-950 font-black text-xs py-2.5 px-4 rounded-xl transition-colors"
                               >
                                 Zatwierdź ({sh.startHM}-{customEndTimeInput})
                               </button>
                               <button
                                 type="button"
                                 onClick={() => setClosingShiftId(null)}
-                                className="bg-slate-700 hover:bg-slate-600 text-white font-bold text-xs py-2.5 px-3 rounded-xl"
+                                className="bg-white/15 hover:bg-white/25 text-white font-bold text-xs py-2.5 px-3 rounded-xl"
                               >
                                 Anuluj
                               </button>
@@ -5812,14 +5970,14 @@ function NysaWarehouseForm({
               )}
             </div>
 
-            <div className="bg-white p-6 rounded-3xl border border-slate-200 shadow-sm space-y-5">
+            <div className="bg-white p-6 rounded-[2rem] border border-gray-200 shadow-sm space-y-5">
               <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4">
                 <div>
-                  <h2 className="text-2xl font-black text-slate-900 flex items-center">
-                    <Clock className="w-7 h-7 mr-3 text-slate-700" /> Podsumowanie Godzin Pracy{" "}
+                  <h2 className="text-2xl font-black text-gray-900 flex items-center">
+                    <Clock className="w-7 h-7 mr-3 text-indigo-600" /> Podsumowanie Godzin Pracy{" "}
                     {isKlodzkoAdmin ? "(Punkt Kłodzko)" : ""}
                   </h2>
-                  <p className="text-xs font-semibold text-slate-500 mt-1">
+                  <p className="text-xs font-semibold text-gray-500 mt-1">
                     Automatycznie łączy odbicia z czytnika RCP oraz wpisy z raportów dobowych.
                   </p>
                 </div>
@@ -5832,8 +5990,8 @@ function NysaWarehouseForm({
                         onClick={() => setHoursLocation(loc)}
                         className={`px-3.5 py-2 rounded-xl font-bold text-xs border transition-colors ${
                           hoursLocation === loc
-                            ? "bg-slate-900 text-white border-slate-900"
-                            : "bg-white text-slate-600 border-slate-200 hover:bg-slate-50"
+                            ? "bg-indigo-600 text-white border-indigo-600 shadow-sm"
+                            : "bg-white text-gray-600 border-gray-200 hover:bg-gray-50"
                         }`}
                       >
                         {loc === "All" ? "Wszystkie punkty" : loc}
@@ -5843,24 +6001,24 @@ function NysaWarehouseForm({
                 )}
               </div>
 
-              <div className="pt-4 border-t border-slate-100 flex flex-wrap items-center justify-between gap-3">
+              <div className="pt-4 border-t border-gray-100 flex flex-wrap items-center justify-between gap-3">
                 <div className="flex flex-wrap items-center gap-3">
-                  <div className="flex items-center bg-slate-50 px-3 py-2 rounded-xl border border-slate-200">
-                    <span className="text-xs font-bold text-slate-500 mr-2">Od dnia:</span>
+                  <div className="flex items-center bg-gray-50 px-3 py-2 rounded-xl border border-gray-200">
+                    <span className="text-xs font-bold text-gray-500 mr-2">Od dnia:</span>
                     <input
                       type="date"
                       value={hoursStartDate}
                       onChange={(e) => setHoursStartDate(e.target.value)}
-                      className="font-black text-xs text-slate-900 bg-transparent outline-none"
+                      className="font-black text-xs text-gray-900 bg-transparent outline-none"
                     />
                   </div>
-                  <div className="flex items-center bg-slate-50 px-3 py-2 rounded-xl border border-slate-200">
-                    <span className="text-xs font-bold text-slate-500 mr-2">Do dnia:</span>
+                  <div className="flex items-center bg-gray-50 px-3 py-2 rounded-xl border border-gray-200">
+                    <span className="text-xs font-bold text-gray-500 mr-2">Do dnia:</span>
                     <input
                       type="date"
                       value={hoursEndDate}
                       onChange={(e) => setHoursEndDate(e.target.value)}
-                      className="font-black text-xs text-slate-900 bg-transparent outline-none"
+                      className="font-black text-xs text-gray-900 bg-transparent outline-none"
                     />
                   </div>
                   <button
@@ -5869,13 +6027,13 @@ function NysaWarehouseForm({
                       setHoursStartDate("");
                       setHoursEndDate("");
                     }}
-                    className="px-3.5 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold text-xs rounded-xl transition-colors"
+                    className="px-3.5 py-2 bg-gray-100 hover:bg-gray-200 text-gray-700 font-bold text-xs rounded-xl transition-colors"
                   >
                     Pokaż wszystkie daty
                   </button>
                 </div>
 
-                <div className="flex bg-slate-100 p-1 rounded-xl border border-slate-200">
+                <div className="flex bg-gray-100 p-1 rounded-xl border border-gray-200">
                   {[
                     { id: "combined", label: "Połączone (RCP + Raporty)" },
                     { id: "rcp", label: "Tylko Czytnik RCP" },
@@ -5887,8 +6045,8 @@ function NysaWarehouseForm({
                       onClick={() => setHoursSourceMode(mode.id)}
                       className={`px-3 py-1.5 rounded-lg font-black text-[11px] transition-colors ${
                         hoursSourceMode === mode.id
-                          ? "bg-slate-900 text-white shadow-sm"
-                          : "text-slate-600 hover:text-slate-900"
+                          ? "bg-indigo-600 text-white shadow-sm"
+                          : "text-gray-600 hover:text-gray-900"
                       }`}
                     >
                       {mode.label}
@@ -5899,26 +6057,24 @@ function NysaWarehouseForm({
             </div>
 
             {workHoursData.summaryList.length > 0 && (
-              <div className="bg-white p-6 rounded-3xl border border-slate-200 shadow-sm">
-                <h3 className="font-extrabold text-slate-900 text-lg mb-4 flex items-center">
-                  <Users className="w-5 h-5 mr-2 text-slate-600" /> Suma przepracowanych godzin według pracowników
+              <div className="bg-indigo-50/60 p-6 rounded-[2rem] border-2 border-indigo-100 shadow-sm">
+                <h3 className="font-extrabold text-indigo-950 text-lg mb-4 flex items-center">
+                  <Users className="w-5 h-5 mr-2 text-indigo-600" /> Suma przepracowanych godzin według pracowników
                 </h3>
-                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3.5">
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
                   {workHoursData.summaryList.map((person) => (
                     <div
                       key={person.displayName}
-                      className="bg-slate-50 p-4 rounded-2xl border border-slate-200/80 flex items-center justify-between"
+                      className="bg-white p-4 rounded-2xl border border-indigo-100 shadow-sm flex items-center justify-between"
                     >
                       <div>
-                        <p className="font-black text-slate-900 text-base">{person.displayName}</p>
-                        <p className="text-xs font-semibold text-slate-500 mt-0.5">
-                          Zmiany: {person.shiftsCount} • {person.locations.join(", ")}
+                        <p className="font-black text-gray-900 text-base">{person.displayName}</p>
+                        <p className="text-xs font-semibold text-gray-500 mt-0.5">
+                          Liczba zmian: {person.shiftsCount} • {person.locations.join(", ")}
                         </p>
                       </div>
                       <div className="text-right">
-                        <span className="text-xl font-black text-slate-900 bg-white border border-slate-200 px-3 py-1 rounded-xl">
-                          {person.totalHours} h
-                        </span>
+                        <span className="text-xl font-black text-indigo-600">{person.totalHours} h</span>
                       </div>
                     </div>
                   ))}
@@ -5926,42 +6082,42 @@ function NysaWarehouseForm({
               </div>
             )}
 
-            <div className="bg-white p-6 rounded-3xl border border-slate-200 shadow-sm">
-              <h3 className="font-extrabold text-slate-900 text-lg mb-4">
+            <div className="bg-white p-6 rounded-[2rem] border border-gray-200 shadow-sm">
+              <h3 className="font-extrabold text-gray-900 text-lg mb-4">
                 Szczegółowy wykaz zmian ({workHoursData.entries.length})
               </h3>
               {workHoursData.entries.length === 0 ? (
-                <p className="text-slate-400 font-bold text-center py-6">
+                <p className="text-gray-400 font-bold text-center py-6">
                   Brak zarejestrowanych godzin pracy dla wybranych filtrów.
                 </p>
               ) : (
-                <div className="space-y-2.5">
+                <div className="space-y-3">
                   {workHoursData.entries.map((entry) => (
                     <div
                       key={entry.id}
-                      className="p-4 rounded-2xl bg-slate-50 border border-slate-200/70 flex flex-col sm:flex-row sm:items-center justify-between gap-3"
+                      className="p-4 rounded-2xl bg-gray-50 border border-gray-100 flex flex-col sm:flex-row sm:items-center justify-between gap-3"
                     >
                       <div className="flex flex-wrap items-center gap-2.5">
-                        <span className="px-3 py-1 bg-slate-900 text-white font-black text-xs rounded-lg">
+                        <span className="px-3 py-1 bg-gray-900 text-white font-black text-xs rounded-lg">
                           {entry.date}
                         </span>
-                        <span className="px-3 py-1 bg-white border border-slate-200 text-slate-800 font-black text-xs rounded-lg">
+                        <span className="px-3 py-1 bg-indigo-100 text-indigo-800 font-black text-xs rounded-lg">
                           {entry.location}
                         </span>
                         <span
                           className={`px-2.5 py-0.5 font-black text-[10px] uppercase rounded-md ${
                             entry.source === "RCP Czytnik"
-                              ? "bg-emerald-50 text-emerald-700 border border-emerald-200"
+                              ? "bg-emerald-100 text-emerald-800 border border-emerald-200"
                               : "bg-blue-50 text-blue-700 border border-blue-200"
                           }`}
                         >
                           {entry.source}
                         </span>
-                        <span className="font-extrabold text-slate-900 text-base">{entry.name}</span>
+                        <span className="font-extrabold text-gray-900 text-base">{entry.name}</span>
                       </div>
-                      <div className="flex items-center justify-between sm:justify-end gap-3 border-t sm:border-t-0 pt-2 sm:pt-0 border-slate-200">
-                        <span className="text-xs font-bold text-slate-500">
-                          Godziny: <strong className="text-slate-900">{entry.rawHours}</strong>
+                      <div className="flex items-center justify-between sm:justify-end gap-3 border-t sm:border-t-0 pt-2 sm:pt-0 border-gray-200">
+                        <span className="text-xs font-bold text-gray-500">
+                          Godziny: <strong className="text-gray-900">{entry.rawHours}</strong>
                           {entry.closedBy && entry.closedBy !== entry.name && (
                             <span className="text-[10px] text-amber-700 ml-1.5">(zamknął: {entry.closedBy})</span>
                           )}
@@ -5975,7 +6131,7 @@ function NysaWarehouseForm({
                           <button
                             type="button"
                             onClick={() => onDeleteShift && onDeleteShift(entry.shiftId)}
-                            className="p-1.5 text-rose-500 hover:bg-rose-50 rounded-lg transition-colors"
+                            className="p-1.5 text-red-500 hover:bg-red-50 rounded-lg transition-colors"
                             title="Usuń odbicie RCP"
                           >
                             <Trash2 className="w-4 h-4" />
@@ -5992,23 +6148,23 @@ function NysaWarehouseForm({
 
         {tab === "tasks" && (
           <div className="space-y-6">
-            <div className="bg-white p-6 rounded-3xl shadow-sm border border-slate-200">
+            <div className="bg-white p-6 rounded-[2rem] shadow-sm border border-gray-200">
               <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-5">
                 <div>
-                  <h2 className="font-extrabold text-slate-900 flex items-center text-xl">
-                    <PlusCircle className="w-6 h-6 mr-2 text-slate-800" /> Ustaw Zadanie Dnia{" "}
+                  <h2 className="font-extrabold text-gray-900 flex items-center text-xl">
+                    <PlusCircle className="w-6 h-6 mr-2 text-blue-600" /> Ustaw Zadanie Dnia{" "}
                     {isKlodzkoAdmin ? "dla punktu Kłodzko" : "dla punktu / sieci"}
                   </h2>
-                  <p className="text-xs font-semibold text-slate-500 mt-1">
+                  <p className="text-xs font-semibold text-gray-500 mt-1">
                     Wybierz czy zadanie jest jednorazowe, czy cykliczne, oraz określ godzinę (deadline) wykonania.
                   </p>
                 </div>
-                <div className="flex bg-slate-100 p-1 rounded-2xl border border-slate-200 self-start sm:self-center">
+                <div className="flex bg-gray-100 p-1 rounded-2xl border border-gray-200 self-start sm:self-center">
                   <button
                     type="button"
                     onClick={() => setNewTaskType("adhoc")}
                     className={`px-3.5 py-2 rounded-xl font-black text-xs transition-colors ${
-                      newTaskType === "adhoc" ? "bg-slate-900 text-white shadow-sm" : "text-slate-600 hover:text-slate-900"
+                      newTaskType === "adhoc" ? "bg-blue-600 text-white shadow-sm" : "text-gray-600 hover:text-gray-900"
                     }`}
                   >
                     Jednorazowe / Doraźne
@@ -6018,8 +6174,8 @@ function NysaWarehouseForm({
                     onClick={() => setNewTaskType("recurring")}
                     className={`px-3.5 py-2 rounded-xl font-black text-xs transition-colors ${
                       newTaskType === "recurring"
-                        ? "bg-slate-900 text-white shadow-sm"
-                        : "text-slate-600 hover:text-slate-900"
+                        ? "bg-indigo-600 text-white shadow-sm"
+                        : "text-gray-600 hover:text-gray-900"
                     }`}
                   >
                     Stałe harmonogramowe
@@ -6030,14 +6186,14 @@ function NysaWarehouseForm({
               <form onSubmit={handleAddTask} className="space-y-4">
                 <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
                   {isKlodzkoAdmin ? (
-                    <div className="w-full p-4 bg-slate-100 border border-slate-200 rounded-2xl font-black text-slate-700 flex items-center">
+                    <div className="w-full p-4 bg-gray-100 border border-gray-200 rounded-xl font-black text-gray-700 flex items-center">
                       Punkt docelowy: Kłodzko
                     </div>
                   ) : (
                     <select
                       value={newTaskLoc}
                       onChange={(e) => setNewTaskLoc(e.target.value)}
-                      className="w-full p-4 bg-slate-50 border border-slate-200 rounded-2xl font-bold text-slate-800 outline-none focus:border-slate-900"
+                      className="w-full p-4 bg-gray-50 border border-gray-200 rounded-xl font-bold text-gray-800 outline-none focus:ring-2 focus:ring-blue-500"
                     >
                       <option value="All">Dla wszystkich punktów (All)</option>
                       {LOCATIONS.map((l) => (
@@ -6052,15 +6208,15 @@ function NysaWarehouseForm({
                     required
                     value={newTask}
                     onChange={(e) => setNewTask(e.target.value)}
-                    className="sm:col-span-1 w-full p-4 bg-slate-50 border border-slate-200 rounded-2xl font-medium outline-none focus:bg-white focus:border-slate-900"
+                    className="sm:col-span-1 w-full p-4 bg-gray-50 border border-gray-200 rounded-xl font-medium outline-none focus:ring-2 focus:ring-blue-500"
                     placeholder={
                       newTaskType === "recurring" ? "Opisz zadanie cykliczne..." : "Opisz zadanie na dziś..."
                     }
                   />
-                  <div className="flex items-center bg-slate-50 border border-slate-200 rounded-2xl px-4 py-2">
-                    <Clock className="w-5 h-5 text-rose-500 mr-2.5 shrink-0" />
+                  <div className="flex items-center bg-gray-50 border border-gray-200 rounded-xl px-4 py-2">
+                    <Clock className="w-5 h-5 text-red-500 mr-2.5 shrink-0" />
                     <div className="flex-1">
-                      <label className="block text-[10px] font-black uppercase text-slate-400">
+                      <label className="block text-[10px] font-black uppercase text-gray-400">
                         Deadline (Do godziny):
                       </label>
                       <input
@@ -6068,15 +6224,15 @@ function NysaWarehouseForm({
                         required
                         value={newTaskDeadline}
                         onChange={(e) => setNewTaskDeadline(e.target.value)}
-                        className="w-full bg-transparent font-black text-base text-slate-900 outline-none"
+                        className="w-full bg-transparent font-black text-base text-gray-900 outline-none"
                       />
                     </div>
                   </div>
                 </div>
 
                 {newTaskType === "recurring" && (
-                  <div className="p-4 bg-slate-50 border border-slate-200 rounded-2xl space-y-2.5">
-                    <label className="block text-xs font-black uppercase text-slate-700">
+                  <div className="p-4 bg-indigo-50/60 border border-indigo-200 rounded-2xl space-y-2.5">
+                    <label className="block text-xs font-black uppercase text-indigo-900">
                       Wybierz dni tygodnia, w które zadanie ma pojawiać się pracownikom:
                     </label>
                     <div className="flex flex-wrap gap-2">
@@ -6087,10 +6243,10 @@ function NysaWarehouseForm({
                             key={d.id}
                             type="button"
                             onClick={() => toggleNewTaskDay(d.id)}
-                            className={`px-4 py-2.5 rounded-xl font-black text-xs border transition-colors ${
+                            className={`px-4 py-2.5 rounded-xl font-black text-xs border-2 transition-colors ${
                               isSelected
-                                ? "bg-slate-900 text-white border-slate-900 shadow-sm"
-                                : "bg-white text-slate-700 border-slate-200 hover:border-slate-400"
+                                ? "bg-indigo-600 text-white border-indigo-600 shadow-sm"
+                                : "bg-white text-gray-700 border-gray-200 hover:border-indigo-300"
                             }`}
                           >
                             {d.short} ({d.name})
@@ -6103,7 +6259,11 @@ function NysaWarehouseForm({
 
                 <button
                   type="submit"
-                  className="w-full bg-slate-900 hover:bg-slate-800 text-white font-bold py-4 rounded-2xl shadow-md active:scale-[0.99] transition-all"
+                  className={`w-full text-white font-bold py-4 rounded-xl shadow-lg active:scale-95 transition-transform ${
+                    newTaskType === "recurring"
+                      ? "bg-indigo-600 hover:bg-indigo-700 shadow-indigo-600/30"
+                      : "bg-blue-600 hover:bg-blue-700 shadow-blue-600/30"
+                  }`}
                 >
                   {newTaskType === "recurring"
                     ? "Zapisz stałe zadanie harmonogramowe"
@@ -6113,22 +6273,22 @@ function NysaWarehouseForm({
             </div>
 
             <div className="space-y-3">
-              <h3 className="font-bold text-slate-500 uppercase text-xs tracking-wider ml-2 mb-3 mt-6">
+              <h3 className="font-bold text-gray-500 uppercase text-xs tracking-wider ml-2 mb-3 mt-6">
                 Zadania doraźne / jednorazowe ({adhocVisibleTasks.length})
               </h3>
               {adhocVisibleTasks.length === 0 ? (
-                <p className="text-slate-400 font-bold ml-2 text-sm">Brak aktywnych zadań doraźnych.</p>
+                <p className="text-gray-400 font-bold ml-2 text-sm">Brak aktywnych zadań doraźnych.</p>
               ) : (
                 adhocVisibleTasks.map(renderTaskCard)
               )}
             </div>
 
             <div className="space-y-3 pt-4">
-              <h3 className="font-bold text-slate-500 uppercase text-xs tracking-wider ml-2 mb-3">
+              <h3 className="font-bold text-indigo-600 uppercase text-xs tracking-wider ml-2 mb-3">
                 Stałe zadania harmonogramowe — Cykliczne ({recurringVisibleTasks.length})
               </h3>
               {recurringVisibleTasks.length === 0 ? (
-                <p className="text-slate-400 font-bold ml-2 text-sm">Brak zapisanych stałych zadań harmonogramowych.</p>
+                <p className="text-gray-400 font-bold ml-2 text-sm">Brak zapisanych stałych zadań harmonogramowych.</p>
               ) : (
                 recurringVisibleTasks.map(renderTaskCard)
               )}
@@ -6138,9 +6298,9 @@ function NysaWarehouseForm({
 
         {tab === "catalog" && isOwner && (
           <div className="space-y-6">
-            <div className="bg-white p-2 rounded-2xl border border-slate-200 shadow-sm grid grid-cols-2 sm:grid-cols-4 gap-1.5">
+            <div className="bg-white p-2 rounded-2xl border border-gray-200 shadow-sm grid grid-cols-2 sm:grid-cols-4 gap-1.5">
               {[
-                { id: "assortment", label: "1. Asortyment i Jednostki" },
+                { id: "assortment", label: "1. Asortyment, Jednostki i Skok" },
                 { id: "staff_pins", label: "2. Kadra i Kody PIN" },
                 { id: "schedule", label: "3. Harmonogram Dni" },
                 { id: "backup", label: "4. Kopia i Eksport Bazy" },
@@ -6151,8 +6311,8 @@ function NysaWarehouseForm({
                   onClick={() => setCatalogSubTab(st.id)}
                   className={`py-3 px-3 rounded-xl font-extrabold text-xs transition-all ${
                     catalogSubTab === st.id
-                      ? "bg-slate-900 text-white shadow-sm"
-                      : "bg-slate-50 text-slate-600 hover:bg-slate-100"
+                      ? "bg-amber-600 text-white shadow-sm"
+                      : "bg-gray-50 text-gray-600 hover:bg-gray-100"
                   }`}
                 >
                   {st.label}
@@ -6162,25 +6322,25 @@ function NysaWarehouseForm({
 
             {catalogSubTab === "assortment" && (
               <>
-                <div className="bg-white p-6 rounded-3xl border border-slate-200 shadow-sm">
+                <div className="bg-white p-6 rounded-[2rem] border border-gray-200 shadow-sm">
                   <div className="mb-6">
-                    <h2 className="text-xl sm:text-2xl font-black text-slate-900 flex items-center">
-                      <Settings className="w-6 h-6 mr-2.5 text-slate-700" /> Zarządzanie Asortymentem, Jednostkami Miary i Lokalami
+                    <h2 className="text-xl sm:text-2xl font-black text-gray-900 flex items-center">
+                      <Settings className="w-7 h-7 mr-3 text-amber-600" /> Zarządzanie Asortymentem, Jednostkami Miary, Przelicznikiem i Lokalami
                     </h2>
-                    <p className="text-xs font-semibold text-slate-500 mt-1">
-                      Dodawaj pozycje, wybieraj ich jednostkę miary (kg, szt., g, op., l, wiadro) i przypisuj je do konkretnych lokali.
+                    <p className="text-xs font-semibold text-gray-500 mt-1">
+                      Dodawaj pozycje, wybieraj ich jednostkę miary, domyślny skok licznika (+/-) i przypisuj je do konkretnych lokali.
                     </p>
                   </div>
 
                   <div className="space-y-4">
                     <div>
-                      <label className="block text-xs font-black uppercase text-slate-500 mb-2 ml-1">
-                        Wybierz kategorię / sekcję formularza:
+                      <label className="block text-xs font-black uppercase text-gray-500 mb-2 ml-1">
+                        1. Wybierz kategorię / sekcję formularza:
                       </label>
                       <select
                         value={selectedCatalogCategory}
                         onChange={(e) => setSelectedCatalogCategory(e.target.value)}
-                        className="w-full p-4 bg-slate-50 border border-slate-200 rounded-2xl font-extrabold text-slate-900 outline-none focus:border-slate-900"
+                        className="w-full p-4 bg-amber-50/50 border-2 border-amber-200 rounded-2xl font-extrabold text-gray-900 outline-none focus:ring-2 focus:ring-amber-500"
                       >
                         <optgroup label="Standardowe kategorie formularza">
                           {builtInCategoriesMeta.map((c) => (
@@ -6207,37 +6367,48 @@ function NysaWarehouseForm({
                         value={newItemName}
                         onChange={(e) => setNewItemName(e.target.value)}
                         placeholder="Wpisz nazwę nowej pozycji (np. Fartuch czarny, Ser cheddar)..."
-                        className="flex-[2] p-4 bg-slate-50 border border-slate-200 rounded-2xl font-bold text-slate-900 outline-none focus:bg-white focus:border-slate-900"
+                        className="flex-[2] p-4 bg-gray-50 border border-gray-200 rounded-xl font-bold text-gray-900 outline-none focus:bg-white focus:ring-2 focus:ring-amber-500"
                       />
                       <select
                         value={newItemUnit}
                         onChange={(e) => setNewItemUnit(e.target.value)}
-                        className="p-4 bg-slate-50 border border-slate-200 rounded-2xl font-black text-slate-800 outline-none focus:border-slate-900"
+                        className="p-4 bg-gray-50 border border-gray-200 rounded-xl font-black text-gray-800 outline-none focus:ring-2 focus:ring-amber-500"
                       >
                         {AVAILABLE_UNITS.map((u) => (
                           <option key={u} value={u}>
-                            Jednostka: {u}
+                            Jedn.: {u}
+                          </option>
+                        ))}
+                      </select>
+                      <select
+                        value={newItemStep}
+                        onChange={(e) => setNewItemStep(Number(e.target.value))}
+                        className="p-4 bg-gray-50 border border-gray-200 rounded-xl font-black text-blue-800 outline-none focus:ring-2 focus:ring-amber-500"
+                      >
+                        {AVAILABLE_STEPS.map((st) => (
+                          <option key={st} value={st}>
+                            Skok: {st}
                           </option>
                         ))}
                       </select>
                       <button
                         type="submit"
-                        className="px-6 py-4 bg-slate-900 hover:bg-slate-800 text-white font-black rounded-2xl shadow-md flex items-center justify-center transition-colors shrink-0"
+                        className="px-6 py-4 bg-amber-600 hover:bg-amber-700 text-white font-black rounded-xl shadow-md flex items-center justify-center transition-colors shrink-0"
                       >
                         <PlusCircle className="w-5 h-5 mr-2" /> Dodaj pozycję
                       </button>
                     </form>
 
-                    <div className="pt-4 border-t border-slate-100">
+                    <div className="pt-4 border-t border-gray-100">
                       <div className="flex items-center justify-between mb-3">
-                        <span className="text-xs font-black uppercase text-slate-400">
-                          Pozycje w tej kategorii ({activeCategoryItems.length}):
+                        <span className="text-xs font-black uppercase text-gray-400">
+                          Aktualne pozycje, jednostki, domyślny skok (+/-) i przypisane lokale ({activeCategoryItems.length}):
                         </span>
                         {selectedCatalogCategory.startsWith("custom:") && (
                           <button
                             type="button"
                             onClick={() => handleDeleteCustomCategory(selectedCatalogCategory.replace("custom:", ""))}
-                            className="text-xs font-black text-rose-600 hover:text-rose-700 flex items-center bg-rose-50 px-3 py-1.5 rounded-xl"
+                            className="text-xs font-black text-red-600 hover:text-red-700 flex items-center bg-red-50 px-3 py-1.5 rounded-lg"
                           >
                             <Trash2 className="w-3.5 h-3.5 mr-1" /> Usuń całą tę kategorię
                           </button>
@@ -6245,7 +6416,7 @@ function NysaWarehouseForm({
                       </div>
 
                       {activeCategoryItems.length === 0 ? (
-                        <p className="text-sm text-slate-400 font-bold py-6 text-center bg-slate-50 rounded-2xl border border-dashed border-slate-200">
+                        <p className="text-sm text-gray-400 font-bold py-6 text-center bg-gray-50 rounded-2xl border border-dashed border-gray-200">
                           Brak pozycji w tej kategorii.
                         </p>
                       ) : (
@@ -6256,18 +6427,19 @@ function NysaWarehouseForm({
                               ? catalog.itemLocations[mapKey]
                               : LOCATIONS;
                             const currentUnit = getItemUnit(catalog, item);
+                            const currentStep = getItemStep(catalog, item);
                             return (
                               <div
                                 key={item}
-                                className="p-4 bg-slate-50 hover:bg-white border border-slate-200 rounded-2xl flex flex-col justify-between gap-3 transition-colors shadow-sm"
+                                className="p-4 bg-gray-50 hover:bg-white border border-gray-200 rounded-2xl flex flex-col justify-between gap-3 transition-colors shadow-sm"
                               >
-                                <div className="flex items-center justify-between gap-2">
-                                  <span className="font-extrabold text-slate-900 text-sm truncate">{item}</span>
+                                <div className="flex items-center justify-between gap-2 flex-wrap">
+                                  <span className="font-extrabold text-gray-900 text-sm truncate">{item}</span>
                                   <div className="flex items-center gap-1.5 shrink-0">
                                     <select
                                       value={currentUnit}
                                       onChange={(e) => handleChangeCatalogItemUnit(item, e.target.value)}
-                                      className="px-2.5 py-1.5 bg-white border border-slate-200 rounded-lg text-xs font-black text-slate-800 outline-none"
+                                      className="px-2.5 py-1.5 bg-blue-50 border border-blue-200 rounded-lg text-xs font-black text-blue-800 outline-none"
                                       title="Zmień jednostkę miary"
                                     >
                                       {AVAILABLE_UNITS.map((u) => (
@@ -6276,18 +6448,30 @@ function NysaWarehouseForm({
                                         </option>
                                       ))}
                                     </select>
+                                    <select
+                                      value={currentStep}
+                                      onChange={(e) => handleChangeCatalogItemStep(item, e.target.value)}
+                                      className="px-2.5 py-1.5 bg-emerald-50 border border-emerald-200 rounded-lg text-xs font-black text-emerald-800 outline-none"
+                                      title="Zmień domyślny przelicznik (skok +/-)"
+                                    >
+                                      {AVAILABLE_STEPS.map((st) => (
+                                        <option key={st} value={st}>
+                                          Skok: {st}
+                                        </option>
+                                      ))}
+                                    </select>
                                     <button
                                       type="button"
                                       onClick={() => handleRemoveCatalogItem(item)}
-                                      className="p-2 text-rose-500 hover:bg-rose-50 hover:text-rose-700 rounded-lg transition-colors shrink-0"
+                                      className="p-2 text-red-500 hover:bg-red-50 hover:text-red-700 rounded-lg transition-colors shrink-0"
                                       title="Usuń pozycję"
                                     >
                                       <Trash2 className="w-4 h-4" />
                                     </button>
                                   </div>
                                 </div>
-                                <div className="pt-2 border-t border-slate-200/70">
-                                  <span className="block text-[10px] font-black uppercase text-slate-400 mb-1.5">
+                                <div className="pt-2 border-t border-gray-200/70">
+                                  <span className="block text-[10px] font-black uppercase text-gray-400 mb-1.5">
                                     Widoczność w punktach:
                                   </span>
                                   <div className="flex flex-wrap gap-1.5">
@@ -6300,8 +6484,8 @@ function NysaWarehouseForm({
                                           onClick={() => handleToggleItemLocation(item, loc)}
                                           className={`px-2.5 py-1 rounded-lg text-[11px] font-black border transition-colors ${
                                             isAssigned
-                                              ? "bg-slate-900 text-white border-slate-900 shadow-sm"
-                                              : "bg-white text-slate-400 border-slate-200 hover:border-slate-400"
+                                              ? "bg-amber-600 text-white border-amber-600 shadow-sm"
+                                              : "bg-white text-gray-400 border-gray-200 hover:border-amber-300"
                                           }`}
                                         >
                                           {loc}
@@ -6319,11 +6503,11 @@ function NysaWarehouseForm({
                   </div>
                 </div>
 
-                <div className="bg-white p-6 rounded-3xl border border-slate-200 shadow-sm">
-                  <h3 className="text-xl font-black text-slate-900 flex items-center mb-2">
-                    <FolderPlus className="w-6 h-6 mr-2.5 text-slate-700" /> Utwórz Nową Kategorię w Formularzu
+                <div className="bg-white p-6 rounded-[2rem] border border-gray-200 shadow-sm">
+                  <h3 className="text-xl font-black text-gray-900 flex items-center mb-2">
+                    <FolderPlus className="w-6 h-6 mr-2.5 text-indigo-600" /> Utwórz Nową Kategorię w Formularzu
                   </h3>
-                  <p className="text-xs font-semibold text-slate-500 mb-4">
+                  <p className="text-xs font-semibold text-gray-500 mb-4">
                     Jeśli potrzebujesz dodatkowej sekcji (np. „Napoje”, „Sprzęt i Odzież”), utwórz ją tutaj.
                   </p>
                   <form onSubmit={handleCreateCustomCategory} className="grid grid-cols-1 sm:grid-cols-3 gap-3">
@@ -6332,19 +6516,19 @@ function NysaWarehouseForm({
                       value={newCategoryName}
                       onChange={(e) => setNewCategoryName(e.target.value)}
                       placeholder="Nazwa nowej kategorii..."
-                      className="sm:col-span-1 p-4 bg-slate-50 border border-slate-200 rounded-2xl font-bold text-slate-900 outline-none focus:bg-white focus:border-slate-900"
+                      className="sm:col-span-1 p-4 bg-gray-50 border border-gray-200 rounded-xl font-bold text-gray-900 outline-none focus:bg-white focus:ring-2 focus:ring-indigo-500"
                     />
                     <select
                       value={newCategoryType}
                       onChange={(e) => setNewCategoryType(e.target.value)}
-                      className="p-4 bg-slate-50 border border-slate-200 rounded-2xl font-bold text-slate-800 outline-none focus:border-slate-900"
+                      className="p-4 bg-gray-50 border border-gray-200 rounded-xl font-bold text-gray-800 outline-none focus:ring-2 focus:ring-indigo-500"
                     >
                       <option value="counter">Licznik ilościowy (+/- jak magazyn)</option>
                       <option value="checkbox">Lista zaznaczania (Checkbox jak braki sosów)</option>
                     </select>
                     <button
                       type="submit"
-                      className="p-4 bg-slate-900 hover:bg-slate-800 text-white font-black rounded-2xl shadow-md flex items-center justify-center transition-colors"
+                      className="p-4 bg-indigo-600 hover:bg-indigo-700 text-white font-black rounded-xl shadow-md flex items-center justify-center transition-colors"
                     >
                       <PlusCircle className="w-5 h-5 mr-2" /> Dodaj kategorię
                     </button>
@@ -6357,18 +6541,18 @@ function NysaWarehouseForm({
               <>
                 {renderEmployeeManagerWidget()}
 
-                <div className="bg-white p-6 rounded-3xl border border-slate-200 shadow-sm">
-                  <h3 className="text-xl font-black text-slate-900 flex items-center mb-2">
-                    <KeyRound className="w-6 h-6 mr-2.5 text-slate-700" /> Unikalne Kody PIN dla Punktów
+                <div className="bg-white p-6 rounded-[2rem] border border-gray-200 shadow-sm">
+                  <h3 className="text-xl font-black text-gray-900 flex items-center mb-2">
+                    <KeyRound className="w-6 h-6 mr-2.5 text-blue-600" /> Unikalne Kody PIN dla Punktów
                   </h3>
-                  <p className="text-xs font-semibold text-slate-500 mb-5">
+                  <p className="text-xs font-semibold text-gray-500 mb-5">
                     Każdy punkt posiada własny kod PIN do odblokowania pulpitu lokalu.
                   </p>
                   <form onSubmit={handleSavePins} className="space-y-4">
                     <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
                       {LOCATIONS.map((loc) => (
-                        <div key={loc} className="p-4 bg-slate-50 rounded-2xl border border-slate-200">
-                          <label className="block text-xs font-black uppercase text-slate-500 mb-1.5">
+                        <div key={loc} className="p-4 bg-gray-50 rounded-2xl border border-gray-200">
+                          <label className="block text-xs font-black uppercase text-gray-500 mb-1.5">
                             PIN punktu: {loc}
                           </label>
                           <input
@@ -6376,7 +6560,7 @@ function NysaWarehouseForm({
                             inputMode="numeric"
                             value={pinDrafts[loc] || ""}
                             onChange={(e) => setPinDrafts((prev) => ({ ...prev, [loc]: e.target.value }))}
-                            className="w-full p-3 bg-white border border-slate-300 rounded-xl font-black text-xl text-center tracking-widest text-slate-900 outline-none focus:border-slate-900"
+                            className="w-full p-3 bg-white border border-gray-300 rounded-xl font-black text-xl text-center tracking-widest text-gray-900 outline-none focus:ring-2 focus:ring-blue-500"
                             required
                           />
                         </div>
@@ -6384,7 +6568,7 @@ function NysaWarehouseForm({
                     </div>
                     <button
                       type="submit"
-                      className="px-6 py-4 bg-slate-900 hover:bg-slate-800 text-white font-black rounded-2xl shadow-md transition-colors text-sm"
+                      className="px-6 py-4 bg-gray-900 hover:bg-gray-800 text-white font-black rounded-xl shadow-md transition-colors text-sm"
                     >
                       Zapisz kody PIN punktów
                     </button>
@@ -6394,12 +6578,12 @@ function NysaWarehouseForm({
             )}
 
             {catalogSubTab === "schedule" && (
-              <div className="bg-white p-6 rounded-3xl border border-slate-200 shadow-sm space-y-4">
-                <h3 className="text-xl font-black text-slate-900 flex items-center">
-                  <Calendar className="w-6 h-6 mr-2.5 text-slate-700" /> Harmonogram Dostaw i Uzupełniania
+              <div className="bg-white p-6 rounded-[2rem] border border-gray-200 shadow-sm space-y-4">
+                <h3 className="text-xl font-black text-gray-900 flex items-center">
+                  <Calendar className="w-6 h-6 mr-2.5 text-orange-600" /> Harmonogram Dostaw i Uzupełniania
                 </h3>
-                <p className="text-xs font-semibold text-slate-500">
-                  Wybierz dni tygodnia, w które poszczególne sekcje są domyślnie wyświetlane pracownikom w raporcie dziennym.
+                <p className="text-xs font-semibold text-gray-500">
+                  Wybierz dni tygodnia, w które poszczególne sekcje są domyślnie wyświetlane pracownikom jako „Do uzupełnienia dziś”.
                 </p>
 
                 <form onSubmit={handleSaveDeliveryDays} className="space-y-4 pt-2">
@@ -6421,10 +6605,10 @@ function NysaWarehouseForm({
                         ? deliveryDaysDraft[key].map(Number)
                         : [];
                       return (
-                        <div key={key} className="p-4 bg-slate-50 rounded-2xl border border-slate-200 space-y-2.5">
+                        <div key={key} className="p-4 bg-gray-50 rounded-2xl border border-gray-200 space-y-2.5">
                           <div className="flex items-center justify-between">
-                            <span className="block text-xs font-black uppercase text-slate-800">{label}</span>
-                            <span className="text-[10px] font-bold text-slate-400">
+                            <span className="block text-xs font-black uppercase text-gray-800">{label}</span>
+                            <span className="text-[10px] font-bold text-gray-400">
                               Wybrano dni: {activeDays.length}/7
                             </span>
                           </div>
@@ -6436,10 +6620,10 @@ function NysaWarehouseForm({
                                   key={d.id}
                                   type="button"
                                   onClick={() => handleToggleDeliveryDay(key, d.id)}
-                                  className={`px-3 py-2 rounded-xl font-black text-xs border transition-colors ${
+                                  className={`px-3 py-2 rounded-xl font-black text-xs border-2 transition-colors ${
                                     isSelected
-                                      ? "bg-slate-900 text-white border-slate-900 shadow-sm"
-                                      : "bg-white text-slate-600 border-slate-200 hover:border-slate-400"
+                                      ? "bg-orange-600 text-white border-orange-600 shadow-sm"
+                                      : "bg-white text-gray-700 border-gray-200 hover:border-orange-300"
                                   }`}
                                 >
                                   {d.short}
@@ -6454,7 +6638,7 @@ function NysaWarehouseForm({
 
                   <button
                     type="submit"
-                    className="px-6 py-4 bg-slate-900 hover:bg-slate-800 text-white font-black rounded-2xl shadow-md transition-colors text-sm"
+                    className="px-6 py-4 bg-orange-600 hover:bg-orange-700 text-white font-black rounded-xl shadow-md transition-colors text-sm"
                   >
                     Zapisz harmonogram wszystkich kategorii
                   </button>
@@ -6463,12 +6647,12 @@ function NysaWarehouseForm({
             )}
 
             {catalogSubTab === "backup" && (
-              <div className="bg-slate-900 text-white p-6 sm:p-8 rounded-3xl border border-slate-800 shadow-lg flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+              <div className="bg-emerald-950 text-white p-6 sm:p-8 rounded-[2rem] border border-emerald-800 shadow-lg flex flex-col sm:flex-row sm:items-center justify-between gap-4">
                 <div>
                   <h3 className="text-xl font-black flex items-center">
                     <Download className="w-6 h-6 mr-2.5 text-emerald-400" /> Kopia Zapasowa i Eksport Danych
                   </h3>
-                  <p className="text-xs text-slate-300 font-medium mt-1">
+                  <p className="text-xs text-gray-300 font-medium mt-1">
                     Pobierz pełne archiwum raportów i odbić czytnika RCP w formacie Excel (CSV) lub pełnego obrazu bazy (JSON).
                   </p>
                 </div>
@@ -6476,14 +6660,14 @@ function NysaWarehouseForm({
                   <button
                     type="button"
                     onClick={handleDownloadCSV}
-                    className="px-4 py-3.5 bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-black text-xs rounded-2xl flex items-center transition-colors shadow-md"
+                    className="px-4 py-3.5 bg-emerald-500 hover:bg-emerald-400 text-gray-950 font-black text-xs rounded-xl flex items-center transition-colors shadow-md"
                   >
                     <FileSpreadsheet className="w-4 h-4 mr-1.5" /> Pobierz Excel (CSV)
                   </button>
                   <button
                     type="button"
                     onClick={handleDownloadFullBackupJSON}
-                    className="px-4 py-3.5 bg-slate-800 hover:bg-slate-700 text-white border border-slate-700 font-black text-xs rounded-2xl flex items-center transition-colors"
+                    className="px-4 py-3.5 bg-white/10 hover:bg-white/20 text-white border border-white/20 font-black text-xs rounded-xl flex items-center transition-colors"
                   >
                     <Download className="w-4 h-4 mr-1.5" /> Pełna Kopia (JSON)
                   </button>
