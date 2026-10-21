@@ -2,7 +2,7 @@ import React, { useState, useEffect, useMemo, useCallback, memo } from "react";
 import { initializeApp } from "firebase/app";
 import { getAuth, signInAnonymously, onAuthStateChanged } from "firebase/auth";
 import { getFirestore, collection, addDoc, onSnapshot, doc, setDoc, updateDoc, deleteDoc, arrayUnion } from "firebase/firestore";
-import { Store, ChefHat, CheckCircle2, XCircle, Send, ArrowLeft, ShieldAlert, Package, Beaker, Banknote, Snowflake, Leaf, Truck, StickyNote, PlusCircle, Users, BarChart3, TrendingUp, TrendingDown, Calendar, Clock, MessageSquare, ClipboardList, Edit3, Lock, Warehouse, AlertTriangle, Settings, Trash2, FolderPlus, RotateCcw, KeyRound, Search, ChevronDown, ChevronUp, Receipt, PieChart, Save, Download, FileSpreadsheet, Wallet, Moon, Play, Square, Timer, UserCheck } from "lucide-react";
+import { Store, ChefHat, CheckCircle2, XCircle, Send, ArrowLeft, ShieldAlert, Package, Beaker, Banknote, Snowflake, Leaf, Truck, StickyNote, PlusCircle, Users, BarChart3, TrendingUp, TrendingDown, Calendar, Clock, MessageSquare, ClipboardList, Edit3, Lock, Warehouse, AlertTriangle, Settings, Trash2, FolderPlus, KeyRound, Search, ChevronDown, ChevronUp, Receipt, PieChart, Save, Download, FileSpreadsheet, Wallet, Moon, Play, Square, Timer, UserCheck } from "lucide-react";
 
 const firebaseConfig = {
   apiKey: "AIzaSyDX0CRqfd5qQx0-mkRsELcHFOjRJ4MMzps",
@@ -33,9 +33,21 @@ const LS_NYSA_KEY = `kebab_nysa_${appId}`;
 const LS_TASKS_KEY = `kebab_tasks_${appId}`;
 const LS_CATALOG_KEY = `kebab_catalog_${appId}`;
 const LS_SHIFTS_KEY = `kebab_shifts_${appId}`;
+const LS_CLOUD_DRAFTS_KEY = `kebab_cloud_drafts_${appId}`;
 
 const LOCATIONS = ["Opole", "Nysa", "Kłodzko", "Kudowa-Zdrój"];
-const LOCATION_COLORS = { Opole: "bg-blue-500", Nysa: "bg-emerald-500", Kłodzko: "bg-amber-500", "Kudowa-Zdrój": "bg-purple-500" };
+const LOCATION_COLORS = {
+  Opole: "bg-blue-600",
+  Nysa: "bg-emerald-600",
+  Kłodzko: "bg-amber-500",
+  "Kudowa-Zdrój": "bg-purple-600",
+};
+const LOCATION_BADGE_STYLES = {
+  Opole: "bg-blue-50 text-blue-700 border-blue-200",
+  Nysa: "bg-emerald-50 text-emerald-700 border-emerald-200",
+  Kłodzko: "bg-amber-50 text-amber-800 border-amber-200",
+  "Kudowa-Zdrój": "bg-purple-50 text-purple-700 border-purple-200",
+};
 const DEFAULT_LOCATION_PINS = { Opole: "0525", Nysa: "0526", Kłodzko: "0527", "Kudowa-Zdrój": "0528" };
 
 const DEFAULT_EMPLOYEES_BY_LOCATION = {
@@ -162,14 +174,18 @@ const getLocalData = (key, fallback) => {
   try {
     const raw = localStorage.getItem(key);
     return raw ? JSON.parse(raw) : fallback;
-  } catch { return fallback; }
+  } catch {
+    return fallback;
+  }
 };
 
 const setLocalData = (key, data) => {
   try {
     localStorage.setItem(key, JSON.stringify(data));
     window.dispatchEvent(new Event("localDataUpdated"));
-  } catch (err) { console.error("Błąd zapisu w localStorage:", err); }
+  } catch (err) {
+    console.error("Błąd zapisu w localStorage:", err);
+  }
 };
 
 const normalizeCatalog = (raw) => {
@@ -218,8 +234,15 @@ const isItemAllowedForLocation = (catalog, categoryKey, itemName, location) => {
 const formatDateObj = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
 const formatTimeHM = (d) => `${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`;
 const getCalendarTodayString = () => formatDateObj(new Date());
-const getYesterdayString = () => { const d = new Date(); d.setDate(d.getDate() - 1); return formatDateObj(d); };
-const isNightShiftWindow = () => { const h = new Date().getHours(); return h >= 0 && h < 5; };
+const getYesterdayString = () => {
+  const d = new Date();
+  d.setDate(d.getDate() - 1);
+  return formatDateObj(d);
+};
+const isNightShiftWindow = () => {
+  const h = new Date().getHours();
+  return h >= 0 && h < 5;
+};
 const getGastroTodayString = () => (isNightShiftWindow() ? getYesterdayString() : getCalendarTodayString());
 
 const formatLiveDuration = (startIso, nowMs = Date.now()) => {
@@ -276,6 +299,15 @@ const hasAnyPositiveValue = (obj) => {
   return Object.values(obj).some((v) => parseSafeNumber(v) > 0);
 };
 
+const sanitizeRecord = (obj) => {
+  if (!obj || typeof obj !== "object") return {};
+  const clean = {};
+  Object.entries(obj).forEach(([k, v]) => {
+    if (v !== undefined && v !== null && v !== "") clean[k] = String(v);
+  });
+  return clean;
+};
+
 const buildInitialSectionState = (prevSec, existingSec, draftSec) => {
   const base = { ...(prevSec && typeof prevSec === "object" ? prevSec : {}) };
   if (existingSec && typeof existingSec === "object" && Object.keys(existingSec).length > 0) {
@@ -291,21 +323,19 @@ const buildInitialSectionState = (prevSec, existingSec, draftSec) => {
   return base;
 };
 
-const mergeInventorySectionForSave = (existingSec, currentSec, explicitlyZeroed = {}) => {
+const mergeInventorySectionForSave = (existingSec, currentSec) => {
   const existingClean = sanitizeRecord(existingSec);
   const currentClean = sanitizeRecord(currentSec);
 
-  if (!hasAnyPositiveValue(currentClean) && hasAnyPositiveValue(existingClean) && Object.keys(explicitlyZeroed).length === 0) {
+  if (!hasAnyPositiveValue(currentClean) && hasAnyPositiveValue(existingClean)) {
     return existingClean;
   }
 
   const merged = { ...existingClean };
   Object.entries(currentClean).forEach(([k, v]) => {
     const num = parseSafeNumber(v);
-    if (num > 0) {
+    if (num > 0 || !(k in existingClean)) {
       merged[k] = String(v);
-    } else if (explicitlyZeroed[k] || !(k in existingClean)) {
-      merged[k] = "0";
     }
   });
   return merged;
@@ -359,15 +389,6 @@ const calculateWorkedHours = (hoursStr) => {
   return isNaN(direct) ? 0 : direct;
 };
 
-const sanitizeRecord = (obj) => {
-  if (!obj || typeof obj !== "object") return {};
-  const clean = {};
-  Object.entries(obj).forEach(([k, v]) => {
-    if (v !== undefined && v !== null && v !== "") clean[k] = String(v);
-  });
-  return clean;
-};
-
 const calculateTotalExpenses = (expensesList) =>
   Array.isArray(expensesList) ? expensesList.reduce((acc, exp) => acc + parseSafeNumber(exp?.amount), 0) : 0;
 
@@ -387,57 +408,77 @@ const downloadFile = (content, filename, mimeType) => {
   URL.revokeObjectURL(url);
 };
 
-const Section = memo(({ title, icon: Icon, children, bgClass = "bg-white", titleColor = "text-gray-900", badge, collapsible = false, defaultExpanded = true, subtitle = "" }) => {
+const Section = memo(({ title, icon: Icon, children, bgClass = "bg-white border-slate-200", titleColor = "text-slate-900", badge, collapsible = false, defaultExpanded = true, subtitle = "", footerAction = null }) => {
   const [isOpen, setIsOpen] = useState(defaultExpanded);
   return (
-    <div className={`p-4 sm:p-6 rounded-[2rem] border shadow-sm transition-colors ${bgClass}`}>
+    <div className={`p-4 sm:p-6 rounded-3xl border shadow-sm transition-all ${bgClass}`}>
       <div
         onClick={() => collapsible && setIsOpen((o) => !o)}
-        className={`flex flex-col sm:flex-row sm:justify-between sm:items-center gap-3 ${collapsible ? "cursor-pointer select-none" : ""} ${isOpen ? "mb-5" : "mb-0"}`}
+        className={`flex flex-col sm:flex-row sm:justify-between sm:items-center gap-3 ${collapsible ? "cursor-pointer select-none" : ""} ${isOpen ? "mb-5 pb-4 border-b border-slate-100" : "mb-0"}`}
       >
         <div className="flex flex-col">
-          <h3 className={`font-extrabold text-xl flex items-center ${titleColor}`}>
-            {Icon && <Icon className="w-6 h-6 mr-2 opacity-80 shrink-0" />} {title}
+          <h3 className={`font-extrabold text-lg sm:text-xl flex items-center ${titleColor}`}>
+            {Icon && <Icon className="w-5 h-5 mr-2.5 text-slate-500 shrink-0" />} {title}
           </h3>
-          {subtitle && <span className="text-xs font-bold text-gray-400 mt-1 ml-1">{subtitle}</span>}
+          {subtitle && <span className="text-xs font-semibold text-slate-400 mt-1">{subtitle}</span>}
         </div>
-        <div className="flex items-center gap-2 self-start sm:self-center">
+        <div className="flex items-center gap-2 self-start sm:self-center flex-wrap">
           {badge}
           {collapsible && (
             <button
               type="button"
-              onClick={(e) => { e.stopPropagation(); setIsOpen((o) => !o); }}
-              className="px-3 py-1.5 rounded-xl bg-gray-100 hover:bg-gray-200 text-gray-700 font-black text-xs flex items-center transition-colors"
+              onClick={(e) => {
+                e.stopPropagation();
+                setIsOpen((o) => !o);
+              }}
+              className="px-3 py-1.5 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold text-xs flex items-center transition-colors"
             >
-              {isOpen ? <>Zwiń <ChevronUp className="w-4 h-4 ml-1" /></> : <>Rozwiń <ChevronDown className="w-4 h-4 ml-1" /></>}
+              {isOpen ? (
+                <>Zwiń <ChevronUp className="w-4 h-4 ml-1" /></>
+              ) : (
+                <>Rozwiń <ChevronDown className="w-4 h-4 ml-1" /></>
+              )}
             </button>
           )}
         </div>
       </div>
-      {isOpen && <div>{children}</div>}
+      {isOpen && (
+        <div>
+          {children}
+          {footerAction && <div className="mt-5 pt-4 border-t border-slate-100">{footerAction}</div>}
+        </div>
+      )}
     </div>
   );
 });
 
-const Counter = memo(({ itemKey, label, unit = "szt.", value, onChange, onItemChange, onExplicitZero }) => {
-  const [isEditingInput, setIsEditingInput] = useState(false);
-  const [tempInput, setTempInput] = useState("");
+const Counter = memo(({ itemKey, label, unit = "szt.", value, onChange, onItemChange }) => {
   const displayLabel = label || itemKey || "";
   const isGrams = unit === "g" || displayLabel.toLowerCase().includes("mięta");
+  const isWeightOrVol = ["kg", "l", "wiadro"].includes(unit);
+
+  const stepOptions = useMemo(() => {
+    if (isGrams) return [50, 100, 250];
+    if (isWeightOrVol) return [0.1, 0.5, 1];
+    return [0.5, 1, 5];
+  }, [isGrams, isWeightOrVol]);
+
+  const [step, setStep] = useState(() => (isGrams ? 100 : 1));
+  const [isEditingInput, setIsEditingInput] = useState(false);
+  const [tempInput, setTempInput] = useState("");
+
   const numVal = value === "" || value === undefined || value === null || isNaN(Number(value)) ? 0 : Number(value);
 
-  const emitChange = (nextStr, isZeroReset = false) => {
-    if (isZeroReset && onExplicitZero && (itemKey || displayLabel)) {
-      onExplicitZero(itemKey || displayLabel);
-    }
+  const emitChange = (nextStr) => {
     if (onItemChange && itemKey) onItemChange(itemKey, nextStr);
     else if (onChange) onChange(nextStr);
   };
 
-  const updateVal = (amount) => {
-    const nextVal = Math.max(0, numVal + amount);
+  const updateVal = (direction) => {
+    const delta = direction * step;
+    const nextVal = Math.max(0, numVal + delta);
     const formatted = parseFloat(nextVal.toFixed(2)).toString();
-    emitChange(formatted, nextVal === 0);
+    emitChange(formatted);
   };
 
   const handleStartManualEdit = () => {
@@ -453,7 +494,7 @@ const Counter = memo(({ itemKey, label, unit = "szt.", value, onChange, onItemCh
       if (normalized !== "" && !normalized.endsWith(".")) {
         const parsed = parseFloat(normalized);
         if (!isNaN(parsed) && parsed >= 0) {
-          emitChange(parseFloat(parsed.toFixed(2)).toString(), parsed === 0);
+          emitChange(parseFloat(parsed.toFixed(2)).toString());
         }
       }
     }
@@ -462,77 +503,92 @@ const Counter = memo(({ itemKey, label, unit = "szt.", value, onChange, onItemCh
   const commitManualEdit = () => {
     setIsEditingInput(false);
     const trimmed = tempInput.trim().replace(",", ".");
-    if (trimmed === "") {
-      return;
-    }
+    if (trimmed === "") return;
     const parsed = parseFloat(trimmed);
     if (!isNaN(parsed) && parsed >= 0) {
-      emitChange(parseFloat(parsed.toFixed(2)).toString(), parsed === 0);
+      emitChange(parseFloat(parsed.toFixed(2)).toString());
     }
   };
 
-  const renderInputBox = (widthClass) =>
-    isEditingInput ? (
-      <input
-        type="text"
-        inputMode="decimal"
-        autoFocus
-        value={tempInput}
-        onChange={handleInputChange}
-        onBlur={commitManualEdit}
-        onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); commitManualEdit(); } }}
-        className={`${widthClass} h-11 text-center font-black text-blue-900 bg-blue-50 border-2 border-blue-400 rounded-lg outline-none text-sm`}
-        placeholder={`0 ${unit}`}
-      />
-    ) : (
-      <div
-        onClick={handleStartManualEdit}
-        title="Kliknij, aby wpisać wartość z klawiatury"
-        className={`${widthClass} h-11 px-1.5 flex items-center justify-center gap-1 font-black text-gray-900 bg-gray-50 hover:bg-blue-50/50 border border-gray-200 hover:border-blue-300 rounded-lg select-none text-sm cursor-text transition-colors`}
-      >
-        <span>{value || "0"}</span>
-        <span className="text-[10px] font-extrabold text-blue-600 uppercase">{unit}</span>
-      </div>
-    );
-
   return (
-    <div className="flex flex-col bg-white border border-gray-100 rounded-2xl shadow-sm overflow-hidden mb-3 w-full transition-colors hover:border-blue-100">
-      <div className="p-3 bg-gray-50/50 border-b border-gray-100 flex items-center justify-between gap-2">
-        <div className="flex items-center gap-1.5 flex-wrap">
-          <span className="font-bold text-gray-800 text-sm leading-tight break-words">
+    <div className={`flex flex-col bg-white border rounded-2xl p-3.5 mb-3 w-full transition-all ${numVal > 0 ? "border-slate-300 shadow-sm" : "border-slate-200/80"}`}>
+      <div className="flex items-center justify-between gap-2 mb-2.5">
+        <div className="flex items-center gap-2 min-w-0 flex-wrap">
+          <span className="font-bold text-slate-900 text-sm sm:text-base leading-tight break-words">
             {displayLabel}
           </span>
-          <span className="text-[10px] font-black uppercase px-2 py-0.5 rounded-md bg-blue-50 text-blue-700 border border-blue-200">
+          <span className="text-[11px] font-extrabold uppercase px-2 py-0.5 rounded-md bg-slate-100 text-slate-600 border border-slate-200 shrink-0">
             {unit}
           </span>
         </div>
-        {numVal > 0 && (
-          <button
-            type="button"
-            onClick={() => emitChange("0", true)}
-            title="Wyzeruj wartość (Reset do 0)"
-            className="shrink-0 text-[10px] font-black uppercase px-2 py-0.5 rounded-md bg-gray-200/70 hover:bg-red-100 text-gray-600 hover:text-red-700 transition-colors flex items-center"
-          >
-            <RotateCcw className="w-3 h-3 mr-1" /> 0
-          </button>
-        )}
+
+        <div className="flex items-center gap-1 bg-slate-100 p-0.5 rounded-lg border border-slate-200/80 shrink-0">
+          <span className="text-[9px] font-extrabold uppercase text-slate-400 px-1.5 hidden sm:inline">Skok:</span>
+          {stepOptions.map((st) => (
+            <button
+              key={st}
+              type="button"
+              onClick={() => setStep(st)}
+              className={`px-2 py-0.5 rounded-md text-[11px] font-black transition-colors ${
+                step === st
+                  ? "bg-slate-900 text-white shadow-sm"
+                  : "text-slate-500 hover:text-slate-800"
+              }`}
+            >
+              +{st}
+            </button>
+          ))}
+        </div>
       </div>
-      <div className="flex items-center justify-between p-2 gap-1 bg-white">
-        {isGrams ? (
-          <>
-            <button type="button" onClick={() => updateVal(-100)} className="flex-1 min-w-0 h-11 bg-red-50 hover:bg-red-100 text-red-600 rounded-lg font-black text-sm transition-colors touch-manipulation">-100</button>
-            {renderInputBox("w-24")}
-            <button type="button" onClick={() => updateVal(100)} className="flex-1 min-w-0 h-11 bg-green-50 hover:bg-green-100 text-green-600 rounded-lg font-black text-sm transition-colors touch-manipulation">+100</button>
-          </>
+
+      <div className="flex items-center gap-2">
+        <button
+          type="button"
+          onClick={() => updateVal(-1)}
+          className="w-14 h-12 bg-slate-100 hover:bg-rose-50 active:bg-rose-100 text-slate-700 hover:text-rose-600 border border-slate-200 rounded-xl font-black text-lg transition-colors touch-manipulation shrink-0 flex items-center justify-center"
+        >
+          -{step}
+        </button>
+
+        {isEditingInput ? (
+          <input
+            type="text"
+            inputMode="decimal"
+            autoFocus
+            value={tempInput}
+            onChange={handleInputChange}
+            onBlur={commitManualEdit}
+            onKeyDown={(e) => {
+              if (e.key === "Enter") {
+                e.preventDefault();
+                commitManualEdit();
+              }
+            }}
+            className="flex-1 h-12 text-center font-black text-slate-900 bg-blue-50/60 border-2 border-blue-500 rounded-xl outline-none text-lg"
+            placeholder={`Wpisz (${unit})`}
+          />
         ) : (
-          <>
-            <button type="button" onClick={() => updateVal(-1)} className="flex-1 min-w-0 h-11 bg-red-50 hover:bg-red-100 text-red-600 rounded-lg font-black text-sm transition-colors touch-manipulation">-1</button>
-            <button type="button" onClick={() => updateVal(-0.5)} className="flex-1 min-w-0 h-11 bg-orange-50 hover:bg-orange-100 text-orange-600 rounded-lg font-black text-xs transition-colors touch-manipulation">-.5</button>
-            {renderInputBox("w-20 shrink-0")}
-            <button type="button" onClick={() => updateVal(0.5)} className="flex-1 min-w-0 h-11 bg-emerald-50 hover:bg-emerald-100 text-emerald-600 rounded-lg font-black text-xs transition-colors touch-manipulation">+.5</button>
-            <button type="button" onClick={() => updateVal(1)} className="flex-1 min-w-0 h-11 bg-green-50 hover:bg-green-100 text-green-600 rounded-lg font-black text-sm transition-colors touch-manipulation">+1</button>
-          </>
+          <div
+            onClick={handleStartManualEdit}
+            title="Dotknij, aby wpisać dokładną ilość z klawiatury"
+            className={`flex-1 h-12 px-3 flex items-center justify-center gap-1.5 font-black rounded-xl select-none text-lg cursor-text transition-colors border ${
+              numVal > 0
+                ? "bg-emerald-50/50 border-emerald-300 text-slate-900"
+                : "bg-slate-50 hover:bg-slate-100/80 border-slate-200 text-slate-500"
+            }`}
+          >
+            <span>{value || "0"}</span>
+            <span className="text-xs font-bold text-slate-400 uppercase">{unit}</span>
+          </div>
         )}
+
+        <button
+          type="button"
+          onClick={() => updateVal(1)}
+          className="w-14 h-12 bg-slate-900 hover:bg-emerald-600 active:bg-emerald-700 text-white rounded-xl font-black text-lg transition-colors touch-manipulation shrink-0 flex items-center justify-center shadow-sm"
+        >
+          +{step}
+        </button>
       </div>
     </div>
   );
@@ -541,10 +597,16 @@ const Counter = memo(({ itemKey, label, unit = "szt.", value, onChange, onItemCh
 const Modal = memo(({ message, onClose }) => {
   if (!message) return null;
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm">
-      <div className="bg-white p-6 rounded-2xl shadow-2xl w-full max-w-sm text-center">
-        <p className="text-gray-900 font-bold text-lg mb-6">{message}</p>
-        <button type="button" onClick={onClose} className="bg-blue-600 w-full hover:bg-blue-700 text-white px-6 py-3 rounded-xl font-bold transition-colors">OK</button>
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm">
+      <div className="bg-white p-6 rounded-3xl shadow-2xl border border-slate-100 w-full max-w-sm text-center">
+        <p className="text-slate-900 font-bold text-base sm:text-lg mb-6 leading-snug">{message}</p>
+        <button
+          type="button"
+          onClick={onClose}
+          className="bg-slate-900 w-full hover:bg-slate-800 text-white px-6 py-3.5 rounded-2xl font-bold transition-colors"
+        >
+          Rozumiem (OK)
+        </button>
       </div>
     </div>
   );
@@ -553,16 +615,30 @@ const Modal = memo(({ message, onClose }) => {
 const ConfirmExitModal = memo(({ isOpen, onConfirm, onCancel }) => {
   if (!isOpen) return null;
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm">
-      <div className="bg-white p-6 rounded-2xl shadow-2xl w-full max-w-sm text-center">
-        <div className="w-12 h-12 rounded-full bg-amber-100 text-amber-600 flex items-center justify-center mx-auto mb-4">
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm">
+      <div className="bg-white p-6 rounded-3xl shadow-2xl border border-slate-100 w-full max-w-sm text-center">
+        <div className="w-12 h-12 rounded-2xl bg-amber-100 text-amber-600 flex items-center justify-center mx-auto mb-4">
           <AlertTriangle className="w-6 h-6" />
         </div>
-        <h4 className="text-gray-900 font-extrabold text-lg mb-2">Masz niezapisane zmiany</h4>
-        <p className="text-gray-600 text-sm font-medium mb-6">Masz niezapisane zmiany. Czy na pewno chcesz wyjść? (Twój szkic jest bezpiecznie zachowany w pamięci telefonu).</p>
+        <h4 className="text-slate-900 font-extrabold text-lg mb-2">Wrócić do pulpitu lokalu?</h4>
+        <p className="text-slate-600 text-sm font-medium mb-6">
+          Wszystkie wpisane stany są automatycznie zachowane w szkicu roboczym (w telefonie oraz w podglądzie managera).
+        </p>
         <div className="flex gap-3">
-          <button type="button" onClick={onCancel} className="flex-1 bg-gray-100 hover:bg-gray-200 text-gray-800 py-3 rounded-xl font-bold transition-colors text-sm">Zostań</button>
-          <button type="button" onClick={onConfirm} className="flex-1 bg-red-600 hover:bg-red-700 text-white py-3 rounded-xl font-bold transition-colors text-sm">Wyjdź</button>
+          <button
+            type="button"
+            onClick={onCancel}
+            className="flex-1 bg-slate-100 hover:bg-slate-200 text-slate-800 py-3 rounded-xl font-bold transition-colors text-sm"
+          >
+            Zostań w raporcie
+          </button>
+          <button
+            type="button"
+            onClick={onConfirm}
+            className="flex-1 bg-slate-900 hover:bg-slate-800 text-white py-3 rounded-xl font-bold transition-colors text-sm"
+          >
+            Wróć do pulpitu
+          </button>
         </div>
       </div>
     </div>
@@ -571,19 +647,42 @@ const ConfirmExitModal = memo(({ isOpen, onConfirm, onCancel }) => {
 
 const PinLoginScreen = memo(({ icon: Icon, iconBgClass, title, subtitle, submitLabel, submitBtnClass, onSubmitPin, onBack }) => (
   <div className="flex flex-col items-center justify-center p-6 min-h-screen max-w-sm mx-auto">
-    <div className="bg-white p-8 rounded-[2rem] shadow-xl border border-gray-100 w-full">
+    <div className="bg-white p-8 rounded-3xl shadow-xl border border-slate-200/80 w-full">
       <div className="text-center mb-8">
         <div className={`w-16 h-16 ${iconBgClass} rounded-2xl flex items-center justify-center mx-auto mb-4 shadow-lg`}>
           <Icon className="w-8 h-8 text-white" />
         </div>
-        <h2 className="text-2xl font-extrabold text-gray-900">{title}</h2>
-        <p className="text-gray-500 mt-2 font-medium text-sm">{subtitle}</p>
+        <h2 className="text-2xl font-extrabold text-slate-900">{title}</h2>
+        <p className="text-slate-500 mt-2 font-medium text-sm">{subtitle}</p>
       </div>
-      <form onSubmit={(e) => { e.preventDefault(); onSubmitPin(e.target.elements.pinInput.value); e.target.reset(); }}>
-        <input type="password" name="pinInput" inputMode="numeric" autoComplete="off" autoFocus className="w-full text-center text-4xl tracking-[0.5em] font-black border-2 border-gray-200 bg-gray-50 rounded-2xl p-4 mb-6 focus:border-blue-500 focus:bg-white outline-none transition-colors shadow-inner" placeholder="••••" required />
+      <form
+        onSubmit={(e) => {
+          e.preventDefault();
+          onSubmitPin(e.target.elements.pinInput.value);
+          e.target.reset();
+        }}
+      >
+        <input
+          type="password"
+          name="pinInput"
+          inputMode="numeric"
+          autoComplete="off"
+          autoFocus
+          className="w-full text-center text-4xl tracking-[0.5em] font-black border-2 border-slate-200 bg-slate-50 rounded-2xl p-4 mb-6 focus:border-slate-900 focus:bg-white outline-none transition-colors"
+          placeholder="••••"
+          required
+        />
         <div className="flex flex-col gap-3">
-          <button type="submit" className={`w-full text-white py-4 rounded-xl font-bold shadow-lg transition-colors ${submitBtnClass}`}>{submitLabel}</button>
-          <button type="button" onClick={onBack} className="w-full bg-white border-2 border-gray-200 text-gray-700 py-4 rounded-xl font-bold hover:bg-gray-50 transition-colors">Wróć</button>
+          <button type="submit" className={`w-full text-white py-4 rounded-2xl font-bold shadow-md transition-colors ${submitBtnClass}`}>
+            {submitLabel}
+          </button>
+          <button
+            type="button"
+            onClick={onBack}
+            className="w-full bg-slate-100 text-slate-700 py-4 rounded-2xl font-bold hover:bg-slate-200 transition-colors"
+          >
+            Wróć
+          </button>
         </div>
       </form>
     </div>
@@ -591,69 +690,65 @@ const PinLoginScreen = memo(({ icon: Icon, iconBgClass, title, subtitle, submitL
 ));
 
 const UrgentTasksBanner = memo(({ tasks, location, todayStr, onCompleteTask }) => {
-  if (!Array.isArray(tasks) || tasks.length === 0) {
-    return (
-      <div className="w-full bg-emerald-50 border border-emerald-200 px-4 py-3 rounded-2xl flex items-center justify-between text-xs font-bold text-emerald-900 mb-4 shadow-sm">
-        <div className="flex items-center">
-          <CheckCircle2 className="w-4 h-4 mr-2 text-emerald-600 shrink-0" />
-          <span>Wszystkie zadania dnia dla punktu <strong>{location}</strong> ({todayStr}) zostały wykonane lub brak zadań.</span>
-        </div>
-      </div>
-    );
-  }
+  if (!Array.isArray(tasks) || tasks.length === 0) return null;
 
   return (
-    <div className="w-full bg-gradient-to-r from-red-600 via-rose-600 to-amber-600 text-white p-4 sm:p-5 rounded-2xl shadow-xl border-2 border-red-300 mb-6">
-      <div className="flex items-start gap-3">
-        <div className="w-10 h-10 rounded-xl bg-white/20 flex items-center justify-center shrink-0 mt-0.5">
-          <AlertTriangle className="w-6 h-6 text-white" />
-        </div>
-        <div className="flex-1 min-w-0">
-          <div className="flex items-center justify-between gap-2 flex-wrap mb-3">
-            <span className="text-xs font-black uppercase tracking-wider bg-black/25 px-3 py-1 rounded-full flex items-center">
-              <ClipboardList className="w-3.5 h-3.5 mr-1.5" /> Zadania dnia — Punkt: {location}
-            </span>
-            <span className="text-xs font-black bg-white text-red-700 px-3 py-1 rounded-full shadow-sm">
-              Do wykonania dziś: {tasks.length}
-            </span>
+    <div className="w-full bg-white border-2 border-rose-500 rounded-3xl p-4 sm:p-5 shadow-md mb-5">
+      <div className="flex items-center justify-between gap-2 flex-wrap mb-3 pb-3 border-b border-rose-100">
+        <div className="flex items-center gap-2.5">
+          <div className="w-9 h-9 rounded-xl bg-rose-600 text-white flex items-center justify-center shrink-0">
+            <AlertTriangle className="w-5 h-5" />
           </div>
-          <div className="space-y-2.5">
-            {tasks.map((t) => {
-              const isRecurring = t.type === "recurring";
-              const scheduledDaysText = isRecurring && Array.isArray(t.daysOfWeek)
-                ? DAYS_OF_WEEK.filter((d) => t.daysOfWeek.map(Number).includes(d.id)).map((d) => d.short).join(", ")
-                : "";
-              return (
-                <div key={t.id} className="bg-black/25 p-3.5 rounded-xl border border-white/20 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
-                  <div className="space-y-1 min-w-0">
-                    <div className="flex flex-wrap items-center gap-1.5">
-                      <span className="text-[10px] font-black uppercase bg-white/20 text-white px-2 py-0.5 rounded-md">
-                        {isRecurring ? `Cykliczne (${scheduledDaysText})` : "Zadanie doraźne"}
-                      </span>
-                      <span className="inline-flex items-center text-[11px] font-black bg-amber-300 text-gray-950 px-2.5 py-0.5 rounded-md shadow-sm">
-                        <Clock className="w-3 h-3 mr-1" />
-                        Do wykonania do godziny: {t.deadlineTime || "22:00"}
-                      </span>
-                      {t.createdBy && (
-                        <span className="text-[10px] font-semibold text-white/80">• Zlecił(a): {t.createdBy}</span>
-                      )}
-                    </div>
-                    <p className="font-extrabold text-sm sm:text-base text-white break-words pt-0.5">{t.text}</p>
-                  </div>
-                  {onCompleteTask && (
-                    <button
-                      type="button"
-                      onClick={() => onCompleteTask(t)}
-                      className="shrink-0 bg-emerald-500 hover:bg-emerald-400 text-gray-950 font-black text-xs px-4 py-2.5 rounded-xl flex items-center justify-center transition-colors shadow-md"
-                    >
-                      <CheckCircle2 className="w-4 h-4 mr-1.5" /> Wykonane
-                    </button>
-                  )}
+          <div>
+            <span className="text-xs font-black uppercase tracking-wider text-rose-600 block">
+              Pilne zadanie dnia — {location}
+            </span>
+            <span className="text-xs font-semibold text-slate-500">Data: {todayStr}</span>
+          </div>
+        </div>
+        <span className="text-xs font-black bg-rose-100 text-rose-800 px-3 py-1 rounded-full">
+          Do wykonania: {tasks.length}
+        </span>
+      </div>
+      <div className="space-y-2.5">
+        {tasks.map((t) => {
+          const isRecurring = t.type === "recurring";
+          const scheduledDaysText =
+            isRecurring && Array.isArray(t.daysOfWeek)
+              ? DAYS_OF_WEEK.filter((d) => t.daysOfWeek.map(Number).includes(d.id))
+                  .map((d) => d.short)
+                  .join(", ")
+              : "";
+          return (
+            <div
+              key={t.id}
+              className="bg-rose-50/60 p-3.5 rounded-2xl border border-rose-200/80 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3"
+            >
+              <div className="space-y-1 min-w-0">
+                <div className="flex flex-wrap items-center gap-1.5">
+                  <span className="text-[10px] font-black uppercase bg-white text-slate-700 border border-slate-200 px-2 py-0.5 rounded-md">
+                    {isRecurring ? `Cykliczne (${scheduledDaysText})` : "Zadanie doraźne"}
+                  </span>
+                  <span className="inline-flex items-center text-[11px] font-black bg-rose-600 text-white px-2.5 py-0.5 rounded-md">
+                    <Clock className="w-3 h-3 mr-1" />
+                    Do wykonania do godziny: {t.deadlineTime || "22:00"}
+                  </span>
+                  {t.createdBy && <span className="text-[11px] font-semibold text-slate-500">• Zlecił(a): {t.createdBy}</span>}
                 </div>
-              );
-            })}
-          </div>
-        </div>
+                <p className="font-extrabold text-sm sm:text-base text-slate-900 break-words pt-0.5">{t.text}</p>
+              </div>
+              {onCompleteTask && (
+                <button
+                  type="button"
+                  onClick={() => onCompleteTask(t)}
+                  className="shrink-0 bg-emerald-600 hover:bg-emerald-700 text-white font-black text-xs px-4 py-2.5 rounded-xl flex items-center justify-center transition-colors shadow-sm"
+                >
+                  <CheckCircle2 className="w-4 h-4 mr-1.5" /> Wykonane
+                </button>
+              )}
+            </div>
+          );
+        })}
       </div>
     </div>
   );
@@ -706,22 +801,22 @@ const ShiftClockWidget = memo(({ location, employeesList = [], activeShifts = []
   };
 
   return (
-    <div className="w-full bg-gradient-to-br from-slate-900 via-indigo-950 to-slate-900 text-white p-5 rounded-[2rem] border border-indigo-700/60 shadow-xl mb-6">
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 pb-4 border-b border-white/10">
-        <div className="flex items-center gap-2.5">
-          <div className="w-10 h-10 rounded-xl bg-emerald-500/20 border border-emerald-400/40 flex items-center justify-center shrink-0">
+    <div className="w-full bg-slate-900 text-white p-5 rounded-3xl border border-slate-800 shadow-lg mb-5">
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 pb-4 border-b border-slate-800">
+        <div className="flex items-center gap-3">
+          <div className="w-10 h-10 rounded-2xl bg-emerald-500/15 border border-emerald-500/30 flex items-center justify-center shrink-0">
             <Timer className="w-5 h-5 text-emerald-400" />
           </div>
           <div>
-            <div className="flex items-center gap-2">
-              <h3 className="font-black text-base sm:text-lg text-white">Czytnik Czasu Pracy (RCP Live)</h3>
-              <span className="bg-emerald-500/20 text-emerald-300 border border-emerald-400/30 text-[10px] font-black uppercase px-2.5 py-0.5 rounded-full flex items-center">
+            <div className="flex items-center gap-2 flex-wrap">
+              <h3 className="font-extrabold text-base sm:text-lg text-white">Czytnik Czasu Pracy (RCP)</h3>
+              <span className="bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 text-[10px] font-black uppercase px-2.5 py-0.5 rounded-full flex items-center">
                 <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse mr-1.5" />
                 W pracy: {locActive.length}
               </span>
             </div>
-            <p className="text-xs text-indigo-200/80 font-medium">
-              Wybierz swoje imię na starcie zmiany i kliknij „Zakończ zmianę” przed wyjściem — godziny same wpiszą się do raportu!
+            <p className="text-xs text-slate-400 font-medium">
+              Wybierz imię na starcie zmiany i kliknij „Zakończ” przed wyjściem — godziny automatycznie trafią do raportu.
             </p>
           </div>
         </div>
@@ -731,40 +826,49 @@ const ShiftClockWidget = memo(({ location, employeesList = [], activeShifts = []
         <select
           value={selectedEmp}
           onChange={(e) => setSelectedEmp(e.target.value)}
-          className="flex-1 p-3.5 bg-white/10 hover:bg-white/15 border border-white/20 rounded-xl font-bold text-sm text-white outline-none focus:border-emerald-400"
+          className="flex-1 p-3.5 bg-slate-800 hover:bg-slate-800/80 border border-slate-700 rounded-2xl font-bold text-sm text-white outline-none focus:border-emerald-400"
         >
-          <option value="" className="text-gray-900">— Wybierz swoje imię aby rozpocząć zmianę ({location}) —</option>
+          <option value="" className="text-slate-900">
+            — Wybierz swoje imię z listy ({location}) —
+          </option>
           {availableToClockIn.map((emp) => (
-            <option key={emp} value={emp} className="text-gray-900">{emp}</option>
+            <option key={emp} value={emp} className="text-slate-900">
+              {emp}
+            </option>
           ))}
         </select>
         <button
           type="button"
           disabled={!selectedEmp || busy}
           onClick={handleStart}
-          className="px-6 py-3.5 bg-emerald-500 hover:bg-emerald-400 disabled:opacity-40 text-gray-950 font-black text-sm rounded-xl flex items-center justify-center transition-colors shadow-lg shadow-emerald-500/20 shrink-0"
+          className="px-6 py-3.5 bg-emerald-500 hover:bg-emerald-400 disabled:opacity-40 text-slate-950 font-black text-sm rounded-2xl flex items-center justify-center transition-colors shadow-md shrink-0"
         >
           <Play className="w-4 h-4 mr-2 fill-current" /> Rozpocznij zmianę
         </button>
       </div>
 
       {locActive.length > 0 && (
-        <div className="mt-4 pt-4 border-t border-white/10 space-y-2.5">
-          <span className="block text-[11px] font-black uppercase tracking-wider text-emerald-300">
-            Aktualnie na zmianie w punkcie {location}:
+        <div className="mt-4 pt-4 border-t border-slate-800 space-y-2.5">
+          <span className="block text-[11px] font-black uppercase tracking-wider text-emerald-400">
+            Aktualnie w pracy ({location}):
           </span>
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
             {locActive.map((sh) => (
-              <div key={sh.id} className="bg-white/10 border border-emerald-400/40 p-3.5 rounded-2xl flex items-center justify-between gap-3">
+              <div
+                key={sh.id}
+                className="bg-slate-800/90 border border-slate-700 p-3.5 rounded-2xl flex items-center justify-between gap-3"
+              >
                 <div className="min-w-0">
                   <div className="flex items-center gap-2">
-                    <span className="w-2.5 h-2.5 rounded-full bg-emerald-400 animate-ping shrink-0" />
+                    <span className="w-2 h-2 rounded-full bg-emerald-400 animate-ping shrink-0" />
                     <span className="font-black text-base text-white truncate">{sh.employeeName}</span>
                   </div>
-                  <div className="text-xs text-indigo-200 font-bold mt-1 flex flex-wrap items-center gap-2">
-                    <span>Start: <strong className="text-white">{sh.startHM}</strong></span>
-                    <span className="bg-emerald-400/20 text-emerald-300 px-2 py-0.5 rounded-md font-black">
-                      Czas: {formatLiveDuration(sh.startTime, nowMs)}
+                  <div className="text-xs text-slate-300 font-bold mt-1 flex flex-wrap items-center gap-2">
+                    <span>
+                      Wejście: <strong className="text-white">{sh.startHM}</strong>
+                    </span>
+                    <span className="bg-emerald-500/20 text-emerald-300 px-2 py-0.5 rounded-md font-black">
+                      {formatLiveDuration(sh.startTime, nowMs)}
                     </span>
                   </div>
                 </div>
@@ -772,9 +876,9 @@ const ShiftClockWidget = memo(({ location, employeesList = [], activeShifts = []
                   type="button"
                   disabled={busy}
                   onClick={() => handleStop(sh)}
-                  className="shrink-0 bg-red-500 hover:bg-red-600 text-white font-black text-xs px-3.5 py-2.5 rounded-xl flex items-center shadow-md transition-colors"
+                  className="shrink-0 bg-rose-600 hover:bg-rose-500 text-white font-black text-xs px-3.5 py-2.5 rounded-xl flex items-center shadow-sm transition-colors"
                 >
-                  <Square className="w-3.5 h-3.5 mr-1.5 fill-current" /> Zakończ zmianę
+                  <Square className="w-3.5 h-3.5 mr-1.5 fill-current" /> Zakończ
                 </button>
               </div>
             ))}
@@ -783,13 +887,16 @@ const ShiftClockWidget = memo(({ location, employeesList = [], activeShifts = []
       )}
 
       {locCompletedToday.length > 0 && (
-        <div className="mt-4 pt-3 border-t border-white/10">
-          <span className="block text-[10px] font-black uppercase tracking-wider text-indigo-300 mb-2">
-            Zakończone dzisiaj zmiany z czytnika ({locCompletedToday.length}):
+        <div className="mt-4 pt-3 border-t border-slate-800">
+          <span className="block text-[10px] font-black uppercase tracking-wider text-slate-400 mb-2">
+            Zakończone dzisiaj zmiany ({locCompletedToday.length}):
           </span>
           <div className="flex flex-wrap gap-2">
             {locCompletedToday.map((sh) => (
-              <span key={sh.id} className="text-xs font-bold bg-white/10 border border-white/15 px-3 py-1 rounded-xl text-indigo-100">
+              <span
+                key={sh.id}
+                className="text-xs font-bold bg-slate-800 border border-slate-700 px-3 py-1 rounded-xl text-slate-200"
+              >
                 <UserCheck className="w-3.5 h-3.5 inline mr-1 text-emerald-400" />
                 {sh.employeeName}: <strong className="text-white">{sh.startHM}-{sh.endHM}</strong> ({sh.totalHours}h)
               </span>
@@ -797,6 +904,222 @@ const ShiftClockWidget = memo(({ location, employeesList = [], activeShifts = []
           </div>
         </div>
       )}
+    </div>
+  );
+});
+
+const LocationDashboard = memo(({
+  location,
+  todayStr,
+  inNightWindow,
+  yesterdayStr,
+  calendarTodayStr,
+  onChangeGastroDate,
+  todayReport,
+  liveDraft,
+  todayNysaWarehouse,
+  tasks,
+  onCompleteTask,
+  employeesList,
+  activeShifts,
+  todayCompletedShifts,
+  onClockIn,
+  onClockOut,
+  onOpenReport,
+  onOpenNysaWarehouse,
+  onBack,
+}) => {
+  const [quickNote, setQuickNote] = useState(() => {
+    try {
+      return localStorage.getItem(`note_${location}`) || "";
+    } catch {
+      return "";
+    }
+  });
+
+  const handleNoteChange = (e) => {
+    const val = e.target.value;
+    setQuickNote(val);
+    try {
+      localStorage.setItem(`note_${location}`, val);
+    } catch (err) {
+      console.error(err);
+    }
+  };
+
+  const confirmedSectionsList = useMemo(() => {
+    const src = liveDraft?.confirmedSections || todayReport?.confirmedSections || {};
+    return Object.entries(src).map(([k, v]) => ({ key: k, ...v }));
+  }, [liveDraft, todayReport]);
+
+  return (
+    <div className="min-h-screen bg-slate-50 pb-16">
+      <div className="sticky top-0 z-40 bg-white/95 backdrop-blur-md border-b border-slate-200 px-4 py-3.5 shadow-sm">
+        <div className="max-w-3xl mx-auto flex items-center justify-between">
+          <div className="flex items-center gap-3 min-w-0">
+            <button
+              type="button"
+              onClick={onBack}
+              className="w-10 h-10 rounded-2xl bg-slate-100 hover:bg-slate-200 text-slate-700 flex items-center justify-center transition-colors shrink-0"
+            >
+              <ArrowLeft className="w-5 h-5" />
+            </button>
+            <div className="min-w-0">
+              <div className="flex items-center gap-2">
+                <span className={`w-2.5 h-2.5 rounded-full ${LOCATION_COLORS[location] || "bg-slate-900"}`} />
+                <h1 className="font-extrabold text-slate-900 text-lg sm:text-xl truncate">Pulpit Punktu: {location}</h1>
+              </div>
+              <p className="text-xs font-semibold text-slate-500">Aktywny dzień rozliczeniowy: {todayStr}</p>
+            </div>
+          </div>
+          <span className={`px-3 py-1.5 rounded-xl text-xs font-black border ${LOCATION_BADGE_STYLES[location] || "bg-slate-100 text-slate-800 border-slate-200"}`}>
+            {todayStr}
+          </span>
+        </div>
+      </div>
+
+      <div className="max-w-3xl mx-auto p-4 sm:p-6 space-y-5">
+        {inNightWindow && onChangeGastroDate && (
+          <div className="bg-slate-900 text-white p-4 rounded-3xl border border-slate-800 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+            <div className="flex items-center text-xs font-bold">
+              <Moon className="w-5 h-5 mr-2.5 text-amber-400 shrink-0" />
+              <span>
+                Tryb nocny (po północy). Wybrana data zmiany: <strong className="text-amber-300 underline">{todayStr}</strong>
+              </span>
+            </div>
+            <div className="flex gap-2 shrink-0">
+              {[
+                { date: yesterdayStr, label: "Wczorajsza" },
+                { date: calendarTodayStr, label: "Dzisiejsza" },
+              ].map((opt) => (
+                <button
+                  key={opt.date}
+                  type="button"
+                  onClick={() => onChangeGastroDate(opt.date)}
+                  className={`px-3 py-1.5 rounded-xl font-black text-xs transition-colors ${
+                    todayStr === opt.date ? "bg-amber-400 text-slate-950" : "bg-slate-800 text-slate-300 hover:bg-slate-700"
+                  }`}
+                >
+                  {opt.label} ({opt.date})
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
+
+        <UrgentTasksBanner
+          tasks={tasks}
+          location={location}
+          todayStr={todayStr}
+          onCompleteTask={onCompleteTask}
+        />
+
+        <ShiftClockWidget
+          location={location}
+          employeesList={employeesList}
+          activeShifts={activeShifts}
+          todayCompletedShifts={todayCompletedShifts}
+          onClockIn={onClockIn}
+          onClockOut={onClockOut}
+        />
+
+        <div className={`grid grid-cols-1 ${location === "Nysa" ? "sm:grid-cols-2" : ""} gap-4`}>
+          <button
+            type="button"
+            onClick={onOpenReport}
+            className={`p-6 rounded-3xl text-left transition-all active:scale-[0.99] border-2 shadow-sm hover:shadow-md flex flex-col justify-between ${
+              todayReport
+                ? "bg-white border-emerald-400"
+                : "bg-white border-slate-900"
+            }`}
+          >
+            <div>
+              <div className="flex items-center justify-between gap-2 mb-3">
+                <span className={`text-[11px] font-black uppercase px-3 py-1 rounded-full ${
+                  todayReport
+                    ? "bg-emerald-100 text-emerald-800"
+                    : confirmedSectionsList.length > 0
+                    ? "bg-blue-100 text-blue-800"
+                    : "bg-slate-100 text-slate-700"
+                }`}>
+                  {todayReport
+                    ? "Raport wysłany"
+                    : confirmedSectionsList.length > 0
+                    ? `Szkic aktywny (Zatwierdzono: ${confirmedSectionsList.length})`
+                    : "Formularz dobowy"}
+                </span>
+                <div className="w-10 h-10 rounded-2xl bg-slate-900 text-white flex items-center justify-center shrink-0">
+                  <ArrowLeft className="w-5 h-5 rotate-180" />
+                </div>
+              </div>
+              <h2 className="text-2xl font-black text-slate-900 mb-1">
+                {todayReport ? "Edytuj Raport Dzienny" : "Otwórz Raport Dzienny"}
+              </h2>
+              <p className="text-xs font-semibold text-slate-500">
+                Uzupełnij stany magazynowe (np. Farutex), braki sosów lub zamknij utarg na koniec zmiany.
+              </p>
+            </div>
+
+            {confirmedSectionsList.length > 0 && (
+              <div className="mt-4 pt-3 border-t border-slate-100 flex flex-wrap gap-1.5">
+                {confirmedSectionsList.map((sec) => (
+                  <span key={sec.key} className="text-[10px] font-black bg-emerald-50 text-emerald-700 border border-emerald-200 px-2 py-0.5 rounded-md">
+                    ✓ {sec.label || sec.key} ({sec.time})
+                  </span>
+                ))}
+              </div>
+            )}
+          </button>
+
+          {location === "Nysa" && (
+            <button
+              type="button"
+              onClick={onOpenNysaWarehouse}
+              className={`p-6 rounded-3xl text-left transition-all active:scale-[0.99] border-2 shadow-sm hover:shadow-md flex flex-col justify-between ${
+                todayNysaWarehouse ? "bg-white border-purple-400" : "bg-white border-slate-200 hover:border-purple-400"
+              }`}
+            >
+              <div>
+                <div className="flex items-center justify-between gap-2 mb-3">
+                  <span className="text-[11px] font-black uppercase px-3 py-1 rounded-full bg-purple-100 text-purple-800">
+                    Magazyn Główny Nysa
+                  </span>
+                  <div className="w-10 h-10 rounded-2xl bg-purple-600 text-white flex items-center justify-center shrink-0">
+                    <Warehouse className="w-5 h-5" />
+                  </div>
+                </div>
+                <h2 className="text-2xl font-black text-slate-900 mb-1">
+                  {todayNysaWarehouse ? "Aktualizuj Magazyn Nysa" : "Uzupełnij Magazyn Nysa"}
+                </h2>
+                <p className="text-xs font-semibold text-slate-500">
+                  Osobny formularz stanów żywności i opakowań dla magazynu głównego w Nysie.
+                </p>
+              </div>
+            </button>
+          )}
+        </div>
+
+        <div className="bg-amber-50/70 p-5 rounded-3xl border border-amber-200/90 shadow-sm">
+          <div className="flex items-center justify-between mb-2">
+            <h3 className="font-extrabold text-amber-950 text-sm sm:text-base flex items-center">
+              <StickyNote className="w-4 h-4 mr-2 text-amber-600" /> Szybki Brudnopis Zmiany ({location})
+            </h3>
+            <span className="text-[10px] font-bold text-amber-700 bg-amber-100 px-2.5 py-0.5 rounded-full">
+              Zapisuje się automatycznie
+            </span>
+          </div>
+          <p className="text-xs text-amber-800/80 mb-3 font-medium">
+            Zapisuj tu braki lub uwagi w trakcie dnia, żeby pamiętać o nich przy zamykaniu zmiany.
+          </p>
+          <textarea
+            value={quickNote}
+            onChange={handleNoteChange}
+            rows="3"
+            className="w-full p-3.5 bg-white border border-amber-200 rounded-2xl outline-none focus:border-amber-400 font-medium text-sm text-slate-800"
+            placeholder="Wpisz np. kończy się folia, brak widelców, awaria opiekacza..."
+          />
+        </div>
+      </div>
     </div>
   );
 });
@@ -812,6 +1135,7 @@ export default function App() {
   const [activeGastroDate, setActiveGastroDate] = useState(getGastroTodayString);
 
   const [allReports, setAllReports] = useState([]);
+  const [allLiveDrafts, setAllLiveDrafts] = useState([]);
   const [allNysaWarehouse, setAllNysaWarehouse] = useState([]);
   const [tasks, setTasks] = useState([]);
   const [shifts, setShifts] = useState([]);
@@ -830,6 +1154,14 @@ export default function App() {
     });
     return statuses;
   }, [allReports, activeGastroDate]);
+
+  const todayLiveDrafts = useMemo(() => {
+    const map = {};
+    allLiveDrafts.forEach((d) => {
+      if (d?.date === activeGastroDate && d?.location) map[d.location] = d;
+    });
+    return map;
+  }, [allLiveDrafts, activeGastroDate]);
 
   const todayNysaWarehouse = useMemo(
     () => allNysaWarehouse.find((n) => n?.date === activeGastroDate) || null,
@@ -859,10 +1191,7 @@ export default function App() {
     return prevList[0] || null;
   }, [allNysaWarehouse, activeGastroDate]);
 
-  const activeShifts = useMemo(
-    () => shifts.filter((s) => s?.status === "active"),
-    [shifts]
-  );
+  const activeShifts = useMemo(() => shifts.filter((s) => s?.status === "active"), [shifts]);
 
   const todayCompletedShifts = useMemo(
     () => shifts.filter((s) => s?.status === "completed" && s?.date === activeGastroDate),
@@ -884,13 +1213,19 @@ export default function App() {
       }
     };
     initAuth();
-    const unsub = onAuthStateChanged(auth, (u) => { if (u && isMounted) setUser(u); });
-    return () => { isMounted = false; unsub(); };
+    const unsub = onAuthStateChanged(auth, (u) => {
+      if (u && isMounted) setUser(u);
+    });
+    return () => {
+      isMounted = false;
+      unsub();
+    };
   }, []);
 
   useEffect(() => {
     const loadFromLocalStorage = () => {
       setAllReports(getLocalData(LS_REPORTS_KEY, []));
+      setAllLiveDrafts(getLocalData(LS_CLOUD_DRAFTS_KEY, []));
       setAllNysaWarehouse(getLocalData(LS_NYSA_KEY, []));
       const localTasks = getLocalData(LS_TASKS_KEY, []);
       setTasks([...localTasks].sort((a, b) => (b?.createdAt || "").localeCompare(a?.createdAt || "")));
@@ -935,13 +1270,29 @@ export default function App() {
         });
         setAllReports(Object.values(byKey));
       },
-      (err) => { console.error("Firestore Reports error:", err); loadFromLocalStorage(); }
+      (err) => {
+        console.error("Firestore Reports error:", err);
+        loadFromLocalStorage();
+      }
+    );
+
+    const unsubDrafts = onSnapshot(
+      collection(db, ...basePath, "live_drafts"),
+      (snap) => {
+        setAllLiveDrafts(snap.docs.map((d) => ({ id: d.id, ...d.data() })));
+      },
+      (err) => {
+        console.error("Firestore LiveDrafts error:", err);
+      }
     );
 
     const unsubNysa = onSnapshot(
       collection(db, ...basePath, "nysa_warehouse"),
       (snap) => setAllNysaWarehouse(snap.docs.map((d) => ({ id: d.id, ...d.data() }))),
-      (err) => { console.error("Firestore Nysa error:", err); loadFromLocalStorage(); }
+      (err) => {
+        console.error("Firestore Nysa error:", err);
+        loadFromLocalStorage();
+      }
     );
 
     const unsubTasks = onSnapshot(
@@ -950,7 +1301,10 @@ export default function App() {
         const data = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
         setTasks(data.sort((a, b) => (b?.createdAt || "").localeCompare(a?.createdAt || "")));
       },
-      (err) => { console.error("Firestore Tasks error:", err); loadFromLocalStorage(); }
+      (err) => {
+        console.error("Firestore Tasks error:", err);
+        loadFromLocalStorage();
+      }
     );
 
     const unsubShifts = onSnapshot(
@@ -959,7 +1313,10 @@ export default function App() {
         const data = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
         setShifts(data.sort((a, b) => (b?.startTime || "").localeCompare(a?.startTime || "")));
       },
-      (err) => { console.error("Firestore Shifts error:", err); loadFromLocalStorage(); }
+      (err) => {
+        console.error("Firestore Shifts error:", err);
+        loadFromLocalStorage();
+      }
     );
 
     const catalogDocRef = doc(db, ...basePath, "config", "catalog");
@@ -984,7 +1341,14 @@ export default function App() {
       }
     );
 
-    return () => { unsubReports(); unsubNysa(); unsubTasks(); unsubShifts(); unsubCatalog(); };
+    return () => {
+      unsubReports();
+      unsubDrafts();
+      unsubNysa();
+      unsubTasks();
+      unsubShifts();
+      unsubCatalog();
+    };
   }, [user]);
 
   const handleSaveCatalog = useCallback(async (nextCatalog, successMsg) => {
@@ -1005,121 +1369,127 @@ export default function App() {
     }
   }, []);
 
-  const handleClockIn = useCallback(async (employeeName, location) => {
-    const cleanName = String(employeeName || "").trim();
-    if (!cleanName || !location) return;
-    const alreadyActive = shifts.find(
-      (s) => s?.status === "active" && s?.location === location && (s?.employeeName || "").toLowerCase() === cleanName.toLowerCase()
-    );
-    if (alreadyActive) {
-      setModalMsg(`${cleanName} ma już aktywną zmianę w punkcie ${location} (od ${alreadyActive.startHM})!`);
-      return;
-    }
-
-    const now = new Date();
-    const startHM = formatTimeHM(now);
-    const shiftDoc = {
-      employeeName: cleanName,
-      location,
-      date: activeGastroDate,
-      startTime: now.toISOString(),
-      startHM,
-      endTime: null,
-      endHM: "",
-      totalHours: 0,
-      status: "active",
-      closedBy: "",
-      updatedAt: now.toISOString(),
-    };
-
-    try {
-      if (db) {
-        await ensureAuth();
-        await addDoc(collection(db, "artifacts", appId, "public", "data", "work_shifts"), shiftDoc);
-      } else {
-        const current = getLocalData(LS_SHIFTS_KEY, []);
-        setLocalData(LS_SHIFTS_KEY, [{ ...shiftDoc, id: `shift_${Date.now()}` }, ...current]);
-      }
-      setModalMsg(`Rozpoczęto zmianę: ${cleanName} (${location}) o godz. ${startHM}. Powodzenia!`);
-    } catch (err) {
-      console.error("Błąd startu zmiany RCP:", err);
-      setModalMsg("Wystąpił błąd podczas rozpoczynania zmiany.");
-    }
-  }, [shifts, activeGastroDate]);
-
-  const handleClockOut = useCallback(async (shiftObj, customEndHM = null, closedByAdminName = "") => {
-    if (!shiftObj?.id) return null;
-    const now = new Date();
-    const endHM = customEndHM || formatTimeHM(now);
-    const rangeStr = `${shiftObj.startHM}-${endHM}`;
-    const totalHours = calculateWorkedHours(rangeStr);
-
-    const updatedFields = {
-      endTime: now.toISOString(),
-      endHM,
-      totalHours,
-      status: "completed",
-      closedBy: closedByAdminName || shiftObj.employeeName,
-      updatedAt: now.toISOString(),
-    };
-
-    try {
-      if (db) {
-        await ensureAuth();
-        await updateDoc(doc(db, "artifacts", appId, "public", "data", "work_shifts", shiftObj.id), updatedFields);
-      } else {
-        const current = getLocalData(LS_SHIFTS_KEY, []);
-        setLocalData(
-          LS_SHIFTS_KEY,
-          current.map((s) => (s.id === shiftObj.id ? { ...s, ...updatedFields } : s))
-        );
+  const handleClockIn = useCallback(
+    async (employeeName, location) => {
+      const cleanName = String(employeeName || "").trim();
+      if (!cleanName || !location) return;
+      const alreadyActive = shifts.find(
+        (s) => s?.status === "active" && s?.location === location && (s?.employeeName || "").toLowerCase() === cleanName.toLowerCase()
+      );
+      if (alreadyActive) {
+        setModalMsg(`${cleanName} ma już aktywną zmianę w punkcie ${location} (od ${alreadyActive.startHM})!`);
+        return;
       }
 
-      const reportId = `${shiftObj.date}_${shiftObj.location}`;
-      const existingRep = allReports.find((r) => r?.date === shiftObj.date && r?.location === shiftObj.location);
-      if (existingRep) {
-        const prevEmps = Array.isArray(existingRep.employees)
-          ? [...existingRep.employees]
-          : [{ name: "", hours: "" }, { name: "", hours: "" }, { name: "", hours: "" }];
-        while (prevEmps.length < 3) prevEmps.push({ name: "", hours: "" });
+      const now = new Date();
+      const startHM = formatTimeHM(now);
+      const shiftDoc = {
+        employeeName: cleanName,
+        location,
+        date: activeGastroDate,
+        startTime: now.toISOString(),
+        startHM,
+        endTime: null,
+        endHM: "",
+        totalHours: 0,
+        status: "active",
+        closedBy: "",
+        updatedAt: now.toISOString(),
+      };
 
-        const matchIdx = prevEmps.findIndex(
-          (e) => (e?.name || "").trim().toLowerCase() === (shiftObj.employeeName || "").trim().toLowerCase()
-        );
-        if (matchIdx !== -1) {
-          prevEmps[matchIdx] = { name: shiftObj.employeeName, hours: rangeStr };
-        } else {
-          const emptyIdx = prevEmps.findIndex((e) => !e?.name && !e?.hours);
-          if (emptyIdx !== -1) prevEmps[emptyIdx] = { name: shiftObj.employeeName, hours: rangeStr };
-        }
-
+      try {
         if (db) {
-          await setDoc(doc(db, "artifacts", appId, "public", "data", "daily_reports", reportId), {
-            ...existingRep,
-            employees: prevEmps,
-            updatedAt: now.toISOString(),
-          });
+          await ensureAuth();
+          await addDoc(collection(db, "artifacts", appId, "public", "data", "work_shifts"), shiftDoc);
         } else {
-          const currentReps = getLocalData(LS_REPORTS_KEY, []);
+          const current = getLocalData(LS_SHIFTS_KEY, []);
+          setLocalData(LS_SHIFTS_KEY, [{ ...shiftDoc, id: `shift_${Date.now()}` }, ...current]);
+        }
+        setModalMsg(`Rozpoczęto zmianę: ${cleanName} (${location}) o godz. ${startHM}. Powodzenia!`);
+      } catch (err) {
+        console.error("Błąd startu zmiany RCP:", err);
+        setModalMsg("Wystąpił błąd podczas rozpoczynania zmiany.");
+      }
+    },
+    [shifts, activeGastroDate]
+  );
+
+  const handleClockOut = useCallback(
+    async (shiftObj, customEndHM = null, closedByAdminName = "") => {
+      if (!shiftObj?.id) return null;
+      const now = new Date();
+      const endHM = customEndHM || formatTimeHM(now);
+      const rangeStr = `${shiftObj.startHM}-${endHM}`;
+      const totalHours = calculateWorkedHours(rangeStr);
+
+      const updatedFields = {
+        endTime: now.toISOString(),
+        endHM,
+        totalHours,
+        status: "completed",
+        closedBy: closedByAdminName || shiftObj.employeeName,
+        updatedAt: now.toISOString(),
+      };
+
+      try {
+        if (db) {
+          await ensureAuth();
+          await updateDoc(doc(db, "artifacts", appId, "public", "data", "work_shifts", shiftObj.id), updatedFields);
+        } else {
+          const current = getLocalData(LS_SHIFTS_KEY, []);
           setLocalData(
-            LS_REPORTS_KEY,
-            currentReps.map((r) => (r.id === reportId ? { ...r, employees: prevEmps, updatedAt: now.toISOString() } : r))
+            LS_SHIFTS_KEY,
+            current.map((s) => (s.id === shiftObj.id ? { ...s, ...updatedFields } : s))
           );
         }
-      }
 
-      setModalMsg(
-        closedByAdminName
-          ? `Zamknięto zmianę pracownika ${shiftObj.employeeName} (${rangeStr} = ${totalHours}h) przez: ${closedByAdminName}.`
-          : `Zakończono zmianę: ${shiftObj.employeeName} (${rangeStr} = ${totalHours} godz.). Godziny zostały dopisane do raportu!`
-      );
-      return { employeeName: shiftObj.employeeName, hoursRange: rangeStr, totalHours };
-    } catch (err) {
-      console.error("Błąd kończenia zmiany RCP:", err);
-      setModalMsg("Wystąpił błąd podczas kończenia zmiany.");
-      return null;
-    }
-  }, [allReports]);
+        const reportId = `${shiftObj.date}_${shiftObj.location}`;
+        const existingRep = allReports.find((r) => r?.date === shiftObj.date && r?.location === shiftObj.location);
+        if (existingRep) {
+          const prevEmps = Array.isArray(existingRep.employees)
+            ? [...existingRep.employees]
+            : [{ name: "", hours: "" }, { name: "", hours: "" }, { name: "", hours: "" }];
+          while (prevEmps.length < 3) prevEmps.push({ name: "", hours: "" });
+
+          const matchIdx = prevEmps.findIndex(
+            (e) => (e?.name || "").trim().toLowerCase() === (shiftObj.employeeName || "").trim().toLowerCase()
+          );
+          if (matchIdx !== -1) {
+            prevEmps[matchIdx] = { name: shiftObj.employeeName, hours: rangeStr };
+          } else {
+            const emptyIdx = prevEmps.findIndex((e) => !e?.name && !e?.hours);
+            if (emptyIdx !== -1) prevEmps[emptyIdx] = { name: shiftObj.employeeName, hours: rangeStr };
+          }
+
+          if (db) {
+            await setDoc(doc(db, "artifacts", appId, "public", "data", "daily_reports", reportId), {
+              ...existingRep,
+              employees: prevEmps,
+              updatedAt: now.toISOString(),
+            });
+          } else {
+            const currentReps = getLocalData(LS_REPORTS_KEY, []);
+            setLocalData(
+              LS_REPORTS_KEY,
+              currentReps.map((r) => (r.id === reportId ? { ...r, employees: prevEmps, updatedAt: now.toISOString() } : r))
+            );
+          }
+        }
+
+        setModalMsg(
+          closedByAdminName
+            ? `Zamknięto zmianę pracownika ${shiftObj.employeeName} (${rangeStr} = ${totalHours}h) przez: ${closedByAdminName}.`
+            : `Zakończono zmianę: ${shiftObj.employeeName} (${rangeStr} = ${totalHours} godz.). Godziny zostały dopisane do raportu!`
+        );
+        return { employeeName: shiftObj.employeeName, hoursRange: rangeStr, totalHours };
+      } catch (err) {
+        console.error("Błąd kończenia zmiany RCP:", err);
+        setModalMsg("Wystąpił błąd podczas kończenia zmiany.");
+        return null;
+      }
+    },
+    [allReports]
+  );
 
   const handleDeleteShift = useCallback(async (shiftId) => {
     if (!shiftId) return;
@@ -1137,37 +1507,42 @@ export default function App() {
     }
   }, []);
 
-  const handleCompleteTaskGlobal = useCallback(async (taskObj, targetLoc, targetDateStr) => {
-    if (!taskObj?.id) return;
-    const loc = targetLoc || currentLocation;
-    const dStr = targetDateStr || activeGastroDate;
-    try {
-      const completionEntry = taskObj.type === "recurring" ? `${dStr}_${loc}` : loc;
-      if (db) {
-        await ensureAuth();
-        await updateDoc(doc(db, "artifacts", appId, "public", "data", "tasks", taskObj.id), {
-          completedBy: arrayUnion(completionEntry),
-          updatedAt: new Date().toISOString(),
-        });
-      } else {
-        const currentTasks = getLocalData(LS_TASKS_KEY, []);
-        const nextTasks = currentTasks.map((t) => {
-          if (t.id !== taskObj.id) return t;
-          const prevArr = Array.isArray(t.completedBy) ? t.completedBy : [];
-          return prevArr.includes(completionEntry) ? t : { ...t, completedBy: [...prevArr, completionEntry], updatedAt: new Date().toISOString() };
-        });
-        setLocalData(LS_TASKS_KEY, nextTasks);
+  const handleCompleteTaskGlobal = useCallback(
+    async (taskObj, targetLoc, targetDateStr) => {
+      if (!taskObj?.id) return;
+      const loc = targetLoc || currentLocation;
+      const dStr = targetDateStr || activeGastroDate;
+      try {
+        const completionEntry = taskObj.type === "recurring" ? `${dStr}_${loc}` : loc;
+        if (db) {
+          await ensureAuth();
+          await updateDoc(doc(db, "artifacts", appId, "public", "data", "tasks", taskObj.id), {
+            completedBy: arrayUnion(completionEntry),
+            updatedAt: new Date().toISOString(),
+          });
+        } else {
+          const currentTasks = getLocalData(LS_TASKS_KEY, []);
+          const nextTasks = currentTasks.map((t) => {
+            if (t.id !== taskObj.id) return t;
+            const prevArr = Array.isArray(t.completedBy) ? t.completedBy : [];
+            return prevArr.includes(completionEntry)
+              ? t
+              : { ...t, completedBy: [...prevArr, completionEntry], updatedAt: new Date().toISOString() };
+          });
+          setLocalData(LS_TASKS_KEY, nextTasks);
+        }
+        setModalMsg(`Zadanie dnia zostało oznaczone jako wykonane dla punktu ${loc}!`);
+      } catch (err) {
+        console.error("Błąd odhaczania zadania:", err);
+        setModalMsg("Wystąpił błąd podczas zapisywania wykonania zadania.");
       }
-      setModalMsg(`Zadanie dnia zostało oznaczone jako wykonane dla punktu ${loc}!`);
-    } catch (err) {
-      console.error("Błąd odhaczania zadania:", err);
-      setModalMsg("Wystąpił błąd podczas zapisywania wykonania zadania.");
-    }
-  }, [currentLocation, activeGastroDate]);
+    },
+    [currentLocation, activeGastroDate]
+  );
 
   const handleNav = (loc) => {
     setCurrentLocation(loc);
-    if (unlockedLocation === loc) setView(loc === "Nysa" ? "nysaMenu" : "employee");
+    if (unlockedLocation === loc) setView("locationDashboard");
     else setView("employeeLogin");
   };
 
@@ -1175,7 +1550,7 @@ export default function App() {
     const expectedPin = catalog?.locationPins?.[currentLocation] || DEFAULT_LOCATION_PINS[currentLocation];
     if (String(pin).trim() === String(expectedPin).trim()) {
       setUnlockedLocation(currentLocation);
-      setView(currentLocation === "Nysa" ? "nysaMenu" : "employee");
+      setView("locationDashboard");
     } else {
       setModalMsg(`Błędny kod PIN dla punktu ${currentLocation}! Dostęp zablokowany.`);
     }
@@ -1204,30 +1579,33 @@ export default function App() {
   );
 
   const adminEditTasks = useMemo(
-    () => adminEditingReport ? tasks.filter((t) => isTaskRelevantForLocationAndDate(t, adminEditingReport.location, adminEditingReport.date)) : [],
+    () =>
+      adminEditingReport
+        ? tasks.filter((t) => isTaskRelevantForLocationAndDate(t, adminEditingReport.location, adminEditingReport.date))
+        : [],
     [tasks, adminEditingReport]
   );
 
   return (
-    <div className="min-h-screen max-w-full overflow-x-hidden bg-gray-50 text-gray-900 font-sans selection:bg-blue-200">
+    <div className="min-h-screen max-w-full overflow-x-hidden bg-slate-50 text-slate-900 font-sans selection:bg-blue-200">
       <Modal message={modalMsg} onClose={() => setModalMsg("")} />
 
       {view === "select" && (
         <div className="flex flex-col items-center justify-center p-6 min-h-screen max-w-lg mx-auto">
           <div className="mb-8 text-center">
-            <div className="w-24 h-24 bg-gradient-to-br from-blue-600 to-indigo-700 rounded-[2rem] flex items-center justify-center mx-auto mb-6 shadow-xl shadow-blue-600/20 transform rotate-3">
-              <ChefHat className="w-12 h-12 text-white -rotate-3" />
+            <div className="w-20 h-20 bg-slate-900 rounded-3xl flex items-center justify-center mx-auto mb-5 shadow-xl shadow-slate-900/15">
+              <ChefHat className="w-10 h-10 text-white" />
             </div>
-            <h1 className="text-4xl font-extrabold text-gray-900 tracking-tight mb-2">System Raportów</h1>
-            <p className="text-gray-500 font-medium">
-              Wybierz swój punkt <strong className="text-gray-800">{activeGastroDate}</strong>
+            <h1 className="text-3xl sm:text-4xl font-extrabold text-slate-900 tracking-tight mb-1.5">System Raportów</h1>
+            <p className="text-slate-500 font-medium text-sm">
+              Wybierz lokal gastronomiczny • <strong className="text-slate-800">{activeGastroDate}</strong>
             </p>
           </div>
 
           {inNightWindow && (
-            <div className="w-full mb-6 bg-indigo-950 text-white p-4 rounded-2xl border border-indigo-700 shadow-lg">
-              <div className="flex items-center gap-2 text-xs font-black uppercase text-indigo-300 mb-2">
-                <Moon className="w-4 h-4 text-amber-400" /> Tryb Nocny (Po północy) — Wybierz datę zamykanej zmiany:
+            <div className="w-full mb-6 bg-slate-900 text-white p-4 rounded-3xl border border-slate-800 shadow-lg">
+              <div className="flex items-center gap-2 text-xs font-black uppercase text-slate-300 mb-2.5">
+                <Moon className="w-4 h-4 text-amber-400" /> Tryb Nocny (Po północy) — Wybierz datę zmiany:
               </div>
               <div className="grid grid-cols-2 gap-2">
                 {[
@@ -1238,7 +1616,11 @@ export default function App() {
                     key={opt.date}
                     type="button"
                     onClick={() => setActiveGastroDate(opt.date)}
-                    className={`py-2.5 px-3 rounded-xl font-black text-xs transition-colors border ${activeGastroDate === opt.date ? "bg-amber-400 text-gray-950 border-amber-300 shadow-sm" : "bg-white/10 text-gray-300 border-white/10 hover:bg-white/20"}`}
+                    className={`py-2.5 px-3 rounded-xl font-black text-xs transition-colors border ${
+                      activeGastroDate === opt.date
+                        ? "bg-amber-400 text-slate-950 border-amber-300 shadow-sm"
+                        : "bg-slate-800 text-slate-300 border-slate-700 hover:bg-slate-700"
+                    }`}
                   >
                     {opt.label} ({opt.date})
                   </button>
@@ -1247,9 +1629,11 @@ export default function App() {
             </div>
           )}
 
-          <div className="w-full flex flex-col gap-4">
+          <div className="w-full flex flex-col gap-3.5">
             {LOCATIONS.map((loc) => {
               const isDone = !!todayReports[loc];
+              const draft = todayLiveDrafts[loc];
+              const confirmedCount = draft?.confirmedSections ? Object.keys(draft.confirmedSections).length : 0;
               const locTasksCount = tasks.filter((t) => isTaskRelevantForLocationAndDate(t, loc, activeGastroDate)).length;
               const locActiveWorkers = activeShifts.filter((s) => s?.location === loc);
               const isUnlockedHere = unlockedLocation === loc;
@@ -1258,34 +1642,53 @@ export default function App() {
                   key={loc}
                   type="button"
                   onClick={() => handleNav(loc)}
-                  className={`relative p-5 rounded-[2rem] flex items-center justify-between transition-transform active:scale-95 border-2 shadow-sm hover:shadow-md ${isDone ? "bg-white border-green-200 hover:border-green-300" : "bg-white border-gray-100 hover:border-blue-300"}`}
+                  className={`relative p-5 rounded-3xl flex items-center justify-between transition-all active:scale-[0.99] border shadow-sm hover:shadow-md ${
+                    isDone ? "bg-white border-emerald-300" : "bg-white border-slate-200 hover:border-slate-400"
+                  }`}
                 >
                   <div className="flex flex-col items-start text-left">
-                    <div className="flex items-center gap-2 mb-1 flex-wrap">
-                      <span className="text-2xl font-black text-gray-900">{loc}</span>
+                    <div className="flex items-center gap-2 mb-1.5 flex-wrap">
+                      <span className={`w-2.5 h-2.5 rounded-full ${LOCATION_COLORS[loc] || "bg-slate-900"}`} />
+                      <span className="text-xl sm:text-2xl font-black text-slate-900">{loc}</span>
                       {locActiveWorkers.length > 0 && (
-                        <span className="bg-emerald-100 text-emerald-800 text-[11px] font-black px-2.5 py-0.5 rounded-full flex items-center">
-                          <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse mr-1.5" />
+                        <span className="bg-emerald-50 text-emerald-700 border border-emerald-200 text-[11px] font-black px-2.5 py-0.5 rounded-full flex items-center">
+                          <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse mr-1.5" />
                           W pracy: {locActiveWorkers.length}
                         </span>
                       )}
                       {locTasksCount > 0 && (
-                        <span className="bg-amber-100 text-amber-800 text-[11px] font-black px-2.5 py-0.5 rounded-full flex items-center">
-                          <ClipboardList className="w-3.5 h-3.5 mr-1" /> Zadania: {locTasksCount}
+                        <span className="bg-rose-50 text-rose-700 border border-rose-200 text-[11px] font-black px-2.5 py-0.5 rounded-full flex items-center">
+                          <ClipboardList className="w-3 h-3 mr-1" /> Zadania: {locTasksCount}
                         </span>
                       )}
-                      {isUnlockedHere && <span className="bg-blue-50 text-blue-700 text-[10px] font-black px-2 py-0.5 rounded-full uppercase">Odblokowano</span>}
+                      {isUnlockedHere && (
+                        <span className="bg-slate-100 text-slate-600 text-[10px] font-black px-2 py-0.5 rounded-full uppercase">
+                          Odblokowano
+                        </span>
+                      )}
                     </div>
-                    <div className="flex items-center opacity-90">
+                    <div className="flex items-center gap-2 flex-wrap">
                       {isDone ? (
-                        <><CheckCircle2 className="w-4 h-4 text-green-500 mr-1.5" /><span className="text-sm font-bold text-green-600">Raport wysłany pomyślnie</span></>
+                        <span className="text-xs font-bold text-emerald-600 flex items-center">
+                          <CheckCircle2 className="w-4 h-4 mr-1" /> Raport wysłany pomyślnie
+                        </span>
+                      ) : confirmedCount > 0 ? (
+                        <span className="text-xs font-bold text-blue-600 flex items-center">
+                          <Clock className="w-4 h-4 mr-1" /> W trakcie (Zatwierdzone sekcje: {confirmedCount})
+                        </span>
                       ) : (
-                        <><XCircle className="w-4 h-4 text-red-400 mr-1.5" /><span className="text-sm font-bold text-red-500">Raport nie zrobiony</span></>
+                        <span className="text-xs font-semibold text-slate-400 flex items-center">
+                          <XCircle className="w-4 h-4 mr-1 text-slate-300" /> Raport jeszcze niewysłany
+                        </span>
                       )}
                     </div>
                   </div>
-                  <div className={`w-12 h-12 rounded-full flex items-center justify-center transition-colors ${isDone ? "bg-green-50 text-green-600" : "bg-gray-100 text-gray-500"}`}>
-                    <ArrowLeft className="w-6 h-6 rotate-180" />
+                  <div
+                    className={`w-11 h-11 rounded-2xl flex items-center justify-center transition-colors ${
+                      isDone ? "bg-emerald-50 text-emerald-600" : "bg-slate-100 text-slate-700"
+                    }`}
+                  >
+                    <ArrowLeft className="w-5 h-5 rotate-180" />
                   </div>
                 </button>
               );
@@ -1294,9 +1697,9 @@ export default function App() {
             <button
               type="button"
               onClick={() => setView("adminLogin")}
-              className="mt-8 flex items-center justify-center py-5 rounded-[2rem] bg-gray-900 text-white font-bold text-sm shadow-xl shadow-gray-900/20 active:scale-95 transition-transform hover:bg-gray-800 border border-gray-700"
+              className="mt-6 flex items-center justify-center py-4.5 rounded-3xl bg-slate-900 text-white font-bold text-sm shadow-lg shadow-slate-900/15 active:scale-[0.99] transition-all hover:bg-slate-800"
             >
-              <ShieldAlert className="w-5 h-5 mr-3" /> LOGOWANIE WŁAŚCICIEL / MANAGER
+              <ShieldAlert className="w-5 h-5 mr-2.5" /> PANEL ADMINISTRATORA / MANAGERA
             </button>
           </div>
         </div>
@@ -1305,81 +1708,52 @@ export default function App() {
       {view === "employeeLogin" && (
         <PinLoginScreen
           icon={Lock}
-          iconBgClass="bg-blue-600 shadow-blue-600/20"
+          iconBgClass="bg-slate-900"
           title={`Punkt: ${currentLocation}`}
-          subtitle={<>Wprowadź unikalny kod PIN przypisany wyłącznie do punktu <strong className="text-gray-800">{currentLocation}</strong></>}
-          submitLabel={`Odblokuj punkt ${currentLocation}`}
-          submitBtnClass="bg-blue-600 shadow-blue-600/20 hover:bg-blue-700"
+          subtitle={
+            <>
+              Wprowadź kod PIN przypisany do punktu <strong className="text-slate-800">{currentLocation}</strong>
+            </>
+          }
+          submitLabel={`Otwórz pulpit ${currentLocation}`}
+          submitBtnClass="bg-slate-900 hover:bg-slate-800"
           onSubmitPin={handleEmployeeAuth}
           onBack={() => setView("select")}
         />
       )}
 
-      {view === "nysaMenu" && (
-        <div className="flex flex-col items-center justify-center p-6 min-h-screen max-w-lg mx-auto">
-          <div className="mb-6 text-center w-full relative">
-            <button type="button" onClick={() => setView("select")} className="absolute left-0 top-0 w-10 h-10 bg-white border border-gray-200 rounded-full flex items-center justify-center shadow-sm text-gray-600 hover:bg-gray-50">
-              <ArrowLeft className="w-5 h-5" />
-            </button>
-            <h1 className="text-3xl font-extrabold text-gray-900 mt-1">Menu Nysa</h1>
-            <p className="text-gray-500 mt-2 font-medium">Wybierz formularz docelowy ({activeGastroDate})</p>
-          </div>
-          <UrgentTasksBanner
-            tasks={currentEmployeeTasks}
-            location="Nysa"
-            todayStr={activeGastroDate}
-            onCompleteTask={(t) => handleCompleteTaskGlobal(t, "Nysa", activeGastroDate)}
-          />
-          <ShiftClockWidget
-            location="Nysa"
-            employeesList={catalog?.employeesByLocation?.["Nysa"] || DEFAULT_EMPLOYEES_BY_LOCATION["Nysa"]}
-            activeShifts={activeShifts}
-            todayCompletedShifts={todayCompletedShifts}
-            onClockIn={handleClockIn}
-            onClockOut={handleClockOut}
-          />
-          <div className="w-full flex flex-col gap-5">
-            <button
-              type="button"
-              onClick={() => setView("employee")}
-              className={`p-6 rounded-[2rem] text-left transition-transform active:scale-95 border-2 shadow-sm ${todayReports["Nysa"] ? "bg-green-50/50 border-green-200" : "bg-blue-50/50 border-blue-200"}`}
-            >
-              <h2 className="text-2xl font-black text-gray-900 mb-2">Dzienny Raport Zmiany</h2>
-              <div className="flex items-center">
-                {todayReports["Nysa"] ? (
-                  <><CheckCircle2 className="w-5 h-5 text-green-600 mr-2" /><span className="font-bold text-green-700">Edytuj zrobiony raport</span></>
-                ) : (
-                  <><XCircle className="w-5 h-5 text-blue-500 mr-2" /><span className="font-bold text-blue-600">Rozpocznij raport dzienny</span></>
-                )}
-              </div>
-            </button>
-
-            <button
-              type="button"
-              onClick={() => setView("nysaWarehouse")}
-              className={`p-6 rounded-[2rem] text-left transition-transform active:scale-95 border-2 shadow-sm ${todayNysaWarehouse ? "bg-purple-50/50 border-purple-200" : "bg-white border-purple-200"}`}
-            >
-              <h2 className="text-2xl font-black text-gray-900 mb-2">Magazyn Główny Nysa</h2>
-              <div className="flex items-center">
-                {todayNysaWarehouse ? (
-                  <><CheckCircle2 className="w-5 h-5 text-purple-600 mr-2" /><span className="font-bold text-purple-700">Aktualizuj stan magazynu</span></>
-                ) : (
-                  <><XCircle className="w-5 h-5 text-purple-400 mr-2" /><span className="font-bold text-purple-500">Uzupełnij stan magazynu</span></>
-                )}
-              </div>
-            </button>
-          </div>
-        </div>
+      {view === "locationDashboard" && (
+        <LocationDashboard
+          location={currentLocation}
+          todayStr={activeGastroDate}
+          inNightWindow={inNightWindow}
+          yesterdayStr={yesterdayStr}
+          calendarTodayStr={calendarTodayStr}
+          onChangeGastroDate={setActiveGastroDate}
+          todayReport={todayReports[currentLocation]}
+          liveDraft={todayLiveDrafts[currentLocation]}
+          todayNysaWarehouse={todayNysaWarehouse}
+          tasks={currentEmployeeTasks}
+          onCompleteTask={(t) => handleCompleteTaskGlobal(t, currentLocation, activeGastroDate)}
+          employeesList={catalog?.employeesByLocation?.[currentLocation] || DEFAULT_EMPLOYEES_BY_LOCATION[currentLocation] || []}
+          activeShifts={activeShifts}
+          todayCompletedShifts={todayCompletedShifts}
+          onClockIn={handleClockIn}
+          onClockOut={handleClockOut}
+          onOpenReport={() => setView("employee")}
+          onOpenNysaWarehouse={() => setView("nysaWarehouse")}
+          onBack={() => setView("select")}
+        />
       )}
 
       {view === "adminLogin" && (
         <PinLoginScreen
           icon={ShieldAlert}
-          iconBgClass="bg-gray-900 shadow-gray-900/20"
-          title="Autoryzacja"
+          iconBgClass="bg-slate-900"
+          title="Autoryzacja Zarządu"
           subtitle="Właściciel / Admin Kłodzko / Manager"
-          submitLabel="Zaloguj się"
-          submitBtnClass="bg-gray-900 hover:bg-gray-800"
+          submitLabel="Zaloguj do Panelu"
+          submitBtnClass="bg-slate-900 hover:bg-slate-800"
           onSubmitPin={handleAdminAuth}
           onBack={() => setView("select")}
         />
@@ -1392,20 +1766,15 @@ export default function App() {
           appId={appId}
           location={currentLocation}
           existingData={todayReports[currentLocation]}
+          existingCloudDraft={todayLiveDrafts[currentLocation]}
           previousReport={previousReportForCurrentLoc}
           catalog={catalog}
           tasks={currentEmployeeTasks}
           activeShifts={activeShifts}
           todayCompletedShifts={todayCompletedShifts}
-          onClockIn={handleClockIn}
-          onClockOut={handleClockOut}
           onCompleteTask={(t) => handleCompleteTaskGlobal(t, currentLocation, activeGastroDate)}
-          onBack={() => setView(currentLocation === "Nysa" ? "nysaMenu" : "select")}
+          onBack={() => setView("locationDashboard")}
           todayStr={activeGastroDate}
-          onChangeGastroDate={setActiveGastroDate}
-          inNightWindow={inNightWindow}
-          yesterdayStr={yesterdayStr}
-          calendarTodayStr={calendarTodayStr}
           onShowModal={setModalMsg}
         />
       )}
@@ -1422,10 +1791,11 @@ export default function App() {
           tasks={adminEditTasks}
           activeShifts={activeShifts}
           todayCompletedShifts={shifts.filter((s) => s?.status === "completed" && s?.date === adminEditingReport.date)}
-          onClockIn={handleClockIn}
-          onClockOut={handleClockOut}
           onCompleteTask={(t) => handleCompleteTaskGlobal(t, adminEditingReport.location, adminEditingReport.date)}
-          onBack={() => { setAdminEditingReport(null); setView("admin"); }}
+          onBack={() => {
+            setAdminEditingReport(null);
+            setView("admin");
+          }}
           todayStr={adminEditingReport.date}
           onShowModal={setModalMsg}
           isAdminEdit={true}
@@ -1440,7 +1810,7 @@ export default function App() {
           existingData={todayNysaWarehouse}
           previousWarehouseData={previousNysaWarehouse}
           catalog={catalog}
-          onBack={() => setView("nysaMenu")}
+          onBack={() => setView("locationDashboard")}
           todayStr={activeGastroDate}
           onShowModal={setModalMsg}
         />
@@ -1452,9 +1822,13 @@ export default function App() {
           appId={appId}
           role={adminRole}
           name={adminName}
-          onLogout={() => { setAdminRole(null); setView("select"); }}
+          onLogout={() => {
+            setAdminRole(null);
+            setView("select");
+          }}
           reports={Object.values(todayReports)}
           allReports={allReports}
+          allLiveDrafts={allLiveDrafts}
           todayNysaWarehouse={todayNysaWarehouse}
           allNysaWarehouse={allNysaWarehouse}
           tasks={tasks}
@@ -1481,20 +1855,14 @@ function EmployeeForm({
   appId,
   location,
   existingData,
+  existingCloudDraft,
   previousReport,
   catalog,
   tasks = [],
-  activeShifts = [],
   todayCompletedShifts = [],
-  onClockIn,
-  onClockOut,
   onCompleteTask,
   onBack,
   todayStr,
-  onChangeGastroDate,
-  inNightWindow = false,
-  yesterdayStr = "",
-  calendarTodayStr = "",
   onShowModal,
   isAdminEdit = false,
 }) {
@@ -1503,30 +1871,30 @@ function EmployeeForm({
 
   const draftStorageKey = `kebab_draft_${appId}_${location}_${todayStr}`;
   const [savedDraft] = useState(() => (isAdminEdit ? null : getLocalData(draftStorageKey, null)));
-  const [hasRestoredDraft] = useState(!!savedDraft);
-  const [hasLoadedFromPrevious, setHasLoadedFromPrevious] = useState(() => !existingData && !savedDraft && !!previousReport);
   const [isDirty, setIsDirty] = useState(false);
   const [showExitConfirm, setShowExitConfirm] = useState(false);
-  const [explicitlyZeroed, setExplicitlyZeroed] = useState({});
+  const [showAllDaysCategories, setShowAllDaysCategories] = useState(false);
 
-  const [activeFormTab, setActiveFormTab] = useState("all");
+  const [activeFormTab, setActiveFormTab] = useState("general");
   const [itemSearchQuery, setItemSearchQuery] = useState("");
 
-  const [reporter, setReporter] = useState(savedDraft?.reporter || existingData?.reporter || "");
+  const [reporter, setReporter] = useState(
+    savedDraft?.reporter || existingData?.reporter || existingCloudDraft?.reporter || ""
+  );
   const [ordersCount, setOrdersCount] = useState(() => {
-    const val = savedDraft?.ordersCount ?? existingData?.ordersCount;
+    const val = savedDraft?.ordersCount ?? existingData?.ordersCount ?? existingCloudDraft?.ordersCount;
     return val !== undefined && val !== null && Number(val) > 0 ? String(val) : "";
   });
 
-  const [quickNote, setQuickNote] = useState(() => {
-    try { return localStorage.getItem(`note_${location}`) || ""; } catch { return ""; }
-  });
+  const [confirmedSections, setConfirmedSections] = useState(
+    () => savedDraft?.confirmedSections || existingData?.confirmedSections || existingCloudDraft?.confirmedSections || {}
+  );
 
   const [revenue, setRevenue] = useState(() => {
     const rev = {};
     ["gotowka", "karta", "aplikacje", "raportFiskalny", "roznica"].forEach((k) => {
       const dVal = savedDraft?.revenue?.[k];
-      const eVal = existingData?.revenue?.[k];
+      const eVal = existingData?.revenue?.[k] ?? existingCloudDraft?.revenue?.[k];
       const val = dVal !== undefined && dVal !== "" ? dVal : eVal;
       rev[k] = val !== undefined ? String(val) : "";
     });
@@ -1538,26 +1906,44 @@ function EmployeeForm({
       ? savedDraft.expenses
       : Array.isArray(existingData?.expenses)
       ? existingData.expenses
+      : Array.isArray(existingCloudDraft?.expenses)
+      ? existingCloudDraft.expenses
       : []
   );
 
   const [employees, setEmployees] = useState(() => {
-    const src = Array.isArray(savedDraft?.employees) && savedDraft.employees.some((e) => e?.name || e?.hours)
-      ? savedDraft.employees
-      : Array.isArray(existingData?.employees) && existingData.employees.length > 0
-      ? existingData.employees
-      : [];
+    const src =
+      Array.isArray(savedDraft?.employees) && savedDraft.employees.some((e) => e?.name || e?.hours)
+        ? savedDraft.employees
+        : Array.isArray(existingData?.employees) && existingData.employees.length > 0
+        ? existingData.employees
+        : Array.isArray(existingCloudDraft?.employees) && existingCloudDraft.employees.length > 0
+        ? existingCloudDraft.employees
+        : [];
     return [0, 1, 2].map((i) => ({ name: src[i]?.name || "", hours: src[i]?.hours || "" }));
   });
 
-  const [vegetables, setVegetables] = useState(() => buildInitialSectionState(previousReport?.vegetables, existingData?.vegetables, savedDraft?.vegetables));
-  const [farutex, setFarutex] = useState(() => buildInitialSectionState(previousReport?.farutex, existingData?.farutex, savedDraft?.farutex));
-  const [freezer, setFreezer] = useState(() => buildInitialSectionState(previousReport?.freezer, existingData?.freezer, savedDraft?.freezer));
-  const [meat1, setMeat1] = useState(() => buildInitialSectionState(previousReport?.meat1, existingData?.meat1, savedDraft?.meat1));
-  const [meat2, setMeat2] = useState(() => buildInitialSectionState(previousReport?.meat2, existingData?.meat2, savedDraft?.meat2));
-  const [otherItems, setOtherItems] = useState(() => buildInitialSectionState(previousReport?.otherItems, existingData?.otherItems, savedDraft?.otherItems));
+  const [vegetables, setVegetables] = useState(() =>
+    buildInitialSectionState(previousReport?.vegetables, existingData?.vegetables || existingCloudDraft?.vegetables, savedDraft?.vegetables)
+  );
+  const [farutex, setFarutex] = useState(() =>
+    buildInitialSectionState(previousReport?.farutex, existingData?.farutex || existingCloudDraft?.farutex, savedDraft?.farutex)
+  );
+  const [freezer, setFreezer] = useState(() =>
+    buildInitialSectionState(previousReport?.freezer, existingData?.freezer || existingCloudDraft?.freezer, savedDraft?.freezer)
+  );
+  const [meat1, setMeat1] = useState(() =>
+    buildInitialSectionState(previousReport?.meat1, existingData?.meat1 || existingCloudDraft?.meat1, savedDraft?.meat1)
+  );
+  const [meat2, setMeat2] = useState(() =>
+    buildInitialSectionState(previousReport?.meat2, existingData?.meat2 || existingCloudDraft?.meat2, savedDraft?.meat2)
+  );
+  const [otherItems, setOtherItems] = useState(() =>
+    buildInitialSectionState(previousReport?.otherItems, existingData?.otherItems || existingCloudDraft?.otherItems, savedDraft?.otherItems)
+  );
   const [customSections, setCustomSections] = useState(() => ({
     ...(previousReport?.customSections || {}),
+    ...(existingCloudDraft?.customSections || {}),
     ...(existingData?.customSections || {}),
     ...(savedDraft?.customSections || {}),
   }));
@@ -1566,57 +1952,46 @@ function EmployeeForm({
       ? savedDraft.sauces
       : Array.isArray(existingData?.sauces)
       ? existingData.sauces
+      : Array.isArray(existingCloudDraft?.sauces)
+      ? existingCloudDraft.sauces
       : []
   );
-  const [saucesNote, setSaucesNote] = useState(savedDraft?.saucesNote || existingData?.saucesNote || "");
-  const [notes, setNotes] = useState(savedDraft?.notes || existingData?.notes || "");
+  const [saucesNote, setSaucesNote] = useState(
+    savedDraft?.saucesNote || existingData?.saucesNote || existingCloudDraft?.saucesNote || ""
+  );
+  const [notes, setNotes] = useState(savedDraft?.notes || existingData?.notes || existingCloudDraft?.notes || "");
 
-  const applyCompletedShiftsToForm = useCallback((shiftsList) => {
-    const locShifts = (shiftsList || []).filter((s) => s?.location === location && s?.status === "completed" && s?.startHM && s?.endHM);
-    if (locShifts.length === 0) return;
-    setEmployees((prev) => {
-      const next = prev.map((e) => ({ ...e }));
-      locShifts.forEach((sh) => {
-        const range = `${sh.startHM}-${sh.endHM}`;
-        const existingIdx = next.findIndex((e) => (e.name || "").toLowerCase() === (sh.employeeName || "").toLowerCase());
-        if (existingIdx !== -1) {
-          if (!next[existingIdx].hours) next[existingIdx].hours = range;
-        } else {
-          const emptyIdx = next.findIndex((e) => !e.name && !e.hours);
-          if (emptyIdx !== -1) {
-            next[emptyIdx] = { name: sh.employeeName, hours: range };
+  const applyCompletedShiftsToForm = useCallback(
+    (shiftsList) => {
+      const locShifts = (shiftsList || []).filter(
+        (s) => s?.location === location && s?.status === "completed" && s?.startHM && s?.endHM
+      );
+      if (locShifts.length === 0) return;
+      setEmployees((prev) => {
+        const next = prev.map((e) => ({ ...e }));
+        locShifts.forEach((sh) => {
+          const range = `${sh.startHM}-${sh.endHM}`;
+          const existingIdx = next.findIndex((e) => (e.name || "").toLowerCase() === (sh.employeeName || "").toLowerCase());
+          if (existingIdx !== -1) {
+            if (!next[existingIdx].hours) next[existingIdx].hours = range;
+          } else {
+            const emptyIdx = next.findIndex((e) => !e.name && !e.hours);
+            if (emptyIdx !== -1) {
+              next[emptyIdx] = { name: sh.employeeName, hours: range };
+            }
           }
-        }
+        });
+        return next;
       });
-      return next;
-    });
-  }, [location]);
+    },
+    [location]
+  );
 
   useEffect(() => {
     if (todayCompletedShifts.length > 0) {
       applyCompletedShiftsToForm(todayCompletedShifts);
     }
   }, [todayCompletedShifts, applyCompletedShiftsToForm]);
-
-  const handleLocalClockOut = useCallback(async (shiftObj) => {
-    if (!onClockOut) return;
-    const res = await onClockOut(shiftObj);
-    if (res?.employeeName && res?.hoursRange) {
-      setIsDirty(true);
-      setEmployees((prev) => {
-        const next = prev.map((e) => ({ ...e }));
-        const idx = next.findIndex((e) => (e.name || "").toLowerCase() === res.employeeName.toLowerCase());
-        if (idx !== -1) {
-          next[idx] = { name: res.employeeName, hours: res.hoursRange };
-        } else {
-          const emptyIdx = next.findIndex((e) => !e.name && !e.hours);
-          if (emptyIdx !== -1) next[emptyIdx] = { name: res.employeeName, hours: res.hoursRange };
-        }
-        return next;
-      });
-      setReporter((r) => r || res.employeeName);
-    }
-  }, [onClockOut]);
 
   useEffect(() => {
     if (!existingData) return;
@@ -1629,6 +2004,7 @@ function EmployeeForm({
     if (!isDirty) {
       if (existingData.reporter) setReporter((r) => r || existingData.reporter);
       if (existingData.ordersCount) setOrdersCount((o) => o || String(existingData.ordersCount));
+      if (existingData.confirmedSections) setConfirmedSections((c) => ({ ...existingData.confirmedSections, ...c }));
       if (existingData.revenue) {
         setRevenue((prev) => {
           const next = { ...prev };
@@ -1642,7 +2018,10 @@ function EmployeeForm({
         setEmployees((prev) =>
           prev.some((e) => e.name || e.hours)
             ? prev
-            : [0, 1, 2].map((i) => ({ name: existingData.employees[i]?.name || "", hours: existingData.employees[i]?.hours || "" }))
+            : [0, 1, 2].map((i) => ({
+                name: existingData.employees[i]?.name || "",
+                hours: existingData.employees[i]?.hours || "",
+              }))
         );
       }
     }
@@ -1671,74 +2050,181 @@ function EmployeeForm({
     return totalRev > 0 ? Math.max(1, Math.round(totalRev / DEFAULT_AVG_ORDER_VALUE)) : 0;
   }, [revenue]);
 
-  const markItemExplicitlyZeroed = useCallback((itemKey) => {
-    setExplicitlyZeroed((prev) => ({ ...prev, [itemKey]: true }));
-  }, []);
+  const syncDraftToCloud = useCallback(
+    async (customConfirmedSections = null) => {
+      if (isAdminEdit) return;
+      const activeConfirmed = customConfirmedSections || confirmedSections;
+      const draftId = `${todayStr}_${location}`;
+      const payload = {
+        id: draftId,
+        date: todayStr,
+        location,
+        reporter: reporter || "",
+        ordersCount: parseSafeNumber(ordersCount) || estimatedOrdersFromRevenue,
+        revenue: {
+          gotowka: parseSafeNumber(revenue.gotowka),
+          karta: parseSafeNumber(revenue.karta),
+          aplikacje: parseSafeNumber(revenue.aplikacje),
+          raportFiskalny: parseSafeNumber(revenue.raportFiskalny),
+          roznica: parseSafeNumber(revenue.roznica),
+        },
+        expenses,
+        employees,
+        vegetables: sanitizeRecord(vegetables),
+        farutex: sanitizeRecord(farutex),
+        freezer: sanitizeRecord(freezer),
+        meat1: sanitizeRecord(meat1),
+        meat2: sanitizeRecord(meat2),
+        otherItems: sanitizeRecord(otherItems),
+        customSections,
+        sauces,
+        saucesNote,
+        notes,
+        confirmedSections: activeConfirmed,
+        updatedAt: new Date().toISOString(),
+      };
 
-  const handleResetAllInventoryToZero = () => {
-    setIsDirty(true);
-    setHasLoadedFromPrevious(false);
-    const allZeroFlags = {};
+      try {
+        localStorage.setItem(draftStorageKey, JSON.stringify(payload));
+        const localCloudList = getLocalData(LS_CLOUD_DRAFTS_KEY, []);
+        const filtered = localCloudList.filter((d) => d.id !== draftId);
+        setLocalData(LS_CLOUD_DRAFTS_KEY, [...filtered, payload]);
+
+        if (db) {
+          await ensureAuth();
+          await setDoc(doc(db, "artifacts", appId, "public", "data", "live_drafts", draftId), payload, { merge: true });
+        }
+      } catch (err) {
+        console.error("Błąd synchronizacji szkicu w chmurze:", err);
+      }
+    },
     [
-      ...(catalog?.vegetables || []),
-      ...(catalog?.freezer || []),
-      ...(catalog?.farutex || []),
-      ...(catalog?.meat1 || []),
-      ...(catalog?.meat2 || []),
-      ...(catalog?.otherItems || []),
-    ].forEach((k) => { allZeroFlags[k] = true; });
-    setExplicitlyZeroed(allZeroFlags);
-    setVegetables({});
-    setFreezer({});
-    setFarutex({});
-    setMeat1({});
-    setMeat2({});
-    setOtherItems({});
-    setCustomSections({});
-    setSauces([]);
-  };
+      isAdminEdit,
+      confirmedSections,
+      todayStr,
+      location,
+      reporter,
+      ordersCount,
+      estimatedOrdersFromRevenue,
+      revenue,
+      expenses,
+      employees,
+      vegetables,
+      farutex,
+      freezer,
+      meat1,
+      meat2,
+      otherItems,
+      customSections,
+      sauces,
+      saucesNote,
+      notes,
+      draftStorageKey,
+      db,
+      appId,
+    ]
+  );
 
   useEffect(() => {
     if (isAdminEdit || !isDirty) return;
     const timer = setTimeout(() => {
-      try {
-        localStorage.setItem(
-          draftStorageKey,
-          JSON.stringify({
-            reporter, ordersCount, revenue, expenses, employees, vegetables, farutex, freezer, meat1, meat2, otherItems, customSections, sauces, saucesNote, notes,
-            savedAt: new Date().toISOString(),
-          })
-        );
-      } catch (err) { console.error("Błąd autosave szkicu:", err); }
-    }, 350);
+      syncDraftToCloud();
+    }, 900);
     return () => clearTimeout(timer);
-  }, [isDirty, isAdminEdit, draftStorageKey, reporter, ordersCount, revenue, expenses, employees, vegetables, farutex, freezer, meat1, meat2, otherItems, customSections, sauces, saucesNote, notes]);
+  }, [isDirty, isAdminEdit, syncDraftToCloud]);
 
-  useEffect(() => {
-    const handleBeforeUnload = (e) => {
-      if (isDirty) { e.preventDefault(); e.returnValue = ""; }
+  const handleConfirmSection = async (sectionKey, sectionLabel) => {
+    const timeStr = formatTimeHM(new Date());
+    const nextConfirmed = {
+      ...confirmedSections,
+      [sectionKey]: {
+        label: sectionLabel,
+        time: timeStr,
+        by: reporter || "Pracownik",
+        confirmedAt: new Date().toISOString(),
+      },
     };
-    window.addEventListener("beforeunload", handleBeforeUnload);
-    return () => window.removeEventListener("beforeunload", handleBeforeUnload);
-  }, [isDirty]);
-
-  const clearDraft = () => {
-    try { localStorage.removeItem(draftStorageKey); } catch (e) { console.error("Błąd czyszczenia szkicu:", e); }
+    setConfirmedSections(nextConfirmed);
+    setIsDirty(true);
+    await syncDraftToCloud(nextConfirmed);
+    onShowModal(`Sekcja "${sectionLabel}" została zatwierdzona (${timeStr}) i jest już widoczna w podglądzie u managera!`);
   };
 
-  const handleVegChange = useCallback((item, v) => { setIsDirty(true); setVegetables((p) => ({ ...p, [item]: v })); }, []);
-  const handleFreezerChange = useCallback((item, v) => { setIsDirty(true); setFreezer((p) => ({ ...p, [item]: v })); }, []);
-  const handleFarutexChange = useCallback((item, v) => { setIsDirty(true); setFarutex((p) => ({ ...p, [item]: v })); }, []);
-  const handleMeat1Change = useCallback((item, v) => { setIsDirty(true); setMeat1((p) => ({ ...p, [item]: v })); }, []);
-  const handleMeat2Change = useCallback((item, v) => { setIsDirty(true); setMeat2((p) => ({ ...p, [item]: v })); }, []);
-  const handleOtherItemsChange = useCallback((item, v) => { setIsDirty(true); setOtherItems((p) => ({ ...p, [item]: v })); }, []);
+  const renderSectionConfirmFooter = (sectionKey, sectionLabel) => {
+    const conf = confirmedSections?.[sectionKey];
+    return (
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2.5">
+        {conf ? (
+          <div className="flex items-center text-xs font-extrabold text-emerald-700 bg-emerald-50 border border-emerald-200 px-3.5 py-2 rounded-xl">
+            <CheckCircle2 className="w-4 h-4 mr-2 text-emerald-600 shrink-0" />
+            Zatwierdzono dla managera o godz. {conf.time} {conf.by ? `(${conf.by})` : ""}
+          </div>
+        ) : (
+          <span className="text-xs font-semibold text-slate-400">
+            Po przeliczeniu towaru kliknij przycisk obok, aby manager widział gotowe stany bez wysyłania całego raportu.
+          </span>
+        )}
+        <button
+          type="button"
+          onClick={() => handleConfirmSection(sectionKey, sectionLabel)}
+          className={`px-4 py-2.5 rounded-xl font-black text-xs flex items-center justify-center transition-colors shrink-0 shadow-sm ${
+            conf
+              ? "bg-slate-100 hover:bg-emerald-600 text-slate-700 hover:text-white border border-slate-200"
+              : "bg-emerald-600 hover:bg-emerald-700 text-white"
+          }`}
+        >
+          <CheckCircle2 className="w-4 h-4 mr-1.5" />
+          {conf ? `Zaktualizuj zatwierdzenie: ${sectionLabel}` : `Zatwierdź stany: ${sectionLabel}`}
+        </button>
+      </div>
+    );
+  };
 
-  const handleAddExpenseRow = () => { setIsDirty(true); setExpenses((prev) => [...prev, { description: "", amount: "" }]); };
+  const clearDraft = () => {
+    try {
+      localStorage.removeItem(draftStorageKey);
+    } catch (e) {
+      console.error("Błąd czyszczenia szkicu:", e);
+    }
+  };
+
+  const handleVegChange = useCallback((item, v) => {
+    setIsDirty(true);
+    setVegetables((p) => ({ ...p, [item]: v }));
+  }, []);
+  const handleFreezerChange = useCallback((item, v) => {
+    setIsDirty(true);
+    setFreezer((p) => ({ ...p, [item]: v }));
+  }, []);
+  const handleFarutexChange = useCallback((item, v) => {
+    setIsDirty(true);
+    setFarutex((p) => ({ ...p, [item]: v }));
+  }, []);
+  const handleMeat1Change = useCallback((item, v) => {
+    setIsDirty(true);
+    setMeat1((p) => ({ ...p, [item]: v }));
+  }, []);
+  const handleMeat2Change = useCallback((item, v) => {
+    setIsDirty(true);
+    setMeat2((p) => ({ ...p, [item]: v }));
+  }, []);
+  const handleOtherItemsChange = useCallback((item, v) => {
+    setIsDirty(true);
+    setOtherItems((p) => ({ ...p, [item]: v }));
+  }, []);
+
+  const handleAddExpenseRow = () => {
+    setIsDirty(true);
+    setExpenses((prev) => [...prev, { description: "", amount: "" }]);
+  };
   const handleUpdateExpenseRow = (idx, field, val) => {
     setIsDirty(true);
     setExpenses((prev) => prev.map((row, i) => (i === idx ? { ...row, [field]: val } : row)));
   };
-  const handleRemoveExpenseRow = (idx) => { setIsDirty(true); setExpenses((prev) => prev.filter((_, i) => i !== idx)); };
+  const handleRemoveExpenseRow = (idx) => {
+    setIsDirty(true);
+    setExpenses((prev) => prev.filter((_, i) => i !== idx));
+  };
 
   const vegList = useMemo(
     () => (catalog?.vegetables || DEFAULT_CATALOG.vegetables).filter((item) => isItemAllowedForLocation(catalog, "vegetables", item, location)),
@@ -1768,7 +2254,7 @@ function EmployeeForm({
     () => (catalog?.otherItems || DEFAULT_CATALOG.otherItems).filter((item) => isItemAllowedForLocation(catalog, "otherItems", item, location)),
     [catalog, location]
   );
-  const customCategories = useMemo(() => Array.isArray(catalog?.customCategories) ? catalog.customCategories : [], [catalog]);
+  const customCategories = useMemo(() => (Array.isArray(catalog?.customCategories) ? catalog.customCategories : []), [catalog]);
 
   const filterBySearch = useCallback(
     (list) => {
@@ -1780,12 +2266,6 @@ function EmployeeForm({
 
   const countFilledInRecord = (rec, list) =>
     rec && typeof rec === "object" ? list.filter((k) => parseSafeNumber(rec[k]) > 0).length : 0;
-
-  const handleNoteChange = (e) => {
-    const val = e.target.value;
-    setQuickNote(val);
-    try { localStorage.setItem(`note_${location}`, val); } catch (err) { console.error("LocalStorage error:", err); }
-  };
 
   const updateEmployee = (index, field, value) => {
     setIsDirty(true);
@@ -1821,7 +2301,8 @@ function EmployeeForm({
     if (loading) return;
     const cleanReporter = (reporter || "").trim();
     if (!cleanReporter) {
-      onShowModal("Wybierz swoje imię w polu 'Osoba wypełniająca raport'.");
+      setActiveFormTab("general");
+      onShowModal("Wybierz swoje imię w polu 'Osoba wypełniająca raport' (zakładka 1. Kasa & Obsada).");
       return;
     }
 
@@ -1840,11 +2321,7 @@ function EmployeeForm({
       Object.entries(customSections || {}).forEach(([catId, val]) => {
         if (Array.isArray(val)) sanitizedCustomSections[catId] = val.map(String);
         else if (val && typeof val === "object") {
-          sanitizedCustomSections[catId] = mergeInventorySectionForSave(
-            existingData?.customSections?.[catId],
-            val,
-            explicitlyZeroed
-          );
+          sanitizedCustomSections[catId] = mergeInventorySectionForSave(existingData?.customSections?.[catId], val);
         }
       });
 
@@ -1853,11 +2330,12 @@ function EmployeeForm({
       const deterministicId = `${targetDate}_${targetLoc}`;
 
       const manualOrdersNum = Math.round(parseSafeNumber(ordersCount));
-      const finalOrdersCount = manualOrdersNum > 0
-        ? manualOrdersNum
-        : estimatedOrdersFromRevenue > 0
-        ? estimatedOrdersFromRevenue
-        : parseSafeNumber(existingData?.ordersCount);
+      const finalOrdersCount =
+        manualOrdersNum > 0
+          ? manualOrdersNum
+          : estimatedOrdersFromRevenue > 0
+          ? estimatedOrdersFromRevenue
+          : parseSafeNumber(existingData?.ordersCount);
 
       const data = {
         date: targetDate,
@@ -1873,16 +2351,17 @@ function EmployeeForm({
           roznica: parseSafeNumber(revenue.roznica),
         },
         expenses: sanitizedExpenses,
-        vegetables: mergeInventorySectionForSave(existingData?.vegetables, vegetables, explicitlyZeroed),
-        farutex: mergeInventorySectionForSave(existingData?.farutex, farutex, explicitlyZeroed),
-        freezer: mergeInventorySectionForSave(existingData?.freezer, freezer, explicitlyZeroed),
-        meat1: mergeInventorySectionForSave(existingData?.meat1, meat1, explicitlyZeroed),
-        meat2: mergeInventorySectionForSave(existingData?.meat2, meat2, explicitlyZeroed),
-        otherItems: mergeInventorySectionForSave(existingData?.otherItems, otherItems, explicitlyZeroed),
+        vegetables: mergeInventorySectionForSave(existingData?.vegetables, vegetables),
+        farutex: mergeInventorySectionForSave(existingData?.farutex, farutex),
+        freezer: mergeInventorySectionForSave(existingData?.freezer, freezer),
+        meat1: mergeInventorySectionForSave(existingData?.meat1, meat1),
+        meat2: mergeInventorySectionForSave(existingData?.meat2, meat2),
+        otherItems: mergeInventorySectionForSave(existingData?.otherItems, otherItems),
         customSections: sanitizedCustomSections,
         sauces: Array.isArray(sauces) ? sauces.map(String) : [],
         saucesNote: String(saucesNote || "").trim(),
         notes: String(notes || "").trim(),
+        confirmedSections,
         issueStatuses: existingData?.issueStatuses || {},
         updatedAt: new Date().toISOString(),
       };
@@ -1899,19 +2378,15 @@ function EmployeeForm({
       clearDraft();
       setIsDirty(false);
 
-      if (!isAdminEdit) {
-        try { localStorage.removeItem(`note_${location}`); } catch (err) { console.error("LocalStorage remove error:", err); }
-      }
-
       onShowModal(
         isAdminEdit
           ? `Raport z dnia ${data.date} (${data.location}) został pomyślnie zaktualizowany!`
-          : "Raport dla tego punktu został pomyślnie zapisany w bazie danych!"
+          : "Raport Dzienny został pomyślnie zapisany w bazie danych!"
       );
       onBack();
     } catch (err) {
       console.error("Błąd zapisu raportu:", err);
-      onShowModal("Wystąpił błąd podczas zapisywania raportu. Upewnij się, że masz połączenie z internetem oraz poprawną konfigurację Firebase.");
+      onShowModal("Wystąpił błąd podczas zapisywania raportu. Sprawdź połączenie z internetem.");
     } finally {
       setLoading(false);
     }
@@ -1930,7 +2405,7 @@ function EmployeeForm({
     const list = Array.isArray(rawArr) ? rawArr.map(Number) : [];
     if (list.length === 0) return "Brak przypisanych dni";
     const names = DAYS_OF_WEEK.filter((d) => list.includes(d.id)).map((d) => d.name);
-    return `Zadanie na: ${names.join(", ")}`;
+    return `Harmonogram: ${names.join(", ")}`;
   };
 
   const isVegDay = isDeliveryDayFor("vegetables", DEFAULT_DELIVERY_DAYS.vegetables);
@@ -1941,81 +2416,104 @@ function EmployeeForm({
   const isOtherDay = isDeliveryDayFor("otherItems", DEFAULT_DELIVERY_DAYS.otherItems);
   const isSaucesDay = isDeliveryDayFor("sauces", DEFAULT_DELIVERY_DAYS.sauces);
 
-  const showGeneral = activeFormTab === "all" || activeFormTab === "general";
-  const showVegFreezer = activeFormTab === "all" || activeFormTab === "veg_freezer";
-  const showDeliveries = activeFormTab === "all" || activeFormTab === "deliveries";
-  const showSaucesOther = activeFormTab === "all" || activeFormTab === "sauces_other";
+  const showGeneral = activeFormTab === "general";
+  const showVegFreezer = activeFormTab === "veg_freezer";
+  const showDeliveries = activeFormTab === "deliveries";
+  const showSaucesOther = activeFormTab === "sauces_other";
   const showInventorySearchBar = showVegFreezer || showDeliveries || showSaucesOther;
 
   const totalShiftExpenses = useMemo(() => calculateTotalExpenses(expenses), [expenses]);
 
-  const renderDeliveryBadge = (filled, total, isToday, activeColorClass) => (
-    <div className="flex items-center gap-2 flex-wrap">
-      <span className="bg-gray-100 text-gray-700 text-[11px] font-black px-2.5 py-1 rounded-full">
-        {filled} / {total}
-      </span>
-      {isToday ? (
-        <span className={`${activeColorClass} text-white text-[10px] font-black px-3 py-1.5 rounded-full uppercase tracking-wider shadow-sm text-center`}>
-          Do uzupełnienia dziś
+  const renderDeliveryBadge = (sectionKey, filled, total, isToday) => {
+    const isConfirmed = !!confirmedSections?.[sectionKey];
+    return (
+      <div className="flex items-center gap-1.5 flex-wrap">
+        <span className="bg-slate-100 text-slate-700 text-[11px] font-black px-2.5 py-1 rounded-lg">
+          {filled} / {total}
         </span>
-      ) : (
-        <span className="bg-gray-200 text-gray-600 text-[10px] font-black px-3 py-1.5 rounded-full uppercase tracking-wider text-center">
-          Zadanie nieprzypadające na dziś
-        </span>
-      )}
-    </div>
-  );
+        {isConfirmed && (
+          <span className="bg-emerald-100 text-emerald-800 text-[10px] font-black px-2.5 py-1 rounded-lg uppercase">
+            ✓ Zatwierdzono ({confirmedSections[sectionKey].time})
+          </span>
+        )}
+        {isToday ? (
+          <span className="bg-slate-900 text-white text-[10px] font-black px-2.5 py-1 rounded-lg uppercase tracking-wider">
+            Na dziś
+          </span>
+        ) : (
+          <span className="bg-slate-100 text-slate-500 text-[10px] font-bold px-2.5 py-1 rounded-lg uppercase">
+            Inny dzień
+          </span>
+        )}
+      </div>
+    );
+  };
 
   return (
-    <div className="pb-28">
+    <div className="pb-28 bg-slate-50 min-h-screen">
       <ConfirmExitModal
         isOpen={showExitConfirm}
         onCancel={() => setShowExitConfirm(false)}
-        onConfirm={() => { setShowExitConfirm(false); onBack(); }}
+        onConfirm={() => {
+          setShowExitConfirm(false);
+          onBack();
+        }}
       />
 
-      <div className="sticky top-0 z-40 bg-white/95 backdrop-blur-lg border-b border-gray-200 px-4 py-3 shadow-sm max-w-full">
+      <div className="sticky top-0 z-40 bg-white/95 backdrop-blur-lg border-b border-slate-200 px-4 py-3 shadow-sm max-w-full">
         <div className="max-w-4xl mx-auto flex items-center justify-between">
           <div className="flex items-center min-w-0">
             <button
               type="button"
               onClick={() => (isDirty ? setShowExitConfirm(true) : onBack())}
-              className="shrink-0 w-10 h-10 flex items-center justify-center bg-gray-100 hover:bg-gray-200 text-gray-700 rounded-full mr-3 transition-colors"
+              className="shrink-0 w-10 h-10 flex items-center justify-center bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-2xl mr-3 transition-colors"
             >
               <ArrowLeft className="w-5 h-5" />
             </button>
             <div className="min-w-0 truncate">
-              <h1 className="font-extrabold text-gray-900 text-lg sm:text-xl truncate">
-                {isAdminEdit ? `Edycja Archiwum: ${location}` : `Raport: ${location}`}
+              <h1 className="font-extrabold text-slate-900 text-base sm:text-xl truncate">
+                {isAdminEdit ? `Edycja Archiwum: ${location}` : `Raport Dzienny: ${location}`}
               </h1>
-              <p className="text-xs font-semibold text-gray-500 truncate flex items-center gap-1.5">
-                {isAdminEdit ? `Modyfikujesz raport z dnia ${todayStr}` : isEdit ? "Aktualizujesz dzisiejszy raport" : "Wypełniasz nowy raport"}
+              <p className="text-xs font-semibold text-slate-500 truncate flex items-center gap-2">
+                <span>Data: {todayStr}</span>
                 {isDirty && !isAdminEdit && (
-                  <span className="inline-flex items-center text-[10px] font-black text-emerald-700 bg-emerald-100 px-2 py-0.5 rounded-full">
-                    <Save className="w-3 h-3 mr-1" /> Szkic zapisany
+                  <span className="inline-flex items-center text-[10px] font-black text-emerald-700 bg-emerald-50 border border-emerald-200 px-2 py-0.5 rounded-md">
+                    <Save className="w-3 h-3 mr-1" /> Szkic w chmurze aktywny
                   </span>
                 )}
               </p>
             </div>
           </div>
-          <div className={`shrink-0 px-3 py-1.5 rounded-full text-xs font-black shadow-inner ml-2 ${isAdminEdit ? "bg-purple-100 text-purple-700" : isEdit ? "bg-green-100 text-green-700" : "bg-blue-100 text-blue-700"}`}>
+          <div className={`shrink-0 px-3 py-1.5 rounded-xl text-xs font-black border ml-2 ${LOCATION_BADGE_STYLES[location] || "bg-slate-100 text-slate-800 border-slate-200"}`}>
             {todayStr}
           </div>
         </div>
 
-        <div className="max-w-4xl mx-auto mt-3 pt-2 border-t border-gray-100 flex gap-1.5 overflow-x-auto no-scrollbar">
+        <div className="max-w-4xl mx-auto mt-3 pt-2 border-t border-slate-100 grid grid-cols-2 sm:grid-cols-4 gap-1.5">
           {[
-            { id: "all", label: "Wszystko" },
-            { id: "general", label: "Ogólne & Finanse" },
-            { id: "veg_freezer", label: `Warzywa & Mroźnia (${countFilledInRecord(vegetables, vegList) + countFilledInRecord(freezer, freezerList)})` },
-            { id: "deliveries", label: `Magazyn & Dostawy (${countFilledInRecord(farutex, farutexList) + countFilledInRecord(meat1, meat1List) + countFilledInRecord(meat2, meat2List)})` },
-            { id: "sauces_other", label: `Sosy, Braki & Inne (${sauces.length + countFilledInRecord(otherItems, otherItemsList)})` },
+            { id: "general", label: "1. Kasa & Obsada" },
+            {
+              id: "veg_freezer",
+              label: `2. Warzywa & Mroźnia (${countFilledInRecord(vegetables, vegList) + countFilledInRecord(freezer, freezerList)})`,
+            },
+            {
+              id: "deliveries",
+              label: `3. Dostawy (${countFilledInRecord(farutex, farutexList) + countFilledInRecord(meat1, meat1List) + countFilledInRecord(meat2, meat2List)})`,
+            },
+            {
+              id: "sauces_other",
+              label: `4. Sosy & Inne (${sauces.length + countFilledInRecord(otherItems, otherItemsList)})`,
+            },
           ].map((t) => (
             <button
               key={t.id}
               type="button"
               onClick={() => setActiveFormTab(t.id)}
-              className={`px-3.5 py-2 rounded-xl font-extrabold text-xs whitespace-nowrap transition-colors ${activeFormTab === t.id ? "bg-blue-600 text-white shadow-sm" : "bg-gray-100 text-gray-600 hover:bg-gray-200"}`}
+              className={`px-3 py-2.5 rounded-xl font-extrabold text-xs text-center transition-all ${
+                activeFormTab === t.id
+                  ? "bg-slate-900 text-white shadow-sm"
+                  : "bg-slate-100 text-slate-600 hover:bg-slate-200"
+              }`}
             >
               {t.label}
             </button>
@@ -2023,141 +2521,55 @@ function EmployeeForm({
         </div>
       </div>
 
-      <form onSubmit={handleSubmit} noValidate className="p-4 sm:p-6 max-w-4xl mx-auto space-y-6 overflow-x-hidden">
-        <UrgentTasksBanner
-          tasks={tasks}
-          location={location}
-          todayStr={todayStr}
-          onCompleteTask={onCompleteTask}
-        />
-
-        {!isAdminEdit && onClockIn && (
-          <ShiftClockWidget
-            location={location}
-            employeesList={locationEmployeesList}
-            activeShifts={activeShifts}
-            todayCompletedShifts={todayCompletedShifts}
-            onClockIn={onClockIn}
-            onClockOut={handleLocalClockOut}
-          />
-        )}
-
-        {inNightWindow && !isAdminEdit && onChangeGastroDate && (
-          <div className="bg-indigo-950 text-white p-4 rounded-2xl border border-indigo-700 shadow-md flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-            <div className="flex items-center text-xs font-bold">
-              <Moon className="w-5 h-5 mr-2 text-amber-400 shrink-0" />
-              <span>Jest po północy. Zapisujesz raport na dzień: <strong className="text-amber-300 underline">{todayStr}</strong></span>
-            </div>
-            <div className="flex gap-2 shrink-0">
-              {[
-                { date: yesterdayStr, label: "Wczoraj" },
-                { date: calendarTodayStr, label: "Dziś" },
-              ].map((opt) => (
-                <button
-                  key={opt.date}
-                  type="button"
-                  onClick={() => onChangeGastroDate(opt.date)}
-                  className={`px-3 py-1.5 rounded-xl font-black text-xs transition-colors ${todayStr === opt.date ? "bg-amber-400 text-gray-950" : "bg-white/10 text-gray-300 hover:bg-white/20"}`}
-                >
-                  {opt.label} ({opt.date})
-                </button>
-              ))}
-            </div>
-          </div>
-        )}
-
-        {hasRestoredDraft && !isAdminEdit && (
-          <div className="bg-blue-50 border border-blue-200 p-4 rounded-2xl flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-            <div className="flex items-center text-xs font-bold text-blue-900">
-              <Save className="w-5 h-5 mr-2 text-blue-600 shrink-0" />
-              Przywrócono automatycznie zapisany szkic formularza z pamięci Twojego urządzenia.
-            </div>
-            <button
-              type="button"
-              onClick={() => { clearDraft(); window.location.reload(); }}
-              className="text-xs font-black text-red-600 hover:text-red-700 bg-white px-3 py-1.5 rounded-xl border border-red-200 shrink-0 self-start sm:self-center"
-            >
-              Odrzuć szkic
-            </button>
-          </div>
-        )}
-
-        {hasLoadedFromPrevious && previousReport && (
-          <div className="bg-emerald-50 border border-emerald-200 p-4 rounded-2xl flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-            <div className="flex items-center text-xs font-bold text-emerald-950">
-              <RotateCcw className="w-5 h-5 mr-2.5 text-emerald-600 shrink-0" />
-              <span>
-                Wczytano ostatnie stany magazynowe z dnia <strong className="underline">{previousReport.date}</strong> — skoryguj tylko zmiany (+/-).
-              </span>
-            </div>
-            <button
-              type="button"
-              onClick={handleResetAllInventoryToZero}
-              className="text-xs font-black text-red-600 hover:text-red-700 bg-white px-3 py-1.5 rounded-xl border border-red-200 shrink-0 self-start sm:self-center transition-colors"
-            >
-              Wyzeruj wszystkie stany do 0
-            </button>
-          </div>
-        )}
-
-        {showGeneral && !isAdminEdit && (
-          <div className="bg-yellow-50 p-6 rounded-[2rem] border-2 border-yellow-200 shadow-sm relative overflow-hidden">
-            <div className="absolute -right-4 -bottom-4 opacity-10 pointer-events-none">
-              <StickyNote className="w-40 h-40 text-yellow-600" />
-            </div>
-            <h3 className="font-extrabold text-yellow-900 mb-1 flex items-center relative z-10">
-              <StickyNote className="w-5 h-5 mr-2" /> Brudnopis Zmiany
-            </h3>
-            <p className="text-sm text-yellow-700/80 mb-4 font-semibold relative z-10">
-              Zapisuj tu braki "na gorąco". Tekst zostaje w telefonie.
-            </p>
-            <textarea
-              value={quickNote}
-              onChange={handleNoteChange}
-              rows="3"
-              className="w-full p-4 bg-white/80 border border-yellow-300 rounded-xl outline-none focus:ring-2 focus:ring-yellow-400 font-medium text-gray-800 relative z-10"
-              placeholder="Wpisz np. brak widelców, spalona żarówka..."
-            />
-          </div>
-        )}
+      <form onSubmit={handleSubmit} noValidate className="p-4 sm:p-6 max-w-4xl mx-auto space-y-5 overflow-x-hidden">
+        <UrgentTasksBanner tasks={tasks} location={location} todayStr={todayStr} onCompleteTask={onCompleteTask} />
 
         {showGeneral && (
           <>
-            <Section title="Informacje Ogólne" icon={Users} bgClass="bg-white border-gray-200">
+            <Section title="Obsada i Osoba Raportująca" icon={Users}>
               <div className="space-y-5">
                 <div>
-                  <label className="text-xs font-black text-gray-500 uppercase ml-2 block mb-1">Osoba wypełniająca raport (Punkt: {location})</label>
+                  <label className="text-xs font-black text-slate-500 uppercase ml-1 block mb-1.5">
+                    Osoba wypełniająca raport (Punkt: {location})
+                  </label>
                   <select
                     required
                     value={reporter}
-                    onChange={(e) => { setIsDirty(true); setReporter(e.target.value); }}
-                    className="w-full p-4 bg-gray-50 border border-gray-200 focus:bg-white rounded-xl outline-none focus:ring-2 focus:ring-blue-500 font-bold text-gray-900 shadow-inner"
+                    onChange={(e) => {
+                      setIsDirty(true);
+                      setReporter(e.target.value);
+                    }}
+                    className="w-full p-4 bg-slate-50 border border-slate-200 focus:bg-white rounded-2xl outline-none focus:border-slate-900 font-bold text-slate-900"
                   >
-                    <option value="">— Wybierz pracownika z listy ({location}) —</option>
-                    {reporter && !locationEmployeesList.includes(reporter) && (
-                      <option value={reporter}>{reporter}</option>
-                    )}
+                    <option value="">— Wybierz swoje imię z listy ({location}) —</option>
+                    {reporter && !locationEmployeesList.includes(reporter) && <option value={reporter}>{reporter}</option>}
                     {locationEmployeesList.map((empName) => (
-                      <option key={empName} value={empName}>{empName}</option>
+                      <option key={empName} value={empName}>
+                        {empName}
+                      </option>
                     ))}
                   </select>
                 </div>
-                <div className="pt-4 border-t border-gray-100">
+
+                <div className="pt-4 border-t border-slate-100">
                   <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 mb-3">
-                    <label className="text-xs font-black text-gray-500 uppercase ml-2 block">
-                      Godziny pracy personelu w raporcie (automatycznie z czytnika lub ręcznie)
+                    <label className="text-xs font-black text-slate-500 uppercase ml-1 block">
+                      Godziny pracy personelu (automatycznie z czytnika RCP lub ręcznie)
                     </label>
                     {todayCompletedShifts.filter((s) => s?.location === location).length > 0 && (
                       <button
                         type="button"
-                        onClick={() => { setIsDirty(true); applyCompletedShiftsToForm(todayCompletedShifts); }}
-                        className="text-[11px] font-black text-indigo-700 bg-indigo-50 hover:bg-indigo-100 border border-indigo-200 px-3 py-1 rounded-lg self-start sm:self-center transition-colors"
+                        onClick={() => {
+                          setIsDirty(true);
+                          applyCompletedShiftsToForm(todayCompletedShifts);
+                        }}
+                        className="text-[11px] font-black text-slate-700 bg-slate-100 hover:bg-slate-200 px-3 py-1 rounded-lg self-start sm:self-center transition-colors"
                       >
                         Pobierz ponownie z czytnika RCP
                       </button>
                     )}
                   </div>
-                  <div className="space-y-3">
+                  <div className="space-y-2.5">
                     {[0, 1, 2].map((i) => {
                       const currentEmpName = employees[i]?.name || "";
                       return (
@@ -2165,22 +2577,24 @@ function EmployeeForm({
                           <select
                             value={currentEmpName}
                             onChange={(e) => updateEmployee(i, "name", e.target.value)}
-                            className="flex-[2] min-w-[150px] p-4 bg-gray-50 border border-gray-200 focus:bg-white rounded-xl outline-none focus:ring-2 focus:ring-blue-500 font-semibold text-sm shadow-inner text-gray-900"
+                            className="flex-[2] min-w-[150px] p-3.5 bg-slate-50 border border-slate-200 focus:bg-white rounded-2xl outline-none focus:border-slate-900 font-semibold text-sm text-slate-900"
                           >
                             <option value="">{`— Pracownik ${i + 1} (${location}) —`}</option>
                             {currentEmpName && !locationEmployeesList.includes(currentEmpName) && (
                               <option value={currentEmpName}>{currentEmpName}</option>
                             )}
                             {locationEmployeesList.map((empName) => (
-                              <option key={empName} value={empName}>{empName}</option>
+                              <option key={empName} value={empName}>
+                                {empName}
+                              </option>
                             ))}
                           </select>
                           <input
                             type="text"
                             value={employees[i]?.hours || ""}
                             onChange={(e) => updateEmployee(i, "hours", e.target.value)}
-                            className="flex-1 min-w-[100px] p-4 bg-gray-50 border border-gray-200 focus:bg-white rounded-xl outline-none focus:ring-2 focus:ring-blue-500 font-semibold text-sm text-center shadow-inner"
-                            placeholder="np. 10-22 lub 10:30-22"
+                            className="flex-1 min-w-[110px] p-3.5 bg-slate-50 border border-slate-200 focus:bg-white rounded-2xl outline-none focus:border-slate-900 font-bold text-sm text-center"
+                            placeholder="np. 10:00-22:00"
                           />
                         </div>
                       );
@@ -2190,17 +2604,19 @@ function EmployeeForm({
               </div>
             </Section>
 
-            <Section title="Zestawienie Utargów i Kasy" icon={Banknote} titleColor="text-emerald-800" bgClass="bg-emerald-50/30 border-emerald-200">
+            <Section title="Zestawienie Utargów i Kasy" icon={Banknote}>
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 {[
-                  { key: "gotowka", label: "Gotówka" },
-                  { key: "karta", label: "Karta Płatnicza" },
-                  { key: "aplikacje", label: "Aplikacje (Uber/Glovo itp)" },
-                  { key: "raportFiskalny", label: "Raport Fiskalny (Do Płatności)", isFiscal: true },
+                  { key: "gotowka", label: "Gotówka w kasie" },
+                  { key: "karta", label: "Karta Płatnicza (Terminal)" },
+                  { key: "aplikacje", label: "Aplikacje (Pyszne / Glovo / Uber)" },
+                  { key: "raportFiskalny", label: "Raport Fiskalny (Z-ka)", isFiscal: true },
                   { key: "roznica", label: "Brak / Nadwyżka" },
                 ].map(({ key, label, isFiscal }) => (
                   <div key={key} className="sm:col-span-1">
-                    <label className={`block text-[11px] font-black mb-1.5 uppercase ml-2 ${isFiscal ? "text-indigo-800" : "text-emerald-700/70"}`}>{label}</label>
+                    <label className={`block text-[11px] font-black mb-1.5 uppercase ml-1 ${isFiscal ? "text-blue-700" : "text-slate-500"}`}>
+                      {label}
+                    </label>
                     <div className="relative">
                       <input
                         type="text"
@@ -2213,16 +2629,18 @@ function EmployeeForm({
                             setRevenue((prev) => ({ ...prev, [key]: val }));
                           }
                         }}
-                        className={`w-full p-4 pl-4 pr-12 bg-white border rounded-xl outline-none font-black text-xl text-gray-900 shadow-inner transition-colors ${isFiscal ? "border-indigo-300 focus:ring-2 focus:ring-indigo-500" : "border-emerald-200 focus:ring-2 focus:ring-emerald-500"}`}
+                        className={`w-full p-3.5 pl-4 pr-12 bg-slate-50 focus:bg-white border rounded-2xl outline-none font-black text-xl text-slate-900 transition-colors ${
+                          isFiscal ? "border-blue-300 focus:border-blue-600" : "border-slate-200 focus:border-slate-900"
+                        }`}
                         placeholder="0.00"
                       />
-                      <span className="absolute right-4 top-1/2 -translate-y-1/2 text-gray-400 font-bold">PLN</span>
+                      <span className="absolute right-4 top-1/2 -translate-y-1/2 text-slate-400 font-bold text-xs">PLN</span>
                     </div>
                   </div>
                 ))}
 
                 <div className="sm:col-span-1">
-                  <label className="block text-[11px] font-black mb-1.5 uppercase ml-2 text-blue-800">
+                  <label className="block text-[11px] font-black mb-1.5 uppercase ml-1 text-slate-500">
                     Liczba zamówień / paragonów (opcjonalnie)
                   </label>
                   <div className="relative">
@@ -2237,44 +2655,46 @@ function EmployeeForm({
                           setOrdersCount(val);
                         }
                       }}
-                      className="w-full p-4 pl-4 pr-20 bg-white border border-blue-300 focus:ring-2 focus:ring-blue-500 rounded-xl outline-none font-black text-xl text-gray-900 shadow-inner transition-colors"
+                      className="w-full p-3.5 pl-4 pr-16 bg-slate-50 focus:bg-white border border-slate-200 focus:border-slate-900 rounded-2xl outline-none font-black text-xl text-slate-900 transition-colors"
                       placeholder={estimatedOrdersFromRevenue > 0 ? `auto: ~${estimatedOrdersFromRevenue}` : "0"}
                     />
-                    <span className="absolute right-4 top-1/2 -translate-y-1/2 text-blue-500 font-bold text-xs">ZAM.</span>
+                    <span className="absolute right-4 top-1/2 -translate-y-1/2 text-slate-400 font-bold text-xs">ZAM.</span>
                   </div>
-                  <span className="block text-[10px] font-bold text-gray-500 mt-1 ml-2">
-                    Jeśli puste, system wyliczy automatycznie z utargu (~{DEFAULT_AVG_ORDER_VALUE} zł / zam.{estimatedOrdersFromRevenue > 0 ? ` = ${estimatedOrdersFromRevenue} zam.` : ""})
-                  </span>
                 </div>
               </div>
 
-              <div className="mt-6 pt-5 border-t border-emerald-200/70">
+              <div className="mt-6 pt-5 border-t border-slate-100">
                 <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 mb-3">
                   <div>
-                    <h4 className="font-extrabold text-sm text-emerald-950 flex items-center">
-                      <Wallet className="w-4 h-4 mr-1.5 text-emerald-700" /> Wydatki z kasy na zmianie (KW / Zakupy towaru z gotówki)
+                    <h4 className="font-extrabold text-sm text-slate-900 flex items-center">
+                      <Wallet className="w-4 h-4 mr-1.5 text-slate-600" /> Wydatki z kasy na zmianie (KW / Zakupy z gotówki)
                     </h4>
-                    <p className="text-xs text-emerald-700/80 font-medium">Jeśli brałeś gotówkę z kasy na zakupy (np. sałata, cytryna, serwis), dodaj pozycję poniżej.</p>
+                    <p className="text-xs text-slate-500 font-medium">
+                      Jeśli brałeś gotówkę z kasy na zakupy towaru lub serwis, dodaj pozycję poniżej.
+                    </p>
                   </div>
                   <button
                     type="button"
                     onClick={handleAddExpenseRow}
-                    className="self-start sm:self-center shrink-0 px-3.5 py-2 bg-emerald-700 hover:bg-emerald-800 text-white font-black text-xs rounded-xl flex items-center transition-colors shadow-sm"
+                    className="self-start sm:self-center shrink-0 px-3.5 py-2 bg-slate-900 hover:bg-slate-800 text-white font-black text-xs rounded-xl flex items-center transition-colors"
                   >
-                    <PlusCircle className="w-4 h-4 mr-1.5" /> Dodaj wydatek z kasy
+                    <PlusCircle className="w-4 h-4 mr-1.5" /> Dodaj wydatek (KW)
                   </button>
                 </div>
 
                 {expenses.length > 0 && (
                   <div className="space-y-2.5 mt-3">
                     {expenses.map((exp, idx) => (
-                      <div key={idx} className="flex flex-wrap sm:flex-nowrap items-center gap-2 bg-white p-2.5 rounded-xl border border-emerald-200 shadow-sm">
+                      <div
+                        key={idx}
+                        className="flex flex-wrap sm:flex-nowrap items-center gap-2 bg-slate-50 p-2.5 rounded-2xl border border-slate-200"
+                      >
                         <input
                           type="text"
                           value={exp.description}
                           onChange={(e) => handleUpdateExpenseRow(idx, "description", e.target.value)}
-                          placeholder="Na co wydano? (np. Sałata Biedronka, ręczniki)"
-                          className="flex-[2] min-w-[160px] p-3 bg-gray-50 border border-gray-200 rounded-lg text-sm font-bold text-gray-900 outline-none focus:bg-white focus:border-emerald-500"
+                          placeholder="Na co wydano? (np. Sałata, ręczniki)"
+                          className="flex-[2] min-w-[160px] p-3 bg-white border border-slate-200 rounded-xl text-sm font-bold text-slate-900 outline-none focus:border-slate-900"
                         />
                         <div className="relative flex-1 min-w-[110px]">
                           <input
@@ -2286,16 +2706,21 @@ function EmployeeForm({
                               if (v === "" || /^\d*[.,]?\d*$/.test(v)) handleUpdateExpenseRow(idx, "amount", v);
                             }}
                             placeholder="Kwota"
-                            className="w-full p-3 pr-10 bg-gray-50 border border-gray-200 rounded-lg text-sm font-black text-gray-900 outline-none focus:bg-white focus:border-emerald-500"
+                            className="w-full p-3 pr-10 bg-white border border-slate-200 rounded-xl text-sm font-black text-slate-900 outline-none focus:border-slate-900"
                           />
-                          <span className="absolute right-3 top-1/2 -translate-y-1/2 text-xs font-bold text-gray-400">zł</span>
+                          <span className="absolute right-3 top-1/2 -translate-y-1/2 text-xs font-bold text-slate-400">zł</span>
                         </div>
-                        <button type="button" onClick={() => handleRemoveExpenseRow(idx)} className="p-3 text-red-500 hover:bg-red-50 rounded-lg transition-colors shrink-0" title="Usuń wydatek">
+                        <button
+                          type="button"
+                          onClick={() => handleRemoveExpenseRow(idx)}
+                          className="p-3 text-rose-500 hover:bg-rose-50 rounded-xl transition-colors shrink-0"
+                          title="Usuń wydatek"
+                        >
                           <Trash2 className="w-4 h-4" />
                         </button>
                       </div>
                     ))}
-                    <div className="flex justify-end items-center text-xs font-black text-emerald-900 pt-1 pr-2">
+                    <div className="flex justify-end items-center text-xs font-black text-slate-800 pt-1 pr-2">
                       Suma wydatków z kasy: {totalShiftExpenses.toFixed(2)} PLN
                     </div>
                   </div>
@@ -2306,18 +2731,37 @@ function EmployeeForm({
         )}
 
         {showInventorySearchBar && (
-          <div className="bg-white p-3.5 rounded-2xl border border-gray-200 shadow-sm flex items-center gap-3">
-            <Search className="w-5 h-5 text-blue-600 ml-1 shrink-0" />
-            <input
-              type="text"
-              value={itemSearchQuery}
-              onChange={(e) => setItemSearchQuery(e.target.value)}
-              placeholder="Filtruj asortyment przypisany do tego punktu..."
-              className="w-full bg-transparent font-bold text-sm text-gray-900 outline-none"
-            />
-            {itemSearchQuery && (
-              <button type="button" onClick={() => setItemSearchQuery("")} className="text-xs font-black text-gray-500 hover:text-gray-800 bg-gray-100 px-2.5 py-1 rounded-lg shrink-0">
-                Wyczyść
+          <div className="flex flex-col sm:flex-row gap-2.5">
+            <div className="flex-1 bg-white p-3 rounded-2xl border border-slate-200 shadow-sm flex items-center gap-2.5">
+              <Search className="w-5 h-5 text-slate-400 ml-1 shrink-0" />
+              <input
+                type="text"
+                value={itemSearchQuery}
+                onChange={(e) => setItemSearchQuery(e.target.value)}
+                placeholder="Szukaj produktu w tej zakładce..."
+                className="w-full bg-transparent font-bold text-sm text-slate-900 outline-none"
+              />
+              {itemSearchQuery && (
+                <button
+                  type="button"
+                  onClick={() => setItemSearchQuery("")}
+                  className="text-xs font-black text-slate-500 hover:text-slate-800 bg-slate-100 px-2.5 py-1 rounded-lg shrink-0"
+                >
+                  Wyczyść
+                </button>
+              )}
+            </div>
+            {(showVegFreezer || showDeliveries) && (
+              <button
+                type="button"
+                onClick={() => setShowAllDaysCategories((prev) => !prev)}
+                className={`px-4 py-3 rounded-2xl font-extrabold text-xs border transition-colors shrink-0 ${
+                  showAllDaysCategories
+                    ? "bg-slate-900 text-white border-slate-900"
+                    : "bg-white text-slate-700 border-slate-200 hover:bg-slate-100"
+                }`}
+              >
+                {showAllDaysCategories ? "Ukryj kategorie spoza dzisiaj" : "Pokaż też kategorie z innych dni"}
               </button>
             )}
           </div>
@@ -2325,113 +2769,234 @@ function EmployeeForm({
 
         {showVegFreezer && (
           <>
-            <Section
-              title="Warzywa i Inne"
-              icon={Leaf}
-              titleColor={isVegDay ? "text-green-800" : "text-gray-900"}
-              bgClass={isVegDay ? "bg-green-50/40 border-green-200" : "bg-white border-gray-200"}
-              collapsible={true}
-              defaultExpanded={isVegDay || !!itemSearchQuery}
-              subtitle={getDeliverySubtitle("vegetables", DEFAULT_DELIVERY_DAYS.vegetables)}
-              badge={renderDeliveryBadge(countFilledInRecord(vegetables, vegList), vegList.length, isVegDay, "bg-green-600")}
-            >
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-x-4">
-                {filterBySearch(vegList).map((item) => (
-                  <Counter key={item} itemKey={item} label={item} unit={getItemUnit(catalog, item)} value={vegetables[item]} onItemChange={handleVegChange} onExplicitZero={markItemExplicitlyZeroed} />
-                ))}
-              </div>
-            </Section>
+            {(isVegDay || showAllDaysCategories || !!itemSearchQuery) && (
+              <Section
+                title="Warzywa i Inne"
+                icon={Leaf}
+                collapsible={true}
+                defaultExpanded={true}
+                subtitle={getDeliverySubtitle("vegetables", DEFAULT_DELIVERY_DAYS.vegetables)}
+                badge={renderDeliveryBadge("vegetables", countFilledInRecord(vegetables, vegList), vegList.length, isVegDay)}
+                footerAction={renderSectionConfirmFooter("vegetables", "Warzywa i Inne")}
+              >
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-x-4">
+                  {filterBySearch(vegList).map((item) => (
+                    <Counter
+                      key={item}
+                      itemKey={item}
+                      label={item}
+                      unit={getItemUnit(catalog, item)}
+                      value={vegetables[item]}
+                      onItemChange={handleVegChange}
+                    />
+                  ))}
+                </div>
+              </Section>
+            )}
 
-            <Section
-              title="Stan Zamrażarek"
-              icon={Snowflake}
-              titleColor={isFreezerDay ? "text-blue-800" : "text-gray-900"}
-              bgClass={isFreezerDay ? "bg-blue-50/40 border-blue-200" : "bg-white border-gray-200"}
-              collapsible={true}
-              defaultExpanded={isFreezerDay || !!itemSearchQuery}
-              subtitle={getDeliverySubtitle("freezer", DEFAULT_DELIVERY_DAYS.freezer)}
-              badge={renderDeliveryBadge(countFilledInRecord(freezer, freezerList), freezerList.length, isFreezerDay, "bg-blue-600")}
-            >
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-x-4">
-                {filterBySearch(freezerList).map((item) => (
-                  <Counter key={item} itemKey={item} label={item} unit={getItemUnit(catalog, item)} value={freezer[item]} onItemChange={handleFreezerChange} onExplicitZero={markItemExplicitlyZeroed} />
-                ))}
-              </div>
-            </Section>
+            {(isFreezerDay || showAllDaysCategories || !!itemSearchQuery) && (
+              <Section
+                title="Stan Zamrażarek"
+                icon={Snowflake}
+                collapsible={true}
+                defaultExpanded={true}
+                subtitle={getDeliverySubtitle("freezer", DEFAULT_DELIVERY_DAYS.freezer)}
+                badge={renderDeliveryBadge("freezer", countFilledInRecord(freezer, freezerList), freezerList.length, isFreezerDay)}
+                footerAction={renderSectionConfirmFooter("freezer", "Stan Zamrażarek")}
+              >
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-x-4">
+                  {filterBySearch(freezerList).map((item) => (
+                    <Counter
+                      key={item}
+                      itemKey={item}
+                      label={item}
+                      unit={getItemUnit(catalog, item)}
+                      value={freezer[item]}
+                      onItemChange={handleFreezerChange}
+                    />
+                  ))}
+                </div>
+              </Section>
+            )}
           </>
         )}
 
         {showDeliveries && (
           <>
-            <Section
-              title=" Farutex"
-              icon={Truck}
-              titleColor={isFarutexDay ? "text-orange-800" : "text-gray-900"}
-              bgClass={isFarutexDay ? "bg-orange-50 border-orange-200" : "bg-white border-gray-200"}
-              collapsible={true}
-              defaultExpanded={isFarutexDay || !!itemSearchQuery}
-              subtitle={getDeliverySubtitle("farutex", DEFAULT_DELIVERY_DAYS.farutex)}
-              badge={renderDeliveryBadge(countFilledInRecord(farutex, farutexList), farutexList.length, isFarutexDay, "bg-orange-600")}
-            >
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-x-4">
-                {filterBySearch(farutexList).map((item) => (
-                  <Counter key={item} itemKey={item} label={item} unit={getItemUnit(catalog, item)} value={farutex[item]} onItemChange={handleFarutexChange} onExplicitZero={markItemExplicitlyZeroed} />
-                ))}
+            {!isFarutexDay && !isMeat1Day && !isMeat2Day && !showAllDaysCategories && !itemSearchQuery && (
+              <div className="bg-white p-6 rounded-3xl border border-slate-200 text-center space-y-3">
+                <p className="text-sm font-bold text-slate-700">
+                  Na dzisiaj ({todayStr}) w harmonogramie nie przypisano dostaw Farutex / Mięso.
+                </p>
+                <button
+                  type="button"
+                  onClick={() => setShowAllDaysCategories(true)}
+                  className="px-4 py-2.5 bg-slate-900 text-white rounded-xl font-black text-xs"
+                >
+                  Pokaż mimo to wszystkie sekcje dostaw (Farutex / Mięso 1 / Mięso 2)
+                </button>
               </div>
-            </Section>
+            )}
 
-            <Section
-              title="Dostawa Mięso 1"
-              icon={Package}
-              titleColor={isMeat1Day ? "text-red-800" : "text-gray-900"}
-              bgClass={isMeat1Day ? "bg-red-50 border-red-200" : "bg-white border-gray-200"}
-              collapsible={true}
-              defaultExpanded={isMeat1Day || !!itemSearchQuery}
-              subtitle={getDeliverySubtitle("meat1", DEFAULT_DELIVERY_DAYS.meat1)}
-              badge={renderDeliveryBadge(countFilledInRecord(meat1, meat1List), meat1List.length, isMeat1Day, "bg-red-600")}
-            >
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-x-4">
-                {filterBySearch(meat1List).map((item) => (
-                  <Counter key={item} itemKey={item} label={item} unit={getItemUnit(catalog, item)} value={meat1[item]} onItemChange={handleMeat1Change} onExplicitZero={markItemExplicitlyZeroed} />
-                ))}
-              </div>
-            </Section>
+            {(isFarutexDay || showAllDaysCategories || !!itemSearchQuery) && (
+              <Section
+                title="Farutex"
+                icon={Truck}
+                collapsible={true}
+                defaultExpanded={true}
+                subtitle={getDeliverySubtitle("farutex", DEFAULT_DELIVERY_DAYS.farutex)}
+                badge={renderDeliveryBadge("farutex", countFilledInRecord(farutex, farutexList), farutexList.length, isFarutexDay)}
+                footerAction={renderSectionConfirmFooter("farutex", "Farutex")}
+              >
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-x-4">
+                  {filterBySearch(farutexList).map((item) => (
+                    <Counter
+                      key={item}
+                      itemKey={item}
+                      label={item}
+                      unit={getItemUnit(catalog, item)}
+                      value={farutex[item]}
+                      onItemChange={handleFarutexChange}
+                    />
+                  ))}
+                </div>
+              </Section>
+            )}
 
-            <Section
-              title="Dostawa Mięso 2"
-              icon={Package}
-              titleColor={isMeat2Day ? "text-red-800" : "text-gray-900"}
-              bgClass={isMeat2Day ? "bg-red-50 border-red-200" : "bg-white border-gray-200"}
-              collapsible={true}
-              defaultExpanded={isMeat2Day || !!itemSearchQuery}
-              subtitle={getDeliverySubtitle("meat2", DEFAULT_DELIVERY_DAYS.meat2)}
-              badge={renderDeliveryBadge(countFilledInRecord(meat2, meat2List), meat2List.length, isMeat2Day, "bg-red-600")}
-            >
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-x-4">
-                {filterBySearch(meat2List).map((item) => (
-                  <Counter key={item} itemKey={item} label={item} unit={getItemUnit(catalog, item)} value={meat2[item]} onItemChange={handleMeat2Change} onExplicitZero={markItemExplicitlyZeroed} />
-                ))}
-              </div>
-            </Section>
+            {(isMeat1Day || showAllDaysCategories || !!itemSearchQuery) && (
+              <Section
+                title="Dostawa Mięso 1"
+                icon={Package}
+                collapsible={true}
+                defaultExpanded={true}
+                subtitle={getDeliverySubtitle("meat1", DEFAULT_DELIVERY_DAYS.meat1)}
+                badge={renderDeliveryBadge("meat1", countFilledInRecord(meat1, meat1List), meat1List.length, isMeat1Day)}
+                footerAction={renderSectionConfirmFooter("meat1", "Dostawa Mięso 1")}
+              >
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-x-4">
+                  {filterBySearch(meat1List).map((item) => (
+                    <Counter
+                      key={item}
+                      itemKey={item}
+                      label={item}
+                      unit={getItemUnit(catalog, item)}
+                      value={meat1[item]}
+                      onItemChange={handleMeat1Change}
+                    />
+                  ))}
+                </div>
+              </Section>
+            )}
+
+            {(isMeat2Day || showAllDaysCategories || !!itemSearchQuery) && (
+              <Section
+                title="Dostawa Mięso 2"
+                icon={Package}
+                collapsible={true}
+                defaultExpanded={true}
+                subtitle={getDeliverySubtitle("meat2", DEFAULT_DELIVERY_DAYS.meat2)}
+                badge={renderDeliveryBadge("meat2", countFilledInRecord(meat2, meat2List), meat2List.length, isMeat2Day)}
+                footerAction={renderSectionConfirmFooter("meat2", "Dostawa Mięso 2")}
+              >
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-x-4">
+                  {filterBySearch(meat2List).map((item) => (
+                    <Counter
+                      key={item}
+                      itemKey={item}
+                      label={item}
+                      unit={getItemUnit(catalog, item)}
+                      value={meat2[item]}
+                      onItemChange={handleMeat2Change}
+                    />
+                  ))}
+                </div>
+              </Section>
+            )}
           </>
         )}
 
         {showSaucesOther && (
           <>
+            <Section
+              title="Braki: Sosy"
+              collapsible={true}
+              defaultExpanded={true}
+              subtitle={getDeliverySubtitle("sauces", DEFAULT_DELIVERY_DAYS.sauces)}
+              badge={renderDeliveryBadge("sauces", sauces.length, saucesList.length, isSaucesDay)}
+              footerAction={renderSectionConfirmFooter("sauces", "Braki: Sosy")}
+            >
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                {filterBySearch(saucesList).map((s) => {
+                  const checked = Array.isArray(sauces) && sauces.includes(s);
+                  return (
+                    <div
+                      key={s}
+                      role="checkbox"
+                      aria-checked={checked}
+                      tabIndex={0}
+                      onClick={() => handleSauceToggle(s)}
+                      onKeyDown={(e) => {
+                        if (e.key === " " || e.key === "Enter") {
+                          e.preventDefault();
+                          handleSauceToggle(s);
+                        }
+                      }}
+                      className={`flex items-center p-4 rounded-2xl cursor-pointer transition-all border select-none touch-manipulation ${
+                        checked
+                          ? "bg-slate-900 border-slate-900 text-white shadow-sm"
+                          : "bg-slate-50 border-slate-200 text-slate-800 hover:bg-slate-100"
+                      }`}
+                    >
+                      <div
+                        className={`shrink-0 w-6 h-6 rounded-lg flex items-center justify-center mr-3 transition-colors border ${
+                          checked ? "bg-emerald-500 border-emerald-500" : "bg-white border-slate-300"
+                        }`}
+                      >
+                        {checked && <CheckCircle2 className="w-4 h-4 text-white" />}
+                      </div>
+                      <span className="text-sm font-bold truncate">{s}</span>
+                    </div>
+                  );
+                })}
+              </div>
+
+              <div className="mt-4 pt-4 border-t border-slate-100">
+                <label className="text-xs font-black text-slate-500 uppercase ml-1 block mb-1.5">
+                  Uwagi do sosów / dodatkowe informacje
+                </label>
+                <input
+                  type="text"
+                  value={saucesNote}
+                  onChange={(e) => {
+                    setIsDirty(true);
+                    setSaucesNote(e.target.value);
+                  }}
+                  className="w-full p-3.5 bg-slate-50 focus:bg-white border border-slate-200 rounded-2xl outline-none focus:border-slate-900 transition-colors font-medium text-slate-900 text-sm"
+                  placeholder="Np. zostało pół wiadra czosnkowego, trzeba dorobić ostry rano..."
+                />
+              </div>
+            </Section>
+
             {otherItemsList.length > 0 && (
               <Section
                 title="Inne: Opakowania / Chemia"
                 icon={Package}
-                titleColor={isOtherDay ? "text-purple-800" : "text-gray-900"}
-                bgClass={isOtherDay ? "bg-purple-50/40 border-purple-200" : "bg-white border-gray-200"}
                 collapsible={true}
-                defaultExpanded={isOtherDay || !!itemSearchQuery}
+                defaultExpanded={isOtherDay || showAllDaysCategories || !!itemSearchQuery}
                 subtitle={getDeliverySubtitle("otherItems", DEFAULT_DELIVERY_DAYS.otherItems)}
-                badge={renderDeliveryBadge(countFilledInRecord(otherItems, otherItemsList), otherItemsList.length, isOtherDay, "bg-purple-600")}
+                badge={renderDeliveryBadge("otherItems", countFilledInRecord(otherItems, otherItemsList), otherItemsList.length, isOtherDay)}
+                footerAction={renderSectionConfirmFooter("otherItems", "Opakowania i Chemia")}
               >
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-x-4">
                   {filterBySearch(otherItemsList).map((item) => (
-                    <Counter key={item} itemKey={item} label={item} unit={getItemUnit(catalog, item)} value={otherItems[item]} onItemChange={handleOtherItemsChange} onExplicitZero={markItemExplicitlyZeroed} />
+                    <Counter
+                      key={item}
+                      itemKey={item}
+                      label={item}
+                      unit={getItemUnit(catalog, item)}
+                      value={otherItems[item]}
+                      onItemChange={handleOtherItemsChange}
+                    />
                   ))}
                 </div>
               </Section>
@@ -2452,14 +3017,13 @@ function EmployeeForm({
                     key={cat.id}
                     title={cat.name}
                     icon={Package}
-                    titleColor={isCustomDay ? "text-indigo-800" : "text-gray-900"}
-                    bgClass={isCustomDay ? "bg-indigo-50/40 border-indigo-200" : "bg-white border-gray-200"}
                     collapsible={true}
-                    defaultExpanded={isCustomDay || !!itemSearchQuery}
+                    defaultExpanded={isCustomDay || showAllDaysCategories || !!itemSearchQuery}
                     subtitle={customSub}
-                    badge={renderDeliveryBadge(checkedList.length, catItems.length, isCustomDay, "bg-indigo-600")}
+                    badge={renderDeliveryBadge(customScheduleKey, checkedList.length, catItems.length, isCustomDay)}
+                    footerAction={renderSectionConfirmFooter(customScheduleKey, cat.name)}
                   >
-                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
                       {filterBySearch(catItems).map((item) => {
                         const checked = checkedList.includes(item);
                         return (
@@ -2469,13 +3033,26 @@ function EmployeeForm({
                             aria-checked={checked}
                             tabIndex={0}
                             onClick={() => handleCustomCheckboxToggle(cat.id, item)}
-                            onKeyDown={(e) => { if (e.key === " " || e.key === "Enter") { e.preventDefault(); handleCustomCheckboxToggle(cat.id, item); } }}
-                            className={`flex items-center p-4 rounded-xl cursor-pointer transition-colors border-2 select-none touch-manipulation ${checked ? "bg-indigo-50 border-indigo-400 shadow-sm" : "bg-gray-50 border-transparent hover:bg-gray-100"}`}
+                            onKeyDown={(e) => {
+                              if (e.key === " " || e.key === "Enter") {
+                                e.preventDefault();
+                                handleCustomCheckboxToggle(cat.id, item);
+                              }
+                            }}
+                            className={`flex items-center p-4 rounded-2xl cursor-pointer transition-all border select-none touch-manipulation ${
+                              checked
+                                ? "bg-slate-900 border-slate-900 text-white"
+                                : "bg-slate-50 border-slate-200 text-slate-800 hover:bg-slate-100"
+                            }`}
                           >
-                            <div className={`shrink-0 w-7 h-7 rounded-lg flex items-center justify-center mr-3 transition-colors border-2 ${checked ? "bg-indigo-600 border-indigo-600" : "bg-white border-gray-300"}`}>
-                              {checked && <CheckCircle2 className="w-5 h-5 text-white" />}
+                            <div
+                              className={`shrink-0 w-6 h-6 rounded-lg flex items-center justify-center mr-3 transition-colors border ${
+                                checked ? "bg-emerald-500 border-emerald-500" : "bg-white border-slate-300"
+                              }`}
+                            >
+                              {checked && <CheckCircle2 className="w-4 h-4 text-white" />}
                             </div>
-                            <span className={`text-sm font-bold truncate ${checked ? "text-indigo-900" : "text-gray-700"}`}>{item}</span>
+                            <span className="text-sm font-bold truncate">{item}</span>
                           </div>
                         );
                       })}
@@ -2490,92 +3067,77 @@ function EmployeeForm({
                   key={cat.id}
                   title={cat.name}
                   icon={Package}
-                  titleColor={isCustomDay ? "text-indigo-800" : "text-gray-900"}
-                  bgClass={isCustomDay ? "bg-indigo-50/40 border-indigo-200" : "bg-white border-gray-200"}
                   collapsible={true}
-                  defaultExpanded={isCustomDay || !!itemSearchQuery}
+                  defaultExpanded={isCustomDay || showAllDaysCategories || !!itemSearchQuery}
                   subtitle={customSub}
-                  badge={renderDeliveryBadge(countFilledInRecord(valObj, catItems), catItems.length, isCustomDay, "bg-indigo-600")}
+                  badge={renderDeliveryBadge(customScheduleKey, countFilledInRecord(valObj, catItems), catItems.length, isCustomDay)}
+                  footerAction={renderSectionConfirmFooter(customScheduleKey, cat.name)}
                 >
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-x-4">
                     {filterBySearch(catItems).map((item) => (
-                      <Counter key={item} itemKey={item} label={item} unit={getItemUnit(catalog, item)} value={valObj[item]} onChange={(v) => handleCustomCounterChange(cat.id, item, v)} onExplicitZero={markItemExplicitlyZeroed} />
+                      <Counter
+                        key={item}
+                        itemKey={item}
+                        label={item}
+                        unit={getItemUnit(catalog, item)}
+                        value={valObj[item]}
+                        onChange={(v) => handleCustomCounterChange(cat.id, item, v)}
+                      />
                     ))}
                   </div>
                 </Section>
               );
             })}
 
-            <Section
-              title="Braki: Sosy"
-              titleColor={isSaucesDay ? "text-blue-800" : "text-gray-900"}
-              bgClass={isSaucesDay ? "bg-blue-50/30 border-blue-200" : "bg-white border-gray-200"}
-              collapsible={true}
-              defaultExpanded={isSaucesDay || !!itemSearchQuery}
-              subtitle={getDeliverySubtitle("sauces", DEFAULT_DELIVERY_DAYS.sauces)}
-              badge={renderDeliveryBadge(sauces.length, saucesList.length, isSaucesDay, "bg-blue-600")}
-            >
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                {filterBySearch(saucesList).map((s) => {
-                  const checked = Array.isArray(sauces) && sauces.includes(s);
-                  return (
-                    <div
-                      key={s}
-                      role="checkbox"
-                      aria-checked={checked}
-                      tabIndex={0}
-                      onClick={() => handleSauceToggle(s)}
-                      onKeyDown={(e) => { if (e.key === " " || e.key === "Enter") { e.preventDefault(); handleSauceToggle(s); } }}
-                      className={`flex items-center p-4 rounded-xl cursor-pointer transition-colors border-2 select-none touch-manipulation ${checked ? "bg-blue-50 border-blue-400 shadow-sm" : "bg-gray-50 border-transparent hover:bg-gray-100"}`}
-                    >
-                      <div className={`shrink-0 w-7 h-7 rounded-lg flex items-center justify-center mr-3 transition-colors border-2 ${checked ? "bg-blue-600 border-blue-600" : "bg-white border-gray-300"}`}>
-                        {checked && <CheckCircle2 className="w-5 h-5 text-white" />}
-                      </div>
-                      <span className={`text-sm font-bold truncate ${checked ? "text-blue-900" : "text-gray-700"}`}>{s}</span>
-                    </div>
-                  );
-                })}
-              </div>
-
-              <div className="mt-4 pt-4 border-t border-gray-100">
-                <label className="text-xs font-black text-gray-500 uppercase ml-2 block mb-1.5">Uwagi do sosów / dodatkowe informacje</label>
-                <input
-                  type="text"
-                  value={saucesNote}
-                  onChange={(e) => { setIsDirty(true); setSaucesNote(e.target.value); }}
-                  className="w-full p-4 bg-gray-50 focus:bg-white border border-gray-200 rounded-xl outline-none focus:ring-2 focus:ring-blue-500 transition-colors font-medium text-gray-900 shadow-inner text-sm"
-                  placeholder="Np. zostało pół wiadra czosnkowego, trzeba dorobić ostry rano..."
-                />
-              </div>
-            </Section>
-
-            <Section title="Uwagi końcowe" icon={Beaker}>
+            <Section title="Uwagi końcowe do raportu" icon={Beaker}>
               <textarea
                 value={notes}
-                onChange={(e) => { setIsDirty(true); setNotes(e.target.value); }}
+                onChange={(e) => {
+                  setIsDirty(true);
+                  setNotes(e.target.value);
+                }}
                 rows="4"
-                className="w-full p-4 bg-gray-50 focus:bg-white border border-gray-200 rounded-xl outline-none focus:ring-2 focus:ring-blue-500 transition-colors font-medium text-gray-900 shadow-inner"
-                placeholder="Nietypowe braki (np. środki czystości, opakowania spoza standardowej listy, awarie)..."
+                className="w-full p-4 bg-slate-50 focus:bg-white border border-slate-200 rounded-2xl outline-none focus:border-slate-900 transition-colors font-medium text-slate-900"
+                placeholder="Nietypowe braki, awarie sprzętu, informacje dla właściciela..."
               />
             </Section>
           </>
         )}
 
-        <div className="fixed bottom-0 left-0 right-0 p-4 bg-white/90 backdrop-blur-md border-t border-gray-200 z-50">
-          <div className="max-w-4xl mx-auto">
+        <div className="fixed bottom-0 left-0 right-0 p-3.5 bg-white/95 backdrop-blur-md border-t border-slate-200 z-50">
+          <div className="max-w-4xl mx-auto flex gap-2.5">
+            <button
+              type="button"
+              onClick={() => syncDraftToCloud().then(() => onShowModal("Szkic roboczy został zapisany w chmurze dla managera!"))}
+              className="px-4 py-4 bg-slate-100 hover:bg-slate-200 text-slate-800 font-extrabold text-xs sm:text-sm rounded-2xl flex items-center justify-center transition-colors shrink-0"
+            >
+              <Save className="w-4 h-4 mr-1.5" /> Zapisz szkic
+            </button>
             <button
               type="submit"
               disabled={loading}
-              className={`w-full py-5 text-white font-black text-xl rounded-2xl shadow-xl flex justify-center items-center active:scale-[0.98] transition-transform disabled:opacity-70 ${isAdminEdit ? "bg-purple-600 hover:bg-purple-700 shadow-purple-600/30" : isEdit ? "bg-green-600 hover:bg-green-700 shadow-green-600/30" : "bg-blue-600 hover:bg-blue-700 shadow-blue-600/30"}`}
+              className={`flex-1 py-4 text-white font-black text-base sm:text-lg rounded-2xl shadow-lg flex justify-center items-center active:scale-[0.99] transition-all disabled:opacity-70 ${
+                isAdminEdit
+                  ? "bg-purple-600 hover:bg-purple-700"
+                  : isEdit
+                  ? "bg-emerald-600 hover:bg-emerald-700"
+                  : "bg-slate-900 hover:bg-slate-800"
+              }`}
             >
               {loading ? (
-                "Przetwarzanie danych..."
+                "Zapisywanie..."
               ) : isAdminEdit ? (
-                <><CheckCircle2 className="w-7 h-7 mr-3" /> Zapisz Zmiany w Archiwum ({todayStr})</>
+                <>
+                  <CheckCircle2 className="w-5 h-5 mr-2" /> Zapisz w Archiwum ({todayStr})
+                </>
               ) : isEdit ? (
-                <><CheckCircle2 className="w-7 h-7 mr-3" /> Zaktualizuj Raport</>
+                <>
+                  <CheckCircle2 className="w-5 h-5 mr-2" /> Zaktualizuj Raport Dzienny
+                </>
               ) : (
-                <><Send className="w-7 h-7 mr-3" /> Wyślij Raport Dzienny</>
+                <>
+                  <Send className="w-5 h-5 mr-2" /> Wyślij Raport Końcowy
+                </>
               )}
             </button>
           </div>
@@ -2600,8 +3162,6 @@ function NysaWarehouseForm({
 
   const draftKey = `kebab_nysa_draft_${appId}_${todayStr}`;
   const [savedDraft] = useState(() => getLocalData(draftKey, null));
-  const [hasLoadedFromPrevious, setHasLoadedFromPrevious] = useState(() => !existingData && !savedDraft && !!previousWarehouseData);
-  const [explicitlyZeroed, setExplicitlyZeroed] = useState({});
 
   const [food, setFood] = useState(() => buildInitialSectionState(previousWarehouseData?.food, existingData?.food, savedDraft?.food));
   const [pack, setPack] = useState(() => buildInitialSectionState(previousWarehouseData?.pack, existingData?.pack, savedDraft?.pack));
@@ -2618,14 +3178,23 @@ function NysaWarehouseForm({
   useEffect(() => {
     if (!isDirty) return;
     const timer = setTimeout(() => {
-      try { localStorage.setItem(draftKey, JSON.stringify({ food, pack })); } catch (e) { console.error(e); }
+      try {
+        localStorage.setItem(draftKey, JSON.stringify({ food, pack }));
+      } catch (e) {
+        console.error(e);
+      }
     }, 350);
     return () => clearTimeout(timer);
   }, [food, pack, isDirty, draftKey]);
 
-  const handleFoodChange = useCallback((item, v) => { setIsDirty(true); setFood((p) => ({ ...p, [item]: v })); }, []);
-  const handlePackChange = useCallback((item, v) => { setIsDirty(true); setPack((p) => ({ ...p, [item]: v })); }, []);
-  const markZeroed = useCallback((itemKey) => { setExplicitlyZeroed((prev) => ({ ...prev, [itemKey]: true })); }, []);
+  const handleFoodChange = useCallback((item, v) => {
+    setIsDirty(true);
+    setFood((p) => ({ ...p, [item]: v }));
+  }, []);
+  const handlePackChange = useCallback((item, v) => {
+    setIsDirty(true);
+    setPack((p) => ({ ...p, [item]: v }));
+  }, []);
 
   const nysaFoodList = (catalog?.nysaFood || DEFAULT_CATALOG.nysaFood).filter((it) => isItemAllowedForLocation(catalog, "nysaFood", it, "Nysa"));
   const nysaPackList = (catalog?.nysaPack || DEFAULT_CATALOG.nysaPack).filter((it) => isItemAllowedForLocation(catalog, "nysaPack", it, "Nysa"));
@@ -2644,8 +3213,8 @@ function NysaWarehouseForm({
       const deterministicId = `${targetDate}_Nysa`;
       const data = {
         date: targetDate,
-        food: mergeInventorySectionForSave(existingData?.food, food, explicitlyZeroed),
-        pack: mergeInventorySectionForSave(existingData?.pack, pack, explicitlyZeroed),
+        food: mergeInventorySectionForSave(existingData?.food, food),
+        pack: mergeInventorySectionForSave(existingData?.pack, pack),
         updatedAt: new Date().toISOString(),
       };
 
@@ -2658,9 +3227,13 @@ function NysaWarehouseForm({
         setLocalData(LS_NYSA_KEY, [...filtered, { ...data, id: deterministicId }]);
       }
 
-      try { localStorage.removeItem(draftKey); } catch (e) { console.error(e); }
+      try {
+        localStorage.removeItem(draftKey);
+      } catch (e) {
+        console.error(e);
+      }
       setIsDirty(false);
-      onShowModal("Stan Magazynu Nysa został pomyślnie zaktualizowany.");
+      onShowModal("Stan Magazynu Głównego Nysa został pomyślnie zapisany.");
       onBack();
     } catch (err) {
       console.error(err);
@@ -2671,86 +3244,81 @@ function NysaWarehouseForm({
   };
 
   return (
-    <div className="pb-28">
+    <div className="pb-28 bg-slate-50 min-h-screen">
       <ConfirmExitModal
         isOpen={showExitConfirm}
         onCancel={() => setShowExitConfirm(false)}
-        onConfirm={() => { setShowExitConfirm(false); onBack(); }}
+        onConfirm={() => {
+          setShowExitConfirm(false);
+          onBack();
+        }}
       />
 
-      <div className="sticky top-0 z-40 bg-white/90 backdrop-blur-lg border-b border-gray-200 px-4 py-4 flex items-center justify-between shadow-sm max-w-full overflow-hidden">
+      <div className="sticky top-0 z-40 bg-white/95 backdrop-blur-lg border-b border-slate-200 px-4 py-4 flex items-center justify-between shadow-sm">
         <div className="flex items-center min-w-0">
           <button
             type="button"
             onClick={() => (isDirty ? setShowExitConfirm(true) : onBack())}
-            className="shrink-0 w-10 h-10 flex items-center justify-center bg-gray-100 hover:bg-gray-200 text-gray-700 rounded-full mr-3 transition-colors"
+            className="shrink-0 w-10 h-10 flex items-center justify-center bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-2xl mr-3 transition-colors"
           >
             <ArrowLeft className="w-5 h-5" />
           </button>
           <div className="min-w-0 truncate">
-            <h1 className="font-extrabold text-gray-900 text-lg sm:text-xl truncate">Magazyn Główny Nysa</h1>
-            <p className="text-xs font-semibold text-gray-500 truncate">
+            <h1 className="font-extrabold text-slate-900 text-lg sm:text-xl truncate">Magazyn Główny Nysa</h1>
+            <p className="text-xs font-semibold text-slate-500 truncate">
               {isEdit ? `Edycja stanu (${todayStr})` : `Uzupełniasz stan (${todayStr})`}
             </p>
           </div>
         </div>
       </div>
 
-      <form onSubmit={handleSubmit} noValidate className="p-4 sm:p-6 max-w-4xl mx-auto space-y-6 overflow-x-hidden">
-        {hasLoadedFromPrevious && previousWarehouseData && (
-          <div className="bg-purple-50 border border-purple-200 p-4 rounded-2xl flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-            <div className="flex items-center text-xs font-bold text-purple-950">
-              <RotateCcw className="w-5 h-5 mr-2.5 text-purple-600 shrink-0" />
-              <span>Wczytano ostatnie stany Magazynu Nysa z dnia <strong className="underline">{previousWarehouseData.date}</strong> — skoryguj tylko zmiany (+/-).</span>
-            </div>
-            <button
-              type="button"
-              onClick={() => { setIsDirty(true); setHasLoadedFromPrevious(false); setFood({}); setPack({}); }}
-              className="text-xs font-black text-red-600 hover:text-red-700 bg-white px-3 py-1.5 rounded-xl border border-red-200 shrink-0 self-start sm:self-center"
-            >
-              Wyzeruj wszystkie stany do 0
-            </button>
-          </div>
-        )}
-
-        <div className="bg-white p-3.5 rounded-2xl border border-purple-200 shadow-sm flex items-center gap-3">
-          <Search className="w-5 h-5 text-purple-600 ml-1 shrink-0" />
+      <form onSubmit={handleSubmit} noValidate className="p-4 sm:p-6 max-w-4xl mx-auto space-y-5 overflow-x-hidden">
+        <div className="bg-white p-3.5 rounded-2xl border border-slate-200 shadow-sm flex items-center gap-3">
+          <Search className="w-5 h-5 text-slate-400 ml-1 shrink-0" />
           <input
             type="text"
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
-            placeholder="Filtruj asortyment magazynu Nysa..."
-            className="w-full bg-transparent font-bold text-sm text-gray-900 outline-none"
+            placeholder="Szukaj w magazynie głównym Nysa..."
+            className="w-full bg-transparent font-bold text-sm text-slate-900 outline-none"
           />
           {searchQuery && (
-            <button type="button" onClick={() => setSearchQuery("")} className="text-xs font-black text-gray-500 hover:text-gray-800 bg-gray-100 px-2.5 py-1 rounded-lg shrink-0">
+            <button
+              type="button"
+              onClick={() => setSearchQuery("")}
+              className="text-xs font-black text-slate-500 hover:text-slate-800 bg-slate-100 px-2.5 py-1 rounded-lg shrink-0"
+            >
               Wyczyść
             </button>
           )}
         </div>
 
         {[
-          { title: "Żywność", icon: ChefHat, list: nysaFoodList, state: food, handler: handleFoodChange },
-          { title: "Opakowania", icon: Package, list: nysaPackList, state: pack, handler: handlePackChange },
+          { title: "Żywność (Magazyn Nysa)", icon: ChefHat, list: nysaFoodList, state: food, handler: handleFoodChange },
+          { title: "Opakowania (Magazyn Nysa)", icon: Package, list: nysaPackList, state: pack, handler: handlePackChange },
         ].map(({ title, icon: Icon, list, state, handler }) => (
-          <div key={title} className="p-4 sm:p-6 rounded-[2rem] border border-purple-200 bg-purple-50/30 shadow-sm">
-            <h3 className="font-extrabold text-xl text-purple-900 mb-5 flex items-center">
-              <Icon className="w-6 h-6 mr-2 opacity-80" /> {title}
-            </h3>
+          <Section key={title} title={title} icon={Icon}>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-x-4">
               {filterList(list).map((item) => (
-                <Counter key={item} itemKey={item} label={item} unit={getItemUnit(catalog, item)} value={state[item]} onItemChange={handler} onExplicitZero={markZeroed} />
+                <Counter
+                  key={item}
+                  itemKey={item}
+                  label={item}
+                  unit={getItemUnit(catalog, item)}
+                  value={state[item]}
+                  onItemChange={handler}
+                />
               ))}
             </div>
-          </div>
+          </Section>
         ))}
 
-        <div className="fixed bottom-0 left-0 right-0 p-4 bg-white/90 backdrop-blur-md border-t border-gray-200 z-50">
+        <div className="fixed bottom-0 left-0 right-0 p-4 bg-white/95 backdrop-blur-md border-t border-slate-200 z-50">
           <div className="max-w-4xl mx-auto">
             <button
               type="submit"
               disabled={loading}
-              className="w-full py-5 text-white font-black text-xl rounded-2xl shadow-xl shadow-purple-600/30 flex justify-center items-center active:scale-95 transition-transform bg-purple-600 hover:bg-purple-700 disabled:opacity-70"
+              className="w-full py-4 text-white font-black text-lg rounded-2xl shadow-lg flex justify-center items-center active:scale-[0.99] transition-all bg-slate-900 hover:bg-slate-800 disabled:opacity-70"
             >
               {loading ? "Trwa zapis..." : isEdit ? "Zaktualizuj Stan Magazynu" : "Zapisz Stan Magazynu"}
             </button>
@@ -2766,6 +3334,7 @@ function NysaWarehouseForm({
   name,
   onLogout,
   allReports = [],
+  allLiveDrafts = [],
   allNysaWarehouse = [],
   tasks = [],
   shifts = [],
@@ -2784,6 +3353,9 @@ function NysaWarehouseForm({
   const allowedLocations = useMemo(() => (isKlodzkoAdmin ? ["Kłodzko"] : LOCATIONS), [isKlodzkoAdmin]);
 
   const [tab, setTab] = useState(hasFullAnalytics ? "reports" : "hours");
+  const [catalogSubTab, setCatalogSubTab] = useState("assortment");
+  const [showAvgUsagePanel, setShowAvgUsagePanel] = useState(false);
+
   const [newTask, setNewTask] = useState("");
   const [newTaskLoc, setNewTaskLoc] = useState(isKlodzkoAdmin ? "Kłodzko" : "All");
   const [newTaskType, setNewTaskType] = useState("adhoc");
@@ -2851,6 +3423,11 @@ function NysaWarehouseForm({
     [allReports, isKlodzkoAdmin]
   );
 
+  const roleFilteredLiveDrafts = useMemo(
+    () => (isKlodzkoAdmin ? allLiveDrafts.filter((d) => d?.location === "Kłodzko") : allLiveDrafts),
+    [allLiveDrafts, isKlodzkoAdmin]
+  );
+
   const roleFilteredShifts = useMemo(
     () => (isKlodzkoAdmin ? shifts.filter((s) => s?.location === "Kłodzko") : shifts),
     [shifts, isKlodzkoAdmin]
@@ -2864,6 +3441,41 @@ function NysaWarehouseForm({
   const reportsForSelectedDate = useMemo(
     () => roleFilteredAllReports.filter((r) => r?.date === selectedReportDate),
     [roleFilteredAllReports, selectedReportDate]
+  );
+
+  const draftsForSelectedDate = useMemo(
+    () => roleFilteredLiveDrafts.filter((d) => d?.date === selectedReportDate),
+    [roleFilteredLiveDrafts, selectedReportDate]
+  );
+
+  const getEffectiveInventoryRecordForLocation = useCallback(
+    (loc) => {
+      const finalRep = reportsForSelectedDate.find((r) => r?.location === loc) || null;
+      const liveDraft = draftsForSelectedDate.find((d) => d?.location === loc) || null;
+      if (finalRep && liveDraft) {
+        const isDraftNewer = (liveDraft.updatedAt || "") > (finalRep.updatedAt || "");
+        return {
+          ...finalRep,
+          vegetables: isDraftNewer && hasAnyPositiveValue(liveDraft.vegetables) ? liveDraft.vegetables : finalRep.vegetables,
+          freezer: isDraftNewer && hasAnyPositiveValue(liveDraft.freezer) ? liveDraft.freezer : finalRep.freezer,
+          farutex: isDraftNewer && hasAnyPositiveValue(liveDraft.farutex) ? liveDraft.farutex : finalRep.farutex,
+          meat1: isDraftNewer && hasAnyPositiveValue(liveDraft.meat1) ? liveDraft.meat1 : finalRep.meat1,
+          meat2: isDraftNewer && hasAnyPositiveValue(liveDraft.meat2) ? liveDraft.meat2 : finalRep.meat2,
+          otherItems: isDraftNewer && hasAnyPositiveValue(liveDraft.otherItems) ? liveDraft.otherItems : finalRep.otherItems,
+          confirmedSections: { ...(finalRep.confirmedSections || {}), ...(liveDraft.confirmedSections || {}) },
+          isLiveDraftOnly: false,
+          hasFinalReport: true,
+        };
+      }
+      if (finalRep) {
+        return { ...finalRep, isLiveDraftOnly: false, hasFinalReport: true };
+      }
+      if (liveDraft) {
+        return { ...liveDraft, isLiveDraftOnly: true, hasFinalReport: false };
+      }
+      return null;
+    },
+    [reportsForSelectedDate, draftsForSelectedDate]
   );
 
   const reportsForSummaryPeriod = useMemo(() => {
@@ -2890,7 +3502,11 @@ function NysaWarehouseForm({
         nysaWarehouse: isKlodzkoAdmin ? [] : allNysaWarehouse,
         catalog: isOwner ? catalog : undefined,
       };
-      downloadFile(JSON.stringify(payload, null, 2), `Kopia_Bazy_Raporty_${getCalendarTodayString()}.json`, "application/json;charset=utf-8;");
+      downloadFile(
+        JSON.stringify(payload, null, 2),
+        `Kopia_Bazy_Raporty_${getCalendarTodayString()}.json`,
+        "application/json;charset=utf-8;"
+      );
       onShowModal("Pobrano pełną kopię zapasową bazy danych (plik JSON)!");
     } catch (e) {
       console.error("Błąd eksportu JSON:", e);
@@ -2901,9 +3517,21 @@ function NysaWarehouseForm({
   const handleDownloadCSV = () => {
     try {
       const headers = [
-        "Data", "Punkt", "Osoba raportujaca", "Liczba zamowien", "Gotowka (PLN)", "Karta (PLN)", "Aplikacje (PLN)",
-        "Utarg Laczny (PLN)", "Raport Fiskalny (PLN)", "Brak / Nadwyzka (PLN)", "Wydatki z kasy KW (PLN)",
-        "Gotowka w kasetce po KW (PLN)", "Obsada i godziny", "Braki sosow", "Uwagi koncowe",
+        "Data",
+        "Punkt",
+        "Osoba raportujaca",
+        "Liczba zamowien",
+        "Gotowka (PLN)",
+        "Karta (PLN)",
+        "Aplikacje (PLN)",
+        "Utarg Laczny (PLN)",
+        "Raport Fiskalny (PLN)",
+        "Brak / Nadwyzka (PLN)",
+        "Wydatki z kasy KW (PLN)",
+        "Gotowka w kasetce po KW (PLN)",
+        "Obsada i godziny",
+        "Braki sosow",
+        "Uwagi koncowe",
       ];
       const sorted = [...roleFilteredAllReports].sort((a, b) => ((a?.date || "") < (b?.date || "") ? 1 : -1));
       const rows = sorted.map((r) => {
@@ -2917,17 +3545,36 @@ function NysaWarehouseForm({
         const kw = calculateTotalExpenses(r?.expenses);
         const cashNet = got - kw;
         const staffStr = Array.isArray(r?.employees)
-          ? r.employees.filter((e) => e?.name || e?.hours).map((e) => `${e?.name || ""} (${e?.hours || ""})`).join(" | ")
+          ? r.employees
+              .filter((e) => e?.name || e?.hours)
+              .map((e) => `${e?.name || ""} (${e?.hours || ""})`)
+              .join(" | ")
           : "";
         const saucesStr = Array.isArray(r?.sauces) ? r.sauces.join(", ") : "";
         const cleanNotes = String(r?.notes || "").replace(/[\r\n;]+/g, " ");
         return [
-          r?.date || "", r?.location || "", r?.reporter || "", orders, got.toFixed(2), kar.toFixed(2), apl.toFixed(2),
-          tot.toFixed(2), fisk.toFixed(2), roz.toFixed(2), kw.toFixed(2), cashNet.toFixed(2),
-          `"${staffStr}"`, `"${saucesStr}"`, `"${cleanNotes}"`,
+          r?.date || "",
+          r?.location || "",
+          r?.reporter || "",
+          orders,
+          got.toFixed(2),
+          kar.toFixed(2),
+          apl.toFixed(2),
+          tot.toFixed(2),
+          fisk.toFixed(2),
+          roz.toFixed(2),
+          kw.toFixed(2),
+          cashNet.toFixed(2),
+          `"${staffStr}"`,
+          `"${saucesStr}"`,
+          `"${cleanNotes}"`,
         ].join(";");
       });
-      downloadFile("\uFEFF" + [headers.join(";"), ...rows].join("\n"), `Zestawienie_Utargow_${getCalendarTodayString()}.csv`, "text/csv;charset=utf-8;");
+      downloadFile(
+        "\uFEFF" + [headers.join(";"), ...rows].join("\n"),
+        `Zestawienie_Utargow_${getCalendarTodayString()}.csv`,
+        "text/csv;charset=utf-8;"
+      );
       onShowModal("Pobrano zestawienie utargów i godzin do pliku CSV (Excel)!");
     } catch (e) {
       console.error("Błąd eksportu CSV:", e);
@@ -2936,8 +3583,11 @@ function NysaWarehouseForm({
   };
 
   const handleUpdateIssueStatus = async (reportObj, issueKey, nextStatus) => {
-    if (!reportObj?.id) return;
-    const updatedStatuses = { ...(reportObj.issueStatuses && typeof reportObj.issueStatuses === "object" ? reportObj.issueStatuses : {}), [issueKey]: nextStatus };
+    if (!reportObj?.id || reportObj.isLiveDraftOnly) return;
+    const updatedStatuses = {
+      ...(reportObj.issueStatuses && typeof reportObj.issueStatuses === "object" ? reportObj.issueStatuses : {}),
+      [issueKey]: nextStatus,
+    };
     try {
       if (db) {
         await ensureAuth();
@@ -2947,7 +3597,10 @@ function NysaWarehouseForm({
         });
       } else {
         const currentReports = getLocalData(LS_REPORTS_KEY, []);
-        setLocalData(LS_REPORTS_KEY, currentReports.map((r) => (r.id === reportObj.id ? { ...r, issueStatuses: updatedStatuses } : r)));
+        setLocalData(
+          LS_REPORTS_KEY,
+          currentReports.map((r) => (r.id === reportObj.id ? { ...r, issueStatuses: updatedStatuses } : r))
+        );
       }
     } catch (err) {
       console.error("Błąd aktualizacji statusu uwagi/braku:", err);
@@ -2956,20 +3609,35 @@ function NysaWarehouseForm({
   };
 
   const renderIssueStatusSwitcher = (reportObj, issueKey) => {
+    if (reportObj?.isLiveDraftOnly) return null;
     const currentStatus = reportObj?.issueStatuses?.[issueKey] || "Do załatwienia";
     const statuses = [
-      { label: "Do załatwienia", activeClass: "bg-red-600 text-white border-red-600 shadow-sm", inactiveClass: "bg-white text-gray-500 border-gray-200 hover:bg-red-50 hover:text-red-700" },
-      { label: "Zamówione", activeClass: "bg-amber-500 text-white border-amber-500 shadow-sm", inactiveClass: "bg-white text-gray-500 border-gray-200 hover:bg-amber-50 hover:text-amber-700" },
-      { label: "Załatwione", activeClass: "bg-emerald-600 text-white border-emerald-600 shadow-sm", inactiveClass: "bg-white text-gray-500 border-gray-200 hover:bg-emerald-50 hover:text-emerald-700" },
+      {
+        label: "Do załatwienia",
+        activeClass: "bg-rose-600 text-white border-rose-600 shadow-sm",
+        inactiveClass: "bg-white text-slate-500 border-slate-200 hover:bg-rose-50 hover:text-rose-700",
+      },
+      {
+        label: "Zamówione",
+        activeClass: "bg-amber-500 text-white border-amber-500 shadow-sm",
+        inactiveClass: "bg-white text-slate-500 border-slate-200 hover:bg-amber-50 hover:text-amber-700",
+      },
+      {
+        label: "Załatwione",
+        activeClass: "bg-emerald-600 text-white border-emerald-600 shadow-sm",
+        inactiveClass: "bg-white text-slate-500 border-slate-200 hover:bg-emerald-50 hover:text-emerald-700",
+      },
     ];
     return (
-      <div className="flex flex-wrap items-center gap-1 mt-2 pt-2 border-t border-gray-200/60">
+      <div className="flex flex-wrap items-center gap-1 mt-2 pt-2 border-t border-slate-200/60">
         {statuses.map((st) => (
           <button
             key={st.label}
             type="button"
             onClick={() => handleUpdateIssueStatus(reportObj, issueKey, st.label)}
-            className={`text-[10px] font-black px-2 py-1 rounded-lg border transition-colors ${currentStatus === st.label ? st.activeClass : st.inactiveClass}`}
+            className={`text-[10px] font-black px-2 py-1 rounded-lg border transition-colors ${
+              currentStatus === st.label ? st.activeClass : st.inactiveClass
+            }`}
           >
             {st.label}
           </button>
@@ -2981,7 +3649,7 @@ function NysaWarehouseForm({
   const builtInCategoriesMeta = [
     { key: "vegetables", label: "Warzywa i Inne (Licznik +/-)" },
     { key: "freezer", label: "Stan Zamrażarek (Licznik +/-)" },
-    { key: "farutex", label: " Farutex (Licznik +/-)" },
+    { key: "farutex", label: "Farutex (Licznik +/-)" },
     { key: "meat1", label: "Dostawa Mięso 1 (Licznik +/-)" },
     { key: "meat2", label: "Dostawa Mięso 2 (Licznik +/-)" },
     { key: "otherItems", label: "Inne: Opakowania / Chemia (Licznik +/-)" },
@@ -3014,14 +3682,20 @@ function NysaWarehouseForm({
         const curr = Array.isArray(cat.items) ? cat.items : [];
         return curr.some((x) => x.toLowerCase() === clean.toLowerCase()) ? cat : { ...cat, items: [...curr, clean] };
       });
-      await onSaveCatalog({ ...catalog, customCategories: nextCustom, itemUnits: nextUnits }, `Dodano pozycję "${clean}" (${newItemUnit}) do kategorii!`);
+      await onSaveCatalog(
+        { ...catalog, customCategories: nextCustom, itemUnits: nextUnits },
+        `Dodano pozycję "${clean}" (${newItemUnit}) do kategorii!`
+      );
     } else {
       const currentList = Array.isArray(catalog?.[selectedCatalogCategory]) ? catalog[selectedCatalogCategory] : [];
       if (currentList.some((x) => x.toLowerCase() === clean.toLowerCase())) {
         onShowModal("Taka pozycja już istnieje w tej kategorii.");
         return;
       }
-      await onSaveCatalog({ ...catalog, [selectedCatalogCategory]: [...currentList, clean], itemUnits: nextUnits }, `Dodano pozycję "${clean}" (${newItemUnit})!`);
+      await onSaveCatalog(
+        { ...catalog, [selectedCatalogCategory]: [...currentList, clean], itemUnits: nextUnits },
+        `Dodano pozycję "${clean}" (${newItemUnit})!`
+      );
     }
     setNewItemName("");
   };
@@ -3041,10 +3715,20 @@ function NysaWarehouseForm({
       const nextCustom = customCategoriesList.map((cat) =>
         cat.id !== catId ? cat : { ...cat, items: (cat.items || []).filter((x) => x !== itemToRemove) }
       );
-      await onSaveCatalog({ ...catalog, customCategories: nextCustom, itemLocations: nextItemLocs }, `Usunięto pozycję "${itemToRemove}".`);
+      await onSaveCatalog(
+        { ...catalog, customCategories: nextCustom, itemLocations: nextItemLocs },
+        `Usunięto pozycję "${itemToRemove}".`
+      );
     } else {
       const currentList = Array.isArray(catalog?.[selectedCatalogCategory]) ? catalog[selectedCatalogCategory] : [];
-      await onSaveCatalog({ ...catalog, [selectedCatalogCategory]: currentList.filter((x) => x !== itemToRemove), itemLocations: nextItemLocs }, `Usunięto pozycję "${itemToRemove}".`);
+      await onSaveCatalog(
+        {
+          ...catalog,
+          [selectedCatalogCategory]: currentList.filter((x) => x !== itemToRemove),
+          itemLocations: nextItemLocs,
+        },
+        `Usunięto pozycję "${itemToRemove}".`
+      );
     }
   };
 
@@ -3081,7 +3765,10 @@ function NysaWarehouseForm({
       ...currentMap,
       [selectedEmpManageLoc]: [...locList, cleanName],
     };
-    await onSaveCatalog({ ...catalog, employeesByLocation: nextMap }, `Dodano pracownika "${cleanName}" do punktu ${selectedEmpManageLoc}!`);
+    await onSaveCatalog(
+      { ...catalog, employeesByLocation: nextMap },
+      `Dodano pracownika "${cleanName}" do punktu ${selectedEmpManageLoc}!`
+    );
     setNewEmployeeName("");
   };
 
@@ -3101,10 +3788,13 @@ function NysaWarehouseForm({
     if (!cleanName) return;
     const newId = `cat_${Date.now()}`;
     const nextCustom = [...customCategoriesList, { id: newId, name: cleanName, type: newCategoryType, items: [] }];
-    const nextDeliveryDays = { ...(catalog?.deliveryDays || DEFAULT_DELIVERY_DAYS), [`custom_${newId}`]: [1, 2, 3, 4, 5, 6, 0] };
+    const nextDeliveryDays = {
+      ...(catalog?.deliveryDays || DEFAULT_DELIVERY_DAYS),
+      [`custom_${newId}`]: [1, 2, 3, 4, 5, 6, 0],
+    };
     await onSaveCatalog(
       { ...catalog, customCategories: nextCustom, deliveryDays: nextDeliveryDays },
-      `Utworzono nową kategorię "${cleanName}"! Teraz możesz dodać do niej pozycje i ustawić jej dni aktywności.`
+      `Utworzono nową kategorię "${cleanName}"!`
     );
     setNewCategoryName("");
     setSelectedCatalogCategory(`custom:${newId}`);
@@ -3124,14 +3814,19 @@ function NysaWarehouseForm({
   const handleToggleDeliveryDay = (deliveryKey, dayId) => {
     setDeliveryDaysDraft((prev) => {
       const currentDays = Array.isArray(prev[deliveryKey]) ? prev[deliveryKey].map(Number) : [];
-      const nextDays = currentDays.includes(dayId) ? currentDays.filter((id) => id !== dayId) : [...currentDays, dayId];
+      const nextDays = currentDays.includes(dayId)
+        ? currentDays.filter((id) => id !== dayId)
+        : [...currentDays, dayId];
       return { ...prev, [deliveryKey]: nextDays };
     });
   };
 
   const handleSaveDeliveryDays = async (e) => {
     e.preventDefault();
-    await onSaveCatalog({ ...catalog, deliveryDays: deliveryDaysDraft }, "Harmonogram dni uzupełniania kategorii został zapisany!");
+    await onSaveCatalog(
+      { ...catalog, deliveryDays: deliveryDaysDraft },
+      "Harmonogram dni uzupełniania kategorii został zapisany!"
+    );
   };
 
   const toggleNewTaskDay = (dayId) => {
@@ -3168,7 +3863,11 @@ function NysaWarehouseForm({
       }
 
       setNewTask("");
-      onShowModal(newTaskType === "recurring" ? "Stałe zadanie harmonogramowe zostało zapisane!" : "Zadanie doraźne zostało wysłane na punkt!");
+      onShowModal(
+        newTaskType === "recurring"
+          ? "Stałe zadanie harmonogramowe zostało zapisane!"
+          : "Zadanie doraźne zostało wysłane na punkt!"
+      );
     } catch (err) {
       console.error(err);
       onShowModal("Błąd wysyłania zadania.");
@@ -3179,17 +3878,37 @@ function NysaWarehouseForm({
     try {
       if (db) await deleteDoc(doc(db, "artifacts", appId, "public", "data", "tasks", id));
       else setLocalData(LS_TASKS_KEY, getLocalData(LS_TASKS_KEY, []).filter((t) => t.id !== id));
-    } catch (err) { console.error(err); }
+    } catch (err) {
+      console.error(err);
+    }
   };
 
   const dailyNetworkSummary = useMemo(() => {
-    let sumGotowka = 0, sumKarta = 0, sumAplikacje = 0, sumFiskalny = 0, sumRoznica = 0, sumExpenses = 0, sumOrders = 0;
+    let sumGotowka = 0,
+      sumKarta = 0,
+      sumAplikacje = 0,
+      sumFiskalny = 0,
+      sumRoznica = 0,
+      sumExpenses = 0,
+      sumOrders = 0;
     const fallbackVal = parseSafeNumber(avgOrderFallbackVal) || DEFAULT_AVG_ORDER_VALUE;
     const perLocationMap = {};
     allowedLocations.forEach((loc) => {
       perLocationMap[loc] = {
-        location: loc, hasReport: false, gotowka: 0, karta: 0, aplikacje: 0, total: 0, orders: 0,
-        fiskalny: 0, roznica: 0, expenses: 0, sharePct: 0, pctGotowka: 0, pctKarta: 0, pctAplikacje: 0,
+        location: loc,
+        hasReport: false,
+        gotowka: 0,
+        karta: 0,
+        aplikacje: 0,
+        total: 0,
+        orders: 0,
+        fiskalny: 0,
+        roznica: 0,
+        expenses: 0,
+        sharePct: 0,
+        pctGotowka: 0,
+        pctKarta: 0,
+        pctAplikacje: 0,
       };
     });
 
@@ -3203,13 +3922,25 @@ function NysaWarehouseForm({
       const ord = getEffectiveOrdersCount(r, fallbackVal);
       const locTot = g + k + a;
 
-      sumGotowka += g; sumKarta += k; sumAplikacje += a; sumFiskalny += f; sumRoznica += roz; sumExpenses += exp; sumOrders += ord;
+      sumGotowka += g;
+      sumKarta += k;
+      sumAplikacje += a;
+      sumFiskalny += f;
+      sumRoznica += roz;
+      sumExpenses += exp;
+      sumOrders += ord;
 
       if (r?.location && perLocationMap[r.location]) {
         const cur = perLocationMap[r.location];
         cur.hasReport = true;
-        cur.gotowka += g; cur.karta += k; cur.aplikacje += a; cur.total += locTot;
-        cur.fiskalny += f; cur.roznica += roz; cur.expenses += exp; cur.orders += ord;
+        cur.gotowka += g;
+        cur.karta += k;
+        cur.aplikacje += a;
+        cur.total += locTot;
+        cur.fiskalny += f;
+        cur.roznica += roz;
+        cur.expenses += exp;
+        cur.orders += ord;
       }
     });
 
@@ -3231,9 +3962,21 @@ function NysaWarehouseForm({
     });
 
     return {
-      sumGotowka, sumKarta, sumAplikacje, sumFiskalny, sumRoznica, sumExpenses, sumOrders,
-      netCashInDrawer: sumGotowka - sumExpenses, totalRevenue, pctGotowka, pctKarta, pctAplikacje,
-      reportedCount: reportsForSummaryPeriod.length, locationShares, perLocationMap,
+      sumGotowka,
+      sumKarta,
+      sumAplikacje,
+      sumFiskalny,
+      sumRoznica,
+      sumExpenses,
+      sumOrders,
+      netCashInDrawer: sumGotowka - sumExpenses,
+      totalRevenue,
+      pctGotowka,
+      pctKarta,
+      pctAplikacje,
+      reportedCount: reportsForSummaryPeriod.length,
+      locationShares,
+      perLocationMap,
     };
   }, [reportsForSummaryPeriod, allowedLocations, avgOrderFallbackVal]);
 
@@ -3242,14 +3985,24 @@ function NysaWarehouseForm({
       const locData = dailyNetworkSummary.perLocationMap[paymentBreakdownLoc];
       return {
         label: `Punkt: ${paymentBreakdownLoc}`,
-        gotowka: locData.gotowka, karta: locData.karta, aplikacje: locData.aplikacje, total: locData.total,
-        pctGotowka: locData.pctGotowka, pctKarta: locData.pctKarta, pctAplikacje: locData.pctAplikacje,
+        gotowka: locData.gotowka,
+        karta: locData.karta,
+        aplikacje: locData.aplikacje,
+        total: locData.total,
+        pctGotowka: locData.pctGotowka,
+        pctKarta: locData.pctKarta,
+        pctAplikacje: locData.pctAplikacje,
       };
     }
     return {
       label: isKlodzkoAdmin ? "Punkt: Kłodzko" : "Cała sieć (Wszystkie punkty)",
-      gotowka: dailyNetworkSummary.sumGotowka, karta: dailyNetworkSummary.sumKarta, aplikacje: dailyNetworkSummary.sumAplikacje,
-      total: dailyNetworkSummary.totalRevenue, pctGotowka: dailyNetworkSummary.pctGotowka, pctKarta: dailyNetworkSummary.pctKarta, pctAplikacje: dailyNetworkSummary.pctAplikacje,
+      gotowka: dailyNetworkSummary.sumGotowka,
+      karta: dailyNetworkSummary.sumKarta,
+      aplikacje: dailyNetworkSummary.sumAplikacje,
+      total: dailyNetworkSummary.totalRevenue,
+      pctGotowka: dailyNetworkSummary.pctGotowka,
+      pctKarta: dailyNetworkSummary.pctKarta,
+      pctAplikacje: dailyNetworkSummary.pctAplikacje,
     };
   }, [paymentBreakdownLoc, dailyNetworkSummary, isKlodzkoAdmin]);
 
@@ -3260,9 +4013,7 @@ function NysaWarehouseForm({
 
   const averageUsagePerOrderData = useMemo(() => {
     const fallbackVal = parseSafeNumber(avgOrderFallbackVal) || DEFAULT_AVG_ORDER_VALUE;
-    const filteredReports = reportsForSelectedDate.filter((r) =>
-      inventoryLocFilter === "All" ? allowedLocations.includes(r?.location) : r?.location === inventoryLocFilter
-    );
+    const targetLocs = inventoryLocFilter === "All" ? allowedLocations : [inventoryLocFilter];
 
     let totalOrders = 0;
     const totalsBySection = {
@@ -3274,7 +4025,9 @@ function NysaWarehouseForm({
       otherItems: {},
     };
 
-    filteredReports.forEach((rep) => {
+    targetLocs.forEach((loc) => {
+      const rep = getEffectiveInventoryRecordForLocation(loc);
+      if (!rep) return;
       totalOrders += getEffectiveOrdersCount(rep, fallbackVal);
       Object.keys(totalsBySection).forEach((secKey) => {
         const secObj = rep?.[secKey];
@@ -3289,12 +4042,20 @@ function NysaWarehouseForm({
       });
     });
 
-    return { totalOrders, totalsBySection, reportsCount: filteredReports.length };
-  }, [reportsForSelectedDate, inventoryLocFilter, allowedLocations, avgOrderFallbackVal]);
+    return { totalOrders, totalsBySection };
+  }, [inventoryLocFilter, allowedLocations, avgOrderFallbackVal, getEffectiveInventoryRecordForLocation]);
 
   const dayStats = useMemo(() => {
     if (!hasFullAnalytics) return null;
-    const dayBuckets = { 1: { sum: 0, count: 0 }, 2: { sum: 0, count: 0 }, 3: { sum: 0, count: 0 }, 4: { sum: 0, count: 0 }, 5: { sum: 0, count: 0 }, 6: { sum: 0, count: 0 }, 0: { sum: 0, count: 0 } };
+    const dayBuckets = {
+      1: { sum: 0, count: 0 },
+      2: { sum: 0, count: 0 },
+      3: { sum: 0, count: 0 },
+      4: { sum: 0, count: 0 },
+      5: { sum: 0, count: 0 },
+      6: { sum: 0, count: 0 },
+      0: { sum: 0, count: 0 },
+    };
     const weekBounds = getWeekBounds(statsWeekRefDate);
     const activeStart = statsFilterMode === "week" ? weekBounds.start : statsFilterMode === "range" ? statsCustomStart : "";
     const activeEnd = statsFilterMode === "week" ? weekBounds.end : statsFilterMode === "range" ? statsCustomEnd : "";
@@ -3312,7 +4073,10 @@ function NysaWarehouseForm({
 
     filtered.forEach((r) => {
       const dayIdx = getDayOfWeekFromDateStr(r.date);
-      const totalRev = parseSafeNumber(r.revenue?.gotowka) + parseSafeNumber(r.revenue?.karta) + parseSafeNumber(r.revenue?.aplikacje);
+      const totalRev =
+        parseSafeNumber(r.revenue?.gotowka) +
+        parseSafeNumber(r.revenue?.karta) +
+        parseSafeNumber(r.revenue?.aplikacje);
       if (totalRev > 0 && dayBuckets[dayIdx] !== undefined) {
         dayBuckets[dayIdx].sum += totalRev;
         dayBuckets[dayIdx].count += 1;
@@ -3325,18 +4089,33 @@ function NysaWarehouseForm({
     });
 
     const activeDays = statsList.filter((d) => d.count > 0);
-    let bestDay = null, worstDay = null;
+    let bestDay = null,
+      worstDay = null;
     if (activeDays.length > 0) {
       bestDay = activeDays.reduce((prev, curr) => (curr.avg > prev.avg ? curr : prev));
       worstDay = activeDays.reduce((prev, curr) => (curr.avg < prev.avg ? curr : prev));
     }
 
     return {
-      statsList, bestDay, worstDay, maxAvg: bestDay ? bestDay.avg : 0,
-      totalReportsCount: filtered.length, totalPeriodRevenue: statsList.reduce((acc, d) => acc + d.sum, 0),
-      activeStart, activeEnd,
+      statsList,
+      bestDay,
+      worstDay,
+      maxAvg: bestDay ? bestDay.avg : 0,
+      totalReportsCount: filtered.length,
+      totalPeriodRevenue: statsList.reduce((acc, d) => acc + d.sum, 0),
+      activeStart,
+      activeEnd,
     };
-  }, [hasFullAnalytics, statsWeekRefDate, statsFilterMode, statsCustomStart, statsCustomEnd, isKlodzkoAdmin, statsLocation, roleFilteredAllReports]);
+  }, [
+    hasFullAnalytics,
+    statsWeekRefDate,
+    statsFilterMode,
+    statsCustomStart,
+    statsCustomEnd,
+    isKlodzkoAdmin,
+    statsLocation,
+    roleFilteredAllReports,
+  ]);
 
   const shiftStatsWeek = (daysOffset) => {
     const d = parseDateStr(statsWeekRefDate);
@@ -3358,7 +4137,8 @@ function NysaWarehouseForm({
         if (!summaryByPerson[normKey]) {
           summaryByPerson[normKey] = { displayName: empName, totalHours: 0, shiftsCount: 0, locations: new Set() };
         }
-        summaryByPerson[normKey].totalHours = Math.round((summaryByPerson[normKey].totalHours + entryObj.calculatedHours) * 100) / 100;
+        summaryByPerson[normKey].totalHours =
+          Math.round((summaryByPerson[normKey].totalHours + entryObj.calculatedHours) * 100) / 100;
         summaryByPerson[normKey].shiftsCount += 1;
         summaryByPerson[normKey].locations.add(entryObj.location);
       }
@@ -3439,16 +4219,33 @@ function NysaWarehouseForm({
       .sort((a, b) => b.totalHours - a.totalHours);
 
     return { entries, summaryList };
-  }, [isKlodzkoAdmin, hoursLocation, hoursSourceMode, roleFilteredAllReports, roleFilteredShifts, hoursStartDate, hoursEndDate]);
+  }, [
+    isKlodzkoAdmin,
+    hoursLocation,
+    hoursSourceMode,
+    roleFilteredAllReports,
+    roleFilteredShifts,
+    hoursStartDate,
+    hoursEndDate,
+  ]);
 
-  const renderInventoryGroup = (title, itemsList, recordObj, colorClass, ordersCountForReport = 0) => {
+  const renderInventoryGroup = (title, sectionKey, itemsList, recordObj, confirmedMap = {}, ordersCountForReport = 0) => {
     const extraKeys = recordObj ? Object.keys(recordObj).filter((k) => !itemsList.includes(k)) : [];
     const combinedItems = [...itemsList, ...extraKeys];
     if (combinedItems.length === 0) return null;
 
+    const confInfo = confirmedMap?.[sectionKey];
+
     return (
-      <div className="bg-gray-50 p-4 rounded-2xl border border-gray-100">
-        <h4 className={`text-xs font-black uppercase tracking-wider mb-3 ${colorClass}`}>{title}</h4>
+      <div className="bg-slate-50 p-4 rounded-2xl border border-slate-200/80">
+        <div className="flex items-center justify-between gap-2 flex-wrap mb-3">
+          <h4 className="text-xs font-black uppercase tracking-wider text-slate-700">{title}</h4>
+          {confInfo && (
+            <span className="bg-emerald-100 text-emerald-800 border border-emerald-200 text-[10px] font-black px-2.5 py-0.5 rounded-md">
+              ✓ Zatwierdzone o {confInfo.time} {confInfo.by ? `(${confInfo.by})` : ""}
+            </span>
+          )}
+        </div>
         <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-2">
           {combinedItems.map((item) => {
             const rawVal = recordObj?.[item];
@@ -3457,17 +4254,32 @@ function NysaWarehouseForm({
             const perOrderVal = ordersCountForReport > 0 && numVal > 0 ? numVal / ordersCountForReport : 0;
             const unit = getItemUnit(catalog, item);
             return (
-              <div key={item} className={`p-2.5 rounded-xl border flex flex-col justify-between text-xs ${isLowOrZero ? "bg-red-50/70 border-red-200 text-red-900" : "bg-white border-gray-200 text-gray-800"}`}>
+              <div
+                key={item}
+                className={`p-2.5 rounded-xl border flex flex-col justify-between text-xs ${
+                  isLowOrZero
+                    ? "bg-rose-50/60 border-rose-200/80 text-rose-900"
+                    : "bg-white border-slate-200 text-slate-800"
+                }`}
+              >
                 <div className="flex items-center justify-between gap-1">
-                  <span className="font-bold truncate pr-1">{item} <span className="text-[10px] font-normal opacity-75">[{unit}]</span></span>
-                  <span className={`font-black px-2 py-0.5 rounded-md shrink-0 ${isLowOrZero ? "bg-red-200/80 text-red-800" : "bg-emerald-100 text-emerald-800"}`}>
+                  <span className="font-bold truncate pr-1">
+                    {item} <span className="text-[10px] font-normal opacity-75">[{unit}]</span>
+                  </span>
+                  <span
+                    className={`font-black px-2 py-0.5 rounded-md shrink-0 ${
+                      isLowOrZero ? "bg-rose-200/70 text-rose-800" : "bg-emerald-100 text-emerald-800"
+                    }`}
+                  >
                     {rawVal !== undefined ? rawVal : "0"} {unit}
                   </span>
                 </div>
                 {ordersCountForReport > 0 && numVal > 0 && (
-                  <div className="mt-1.5 pt-1 border-t border-gray-100 flex items-center justify-between text-[10px] text-indigo-700 font-extrabold">
+                  <div className="mt-1.5 pt-1 border-t border-slate-100 flex items-center justify-between text-[10px] text-slate-500 font-extrabold">
                     <span>Śr. na 1 zam.:</span>
-                    <span>{perOrderVal.toFixed(3)} {unit}</span>
+                    <span className="text-slate-800">
+                      {perOrderVal.toFixed(3)} {unit}
+                    </span>
                   </div>
                 )}
               </div>
@@ -3485,13 +4297,13 @@ function NysaWarehouseForm({
       : DEFAULT_EMPLOYEES_BY_LOCATION[selectedEmpManageLoc] || [];
 
     return (
-      <div className="bg-white p-6 rounded-[2rem] border border-gray-200 shadow-sm space-y-5">
+      <div className="bg-white p-6 rounded-3xl border border-slate-200 shadow-sm space-y-5">
         <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
           <div>
-            <h3 className="text-xl font-black text-gray-900 flex items-center">
-              <Users className="w-6 h-6 mr-2.5 text-blue-600" /> Zarządzanie Pracownikami Punktów
+            <h3 className="text-xl font-black text-slate-900 flex items-center">
+              <Users className="w-6 h-6 mr-2.5 text-slate-700" /> Zarządzanie Pracownikami Punktów
             </h3>
-            <p className="text-xs font-semibold text-gray-500 mt-1">
+            <p className="text-xs font-semibold text-slate-500 mt-1">
               Dodawaj i usuwaj imiona pracowników przypisanych do konkretnych lokali. Lista wyświetla się w czytniku RCP oraz w raporcie dziennym.
             </p>
           </div>
@@ -3504,8 +4316,8 @@ function NysaWarehouseForm({
                   onClick={() => setSelectedEmpManageLoc(loc)}
                   className={`px-3.5 py-2 rounded-xl font-black text-xs border transition-colors ${
                     selectedEmpManageLoc === loc
-                      ? "bg-blue-600 text-white border-blue-600 shadow-sm"
-                      : "bg-gray-50 text-gray-700 border-gray-200 hover:bg-gray-100"
+                      ? "bg-slate-900 text-white border-slate-900 shadow-sm"
+                      : "bg-slate-50 text-slate-700 border-slate-200 hover:bg-slate-100"
                   }`}
                 >
                   {loc}
@@ -3521,22 +4333,22 @@ function NysaWarehouseForm({
             value={newEmployeeName}
             onChange={(e) => setNewEmployeeName(e.target.value)}
             placeholder={`Wpisz imię nowego pracownika dla punktu ${selectedEmpManageLoc}...`}
-            className="flex-1 p-4 bg-gray-50 border border-gray-200 rounded-xl font-bold text-gray-900 outline-none focus:bg-white focus:ring-2 focus:ring-blue-500"
+            className="flex-1 p-4 bg-slate-50 border border-slate-200 rounded-2xl font-bold text-slate-900 outline-none focus:bg-white focus:border-slate-900"
           />
           <button
             type="submit"
-            className="px-6 py-4 bg-blue-600 hover:bg-blue-700 text-white font-black rounded-xl shadow-md flex items-center justify-center transition-colors shrink-0 text-sm"
+            className="px-6 py-4 bg-slate-900 hover:bg-slate-800 text-white font-black rounded-2xl shadow-md flex items-center justify-center transition-colors shrink-0 text-sm"
           >
             <PlusCircle className="w-5 h-5 mr-2" /> Dodaj pracownika ({selectedEmpManageLoc})
           </button>
         </form>
 
-        <div className="pt-3 border-t border-gray-100">
-          <span className="block text-xs font-black uppercase text-gray-400 mb-3">
+        <div className="pt-3 border-t border-slate-100">
+          <span className="block text-xs font-black uppercase text-slate-400 mb-3">
             Przypisani pracownicy — {selectedEmpManageLoc} ({currentLocEmployees.length}):
           </span>
           {currentLocEmployees.length === 0 ? (
-            <p className="text-sm text-gray-400 font-bold py-4 text-center bg-gray-50 rounded-xl">
+            <p className="text-sm text-slate-400 font-bold py-4 text-center bg-slate-50 rounded-2xl">
               Brak pracowników przypisanych do tego lokalu.
             </p>
           ) : (
@@ -3544,13 +4356,13 @@ function NysaWarehouseForm({
               {currentLocEmployees.map((empName) => (
                 <div
                   key={empName}
-                  className="p-3 bg-gray-50 hover:bg-white border border-gray-200 rounded-xl flex items-center justify-between gap-2 shadow-sm transition-colors"
+                  className="p-3 bg-slate-50 hover:bg-white border border-slate-200 rounded-2xl flex items-center justify-between gap-2 shadow-sm transition-colors"
                 >
-                  <span className="font-extrabold text-gray-800 text-sm truncate">{empName}</span>
+                  <span className="font-extrabold text-slate-800 text-sm truncate">{empName}</span>
                   <button
                     type="button"
                     onClick={() => handleRemoveEmployeeFromLocation(selectedEmpManageLoc, empName)}
-                    className="p-1.5 text-red-500 hover:bg-red-50 hover:text-red-700 rounded-lg transition-colors shrink-0"
+                    className="p-1.5 text-rose-500 hover:bg-rose-50 hover:text-rose-700 rounded-lg transition-colors shrink-0"
                     title="Usuń pracownika z tego lokalu"
                   >
                     <Trash2 className="w-4 h-4" />
@@ -3574,61 +4386,94 @@ function NysaWarehouseForm({
   const renderTaskCard = (t) => {
     const isRecurring = t.type === "recurring";
     const targetLocs = t.location === "All" ? (isKlodzkoAdmin ? ["Kłodzko"] : LOCATIONS) : [t.location];
-    const scheduledDaysObjs = isRecurring && Array.isArray(t.daysOfWeek) ? DAYS_OF_WEEK.filter((d) => t.daysOfWeek.map(Number).includes(d.id)) : [];
+    const scheduledDaysObjs =
+      isRecurring && Array.isArray(t.daysOfWeek)
+        ? DAYS_OF_WEEK.filter((d) => t.daysOfWeek.map(Number).includes(d.id))
+        : [];
     const todayDayIdx = getDayOfWeekFromDateStr(todayStr);
-    const isScheduledForToday = !isRecurring || (Array.isArray(t.daysOfWeek) && t.daysOfWeek.map(Number).includes(todayDayIdx));
+    const isScheduledForToday =
+      !isRecurring || (Array.isArray(t.daysOfWeek) && t.daysOfWeek.map(Number).includes(todayDayIdx));
 
     return (
-      <div key={t.id} className="p-5 rounded-2xl border bg-white border-gray-200 shadow-sm flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4">
+      <div
+        key={t.id}
+        className="p-5 rounded-3xl border bg-white border-slate-200 shadow-sm flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4"
+      >
         <div className="space-y-2.5 flex-1">
           <div className="flex flex-wrap items-center gap-2">
-            <span className="text-[10px] font-black bg-amber-100 text-amber-800 px-3 py-1 rounded-full uppercase tracking-wider">
-              {t.location === "All" ? "Wszystkie punkty (All)" : t.location}
+            <span className="text-[10px] font-black bg-slate-900 text-white px-3 py-1 rounded-full uppercase tracking-wider">
+              {t.location === "All" ? "Cała sieć (All)" : t.location}
             </span>
             {isRecurring ? (
-              <span className="text-[10px] font-black bg-indigo-100 text-indigo-800 px-3 py-1 rounded-full uppercase tracking-wider flex items-center">
+              <span className="text-[10px] font-black bg-indigo-50 text-indigo-800 border border-indigo-200 px-3 py-1 rounded-full uppercase tracking-wider flex items-center">
                 <Calendar className="w-3.5 h-3.5 mr-1" /> Stałe harmonogramowe
               </span>
             ) : (
-              <span className="text-[10px] font-black bg-blue-100 text-blue-800 px-3 py-1 rounded-full uppercase tracking-wider">Jednorazowe / Doraźne</span>
+              <span className="text-[10px] font-black bg-blue-50 text-blue-800 border border-blue-200 px-3 py-1 rounded-full uppercase tracking-wider">
+                Jednorazowe / Doraźne
+              </span>
             )}
-            <span className="text-[10px] font-black bg-red-100 text-red-700 px-3 py-1 rounded-full uppercase tracking-wider flex items-center">
+            <span className="text-[10px] font-black bg-rose-50 text-rose-700 border border-rose-200 px-3 py-1 rounded-full uppercase tracking-wider flex items-center">
               <Clock className="w-3.5 h-3.5 mr-1" /> Do wykonania do godziny: {t.deadlineTime || "22:00"}
             </span>
             {isRecurring && (
-              <span className={`text-[10px] font-black px-2.5 py-1 rounded-full uppercase ${isScheduledForToday ? "bg-emerald-100 text-emerald-800" : "bg-gray-100 text-gray-500"}`}>
+              <span
+                className={`text-[10px] font-black px-2.5 py-1 rounded-full uppercase ${
+                  isScheduledForToday ? "bg-emerald-50 text-emerald-800" : "bg-slate-100 text-slate-500"
+                }`}
+              >
                 {isScheduledForToday ? `Aktywne dziś (${todayStr})` : "Dziś poza harmonogramem"}
               </span>
             )}
           </div>
-          <p className="font-bold text-gray-900 text-lg leading-tight">{t.text}</p>
+          <p className="font-bold text-slate-900 text-lg leading-tight">{t.text}</p>
           {isRecurring && scheduledDaysObjs.length > 0 && (
             <div className="flex flex-wrap items-center gap-1.5 pt-0.5">
-              <span className="text-xs font-bold text-gray-400 mr-1">Dni wykonywania:</span>
+              <span className="text-xs font-bold text-slate-400 mr-1">Dni wykonywania:</span>
               {scheduledDaysObjs.map((d) => (
-                <span key={d.id} className="text-[11px] font-black bg-indigo-50 text-indigo-700 border border-indigo-200 px-2.5 py-0.5 rounded-lg">{d.name}</span>
+                <span
+                  key={d.id}
+                  className="text-[11px] font-black bg-slate-100 text-slate-700 border border-slate-200 px-2.5 py-0.5 rounded-lg"
+                >
+                  {d.name}
+                </span>
               ))}
             </div>
           )}
-          <div className="pt-2 border-t border-gray-100">
-            <span className="block text-[11px] font-black uppercase text-gray-400 mb-1.5">
+          <div className="pt-2 border-t border-slate-100">
+            <span className="block text-[11px] font-black uppercase text-slate-400 mb-1.5">
               {isRecurring ? `Stan realizacji w dniu dzisiejszym (${todayStr}):` : "Stan realizacji w punktach:"}
             </span>
             <div className="flex flex-wrap gap-2">
               {targetLocs.map((loc) => {
                 const done = isTaskCompletedByLocation(t, loc, todayStr);
                 return (
-                  <span key={loc} className={`inline-flex items-center px-3 py-1 rounded-xl text-xs font-black border transition-colors ${done ? "bg-emerald-50 border-emerald-300 text-emerald-800" : "bg-red-50/70 border-red-200 text-red-700"}`}>
-                    {done ? <CheckCircle2 className="w-3.5 h-3.5 mr-1.5 text-emerald-600 shrink-0" /> : <XCircle className="w-3.5 h-3.5 mr-1.5 text-red-500 shrink-0" />}
+                  <span
+                    key={loc}
+                    className={`inline-flex items-center px-3 py-1 rounded-xl text-xs font-black border transition-colors ${
+                      done
+                        ? "bg-emerald-50 border-emerald-300 text-emerald-800"
+                        : "bg-rose-50/70 border-rose-200 text-rose-700"
+                    }`}
+                  >
+                    {done ? (
+                      <CheckCircle2 className="w-3.5 h-3.5 mr-1.5 text-emerald-600 shrink-0" />
+                    ) : (
+                      <XCircle className="w-3.5 h-3.5 mr-1.5 text-rose-500 shrink-0" />
+                    )}
                     {loc}: {done ? "Wykonane" : "Niewykonane"}
                   </span>
                 );
               })}
             </div>
           </div>
-          <p className="text-xs text-gray-400 font-semibold">Zlecone przez: {t.createdBy}</p>
+          <p className="text-xs text-slate-400 font-semibold">Zlecone przez: {t.createdBy}</p>
         </div>
-        <button type="button" onClick={() => handleDeleteTask(t.id)} className="shrink-0 w-full lg:w-auto px-4 py-3 lg:py-2.5 flex items-center justify-center rounded-xl bg-red-50 text-red-600 font-bold hover:bg-red-100 transition-colors">
+        <button
+          type="button"
+          onClick={() => handleDeleteTask(t.id)}
+          className="shrink-0 w-full lg:w-auto px-4 py-3 lg:py-2.5 flex items-center justify-center rounded-2xl bg-rose-50 text-rose-600 font-bold hover:bg-rose-100 transition-colors"
+        >
           <Trash2 className="w-4 h-4 mr-2" /> Usuń
         </button>
       </div>
@@ -3636,43 +4481,86 @@ function NysaWarehouseForm({
   };
 
   return (
-    <div className="flex flex-col min-h-screen">
-      <div className="bg-gray-900 text-white px-5 py-4 sticky top-0 z-40 flex justify-between items-center shadow-lg w-full">
+    <div className="flex flex-col min-h-screen bg-slate-50">
+      <div className="bg-slate-900 text-white px-5 py-4 sticky top-0 z-40 flex justify-between items-center shadow-md w-full">
         <div>
-          <h1 className="font-extrabold text-lg tracking-tight">Panel Sterowania {isKlodzkoAdmin ? "— Punkt Kłodzko" : ""}</h1>
-          <p className="text-xs text-gray-400 font-medium mt-0.5">
-            Zalogowano: <span className="text-white font-bold">{name}</span> ({isOwner ? "Właściciel" : isKlodzkoAdmin ? "Administrator Punktu Kłodzko" : "Manager"})
+          <h1 className="font-extrabold text-lg tracking-tight">
+            Panel Zarządzania {isKlodzkoAdmin ? "— Punkt Kłodzko" : ""}
+          </h1>
+          <p className="text-xs text-slate-400 font-medium mt-0.5">
+            Zalogowano: <span className="text-white font-bold">{name}</span> (
+            {isOwner ? "Właściciel" : isKlodzkoAdmin ? "Administrator Punktu Kłodzko" : "Manager"})
           </p>
         </div>
-        <button type="button" onClick={onLogout} className="bg-white/10 hover:bg-white/20 px-4 py-2 rounded-xl font-bold text-sm transition-colors border border-gray-700">
+        <button
+          type="button"
+          onClick={onLogout}
+          className="bg-slate-800 hover:bg-slate-700 px-4 py-2 rounded-xl font-bold text-xs sm:text-sm transition-colors border border-slate-700"
+        >
           Wyloguj
         </button>
       </div>
 
-      <div className="flex bg-white border-b border-gray-200 w-full overflow-x-auto">
+      <div className="flex bg-white border-b border-slate-200 w-full overflow-x-auto no-scrollbar">
         {[
           ...(hasFullAnalytics
             ? [
-                { id: "reports", label: "Utargi i Finanse", icon: Banknote, activeClass: "border-gray-900 text-gray-900 bg-gray-50/50", minW: "min-w-[155px]" },
-                { id: "inventory", label: "Magazyn / Zużycie / Braki", icon: Warehouse, activeClass: "border-purple-600 text-purple-700 bg-purple-50/30", minW: "min-w-[170px]" },
-                { id: "stats", label: "Statystyka Dni", icon: BarChart3, activeClass: "border-emerald-600 text-emerald-700 bg-emerald-50/30", minW: "min-w-[155px]" },
+                {
+                  id: "reports",
+                  label: "Utargi i Finanse",
+                  icon: Banknote,
+                  activeClass: "border-slate-900 text-slate-900 bg-slate-50",
+                  minW: "min-w-[150px]",
+                },
+                {
+                  id: "inventory",
+                  label: "Magazyn / Szkice Live",
+                  icon: Warehouse,
+                  activeClass: "border-slate-900 text-slate-900 bg-slate-50",
+                  minW: "min-w-[175px]",
+                },
+                {
+                  id: "stats",
+                  label: "Statystyka Dni",
+                  icon: BarChart3,
+                  activeClass: "border-slate-900 text-slate-900 bg-slate-50",
+                  minW: "min-w-[145px]",
+                },
               ]
             : []),
           {
             id: "hours",
             label: `Czytnik RCP & Godziny (${activeLiveShifts.length} live)`,
             icon: Timer,
-            activeClass: "border-indigo-600 text-indigo-700 bg-indigo-50/30",
+            activeClass: "border-slate-900 text-slate-900 bg-slate-50",
             minW: "min-w-[185px]",
           },
-          { id: "tasks", label: "Zadania Dnia", icon: ClipboardList, activeClass: "border-blue-600 text-blue-600 bg-blue-50/30", minW: "min-w-[150px]" },
-          ...(isOwner ? [{ id: "catalog", label: "Asortyment / Kopia Bazy", icon: Settings, activeClass: "border-amber-600 text-amber-700 bg-amber-50/40", minW: "min-w-[190px]" }] : []),
+          {
+            id: "tasks",
+            label: "Zadania Dnia",
+            icon: ClipboardList,
+            activeClass: "border-slate-900 text-slate-900 bg-slate-50",
+            minW: "min-w-[145px]",
+          },
+          ...(isOwner
+            ? [
+                {
+                  id: "catalog",
+                  label: "Ustawienia & Asortyment",
+                  icon: Settings,
+                  activeClass: "border-slate-900 text-slate-900 bg-slate-50",
+                  minW: "min-w-[185px]",
+                },
+              ]
+            : []),
         ].map(({ id, label, icon: Icon, activeClass, minW }) => (
           <button
             key={id}
             type="button"
             onClick={() => setTab(id)}
-            className={`flex-1 ${minW} py-4 px-3 font-extrabold text-xs sm:text-sm border-b-2 transition-colors flex items-center justify-center gap-1.5 ${tab === id ? activeClass : "border-transparent text-gray-400 hover:text-gray-600"}`}
+            className={`flex-1 ${minW} py-4 px-3 font-extrabold text-xs sm:text-sm border-b-2 transition-colors flex items-center justify-center gap-1.5 ${
+              tab === id ? activeClass : "border-transparent text-slate-400 hover:text-slate-600"
+            }`}
           >
             <Icon className="w-4 h-4" /> {label}
           </button>
@@ -3681,46 +4569,68 @@ function NysaWarehouseForm({
 
       <div className="p-4 sm:p-6 w-full max-w-6xl mx-auto flex-1 overflow-x-hidden">
         {tab === "reports" && hasFullAnalytics && (
-          <div className="space-y-8">
-            <div className="bg-white p-5 rounded-[2rem] border border-gray-200 shadow-sm flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4">
+          <div className="space-y-6">
+            <div className="bg-white p-5 rounded-3xl border border-slate-200 shadow-sm flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4">
               <div>
-                <h2 className="text-2xl font-black text-gray-900 flex items-center">
-                  <Banknote className="w-7 h-7 mr-3 text-emerald-600" /> Zestawienie Utargów {isKlodzkoAdmin ? "(Punkt Kłodzko)" : "i Historia"}
+                <h2 className="text-xl sm:text-2xl font-black text-slate-900 flex items-center">
+                  <Banknote className="w-6 h-6 mr-2.5 text-emerald-600" /> Zestawienie Utargów{" "}
+                  {isKlodzkoAdmin ? "(Punkt Kłodzko)" : "i Historia"}
                 </h2>
-                <p className="text-xs font-semibold text-gray-500 mt-1">Wybierz datę lub okres do podsumowania sieci. Poniżej możesz przeglądać raporty poszczególnych dni.</p>
+                <p className="text-xs font-semibold text-slate-500 mt-1">
+                  Wybierz datę lub okres do podsumowania sieci. Poniżej możesz przeglądać i edytować raporty poszczególnych dni.
+                </p>
               </div>
               <div className="flex flex-wrap items-center gap-2">
-                <div className="flex items-center bg-gray-50 border border-gray-200 rounded-xl px-3 py-2">
-                  <Calendar className="w-4 h-4 text-gray-500 mr-2" />
-                  <input type="date" value={selectedReportDate} onChange={(e) => setSelectedReportDate(e.target.value)} className="bg-transparent font-black text-sm text-gray-900 outline-none" />
+                <div className="flex items-center bg-slate-50 border border-slate-200 rounded-2xl px-3.5 py-2">
+                  <Calendar className="w-4 h-4 text-slate-500 mr-2" />
+                  <input
+                    type="date"
+                    value={selectedReportDate}
+                    onChange={(e) => setSelectedReportDate(e.target.value)}
+                    className="bg-transparent font-black text-sm text-slate-900 outline-none"
+                  />
                 </div>
                 {selectedReportDate !== todayStr && (
-                  <button type="button" onClick={() => setSelectedReportDate(todayStr)} className="px-3.5 py-2.5 bg-blue-600 text-white rounded-xl text-xs font-black hover:bg-blue-700 transition-colors">
+                  <button
+                    type="button"
+                    onClick={() => setSelectedReportDate(todayStr)}
+                    className="px-3.5 py-2.5 bg-slate-900 text-white rounded-2xl text-xs font-black hover:bg-slate-800 transition-colors"
+                  >
                     Wróć do dziś ({todayStr})
                   </button>
                 )}
-                <button type="button" onClick={handleDownloadCSV} className="px-3.5 py-2.5 bg-emerald-50 hover:bg-emerald-100 text-emerald-800 border border-emerald-200 rounded-xl text-xs font-black flex items-center transition-colors">
+                <button
+                  type="button"
+                  onClick={handleDownloadCSV}
+                  className="px-3.5 py-2.5 bg-emerald-50 hover:bg-emerald-100 text-emerald-800 border border-emerald-200 rounded-2xl text-xs font-black flex items-center transition-colors"
+                >
                   <FileSpreadsheet className="w-4 h-4 mr-1.5" /> Eksport CSV
                 </button>
-                <button type="button" onClick={handleDownloadFullBackupJSON} className="px-3.5 py-2.5 bg-gray-100 hover:bg-gray-200 text-gray-800 border border-gray-200 rounded-xl text-xs font-black flex items-center transition-colors">
+                <button
+                  type="button"
+                  onClick={handleDownloadFullBackupJSON}
+                  className="px-3.5 py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-800 border border-slate-200 rounded-2xl text-xs font-black flex items-center transition-colors"
+                >
                   <Download className="w-4 h-4 mr-1.5" /> Kopia JSON
                 </button>
               </div>
             </div>
 
-            <div className="bg-gradient-to-br from-gray-900 via-gray-900 to-emerald-950 text-white p-6 sm:p-8 rounded-[2rem] shadow-xl border border-gray-800 space-y-6">
-              <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-5 border-b border-white/10 pb-6">
+            <div className="bg-slate-900 text-white p-6 sm:p-8 rounded-3xl shadow-xl border border-slate-800 space-y-6">
+              <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-5 border-b border-slate-800 pb-6">
                 <div className="space-y-3">
                   <div className="flex items-center gap-2 flex-wrap">
                     <span className="bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 text-[11px] font-black uppercase px-3 py-1 rounded-full flex items-center">
                       <PieChart className="w-3.5 h-3.5 mr-1.5" />
                       {isKlodzkoAdmin ? "Podsumowanie Finansowe: Punkt Kłodzko" : "Karta Podsumowania Sieci"}
                     </span>
-                    <span className="text-xs font-bold text-gray-400">Liczba zliczonych raportów: {dailyNetworkSummary.reportedCount} • Zamówienia: {dailyNetworkSummary.sumOrders}</span>
+                    <span className="text-xs font-bold text-slate-400">
+                      Zliczone raporty: {dailyNetworkSummary.reportedCount} • Zamówienia: {dailyNetworkSummary.sumOrders}
+                    </span>
                   </div>
 
                   <div className="flex flex-wrap items-center gap-2 pt-1">
-                    <span className="text-xs font-bold text-gray-300 mr-1">Okres podsumowania:</span>
+                    <span className="text-xs font-bold text-slate-400 mr-1">Okres:</span>
                     {[
                       { id: "day", label: "Pojedynczy dzień" },
                       { id: "week", label: "Wybrany tydzień" },
@@ -3730,7 +4640,11 @@ function NysaWarehouseForm({
                         key={m.id}
                         type="button"
                         onClick={() => setSummaryPeriodMode(m.id)}
-                        className={`px-3 py-1.5 rounded-xl font-black text-xs transition-colors ${summaryPeriodMode === m.id ? "bg-emerald-500 text-gray-950 shadow-sm" : "bg-white/10 text-gray-300 hover:bg-white/20"}`}
+                        className={`px-3 py-1.5 rounded-xl font-black text-xs transition-colors ${
+                          summaryPeriodMode === m.id
+                            ? "bg-emerald-500 text-slate-950 shadow-sm"
+                            : "bg-slate-800 text-slate-300 hover:bg-slate-700"
+                        }`}
                       >
                         {m.label}
                       </button>
@@ -3738,73 +4652,109 @@ function NysaWarehouseForm({
                   </div>
 
                   {summaryPeriodMode === "range" && (
-                    <div className="flex flex-wrap items-center gap-2 bg-white/5 p-2.5 rounded-2xl border border-white/10">
-                      <div className="flex items-center bg-white/10 px-3 py-1.5 rounded-xl">
-                        <span className="text-[11px] font-bold text-gray-300 mr-2">Od:</span>
-                        <input type="date" value={summaryStartDate} onChange={(e) => setSummaryStartDate(e.target.value)} className="font-black text-xs text-white outline-none bg-transparent" />
+                    <div className="flex flex-wrap items-center gap-2 bg-slate-800/80 p-2.5 rounded-2xl border border-slate-700">
+                      <div className="flex items-center bg-slate-900 px-3 py-1.5 rounded-xl">
+                        <span className="text-[11px] font-bold text-slate-400 mr-2">Od:</span>
+                        <input
+                          type="date"
+                          value={summaryStartDate}
+                          onChange={(e) => setSummaryStartDate(e.target.value)}
+                          className="font-black text-xs text-white outline-none bg-transparent"
+                        />
                       </div>
-                      <div className="flex items-center bg-white/10 px-3 py-1.5 rounded-xl">
-                        <span className="text-[11px] font-bold text-gray-300 mr-2">Do:</span>
-                        <input type="date" value={summaryEndDate} onChange={(e) => setSummaryEndDate(e.target.value)} className="font-black text-xs text-white outline-none bg-transparent" />
+                      <div className="flex items-center bg-slate-900 px-3 py-1.5 rounded-xl">
+                        <span className="text-[11px] font-bold text-slate-400 mr-2">Do:</span>
+                        <input
+                          type="date"
+                          value={summaryEndDate}
+                          onChange={(e) => setSummaryEndDate(e.target.value)}
+                          className="font-black text-xs text-white outline-none bg-transparent"
+                        />
                       </div>
                     </div>
                   )}
 
                   <h3 className="text-3xl sm:text-4xl font-black mt-3 tracking-tight text-white">
-                    {formatMoney(dailyNetworkSummary.totalRevenue)} <span className="text-lg font-bold text-emerald-400">PLN</span>
+                    {formatMoney(dailyNetworkSummary.totalRevenue)}{" "}
+                    <span className="text-lg font-bold text-emerald-400">PLN</span>
                   </h3>
-                  <p className="text-xs text-gray-400 font-semibold mt-0.5">
-                    {summaryPeriodMode === "day"
-                      ? `Łączny utarg brutto w dniu ${selectedReportDate}`
-                      : summaryPeriodMode === "week"
-                      ? `Łączny utarg brutto za tydzień (${getWeekBounds(selectedReportDate).start} — ${getWeekBounds(selectedReportDate).end})`
-                      : `Łączny utarg brutto w zakresie (${summaryStartDate || "?"} — ${summaryEndDate || "?"})`}
-                  </p>
                 </div>
 
                 <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-                  <div className="bg-white/5 border border-white/10 p-3.5 rounded-2xl">
-                    <span className="text-[10px] font-black uppercase text-indigo-300 block mb-1 flex items-center"><Receipt className="w-3 h-3 mr-1" /> Raporty Fiskalne</span>
-                    <span className="text-lg font-black text-white">{formatMoney(dailyNetworkSummary.sumFiskalny)} <span className="text-xs text-gray-400">zł</span></span>
+                  <div className="bg-slate-800/80 border border-slate-700 p-3.5 rounded-2xl">
+                    <span className="text-[10px] font-black uppercase text-indigo-300 block mb-1 flex items-center">
+                      <Receipt className="w-3 h-3 mr-1" /> Raporty Fiskalne
+                    </span>
+                    <span className="text-lg font-black text-white">
+                      {formatMoney(dailyNetworkSummary.sumFiskalny)} <span className="text-xs text-slate-400">zł</span>
+                    </span>
                   </div>
-                  <div className="bg-white/5 border border-white/10 p-3.5 rounded-2xl">
-                    <span className="text-[10px] font-black uppercase text-amber-300 block mb-1 flex items-center"><Wallet className="w-3 h-3 mr-1" /> Wydatki z kasy (KW)</span>
-                    <span className="text-lg font-black text-amber-300">-{formatMoney(dailyNetworkSummary.sumExpenses)} <span className="text-xs text-gray-400">zł</span></span>
+                  <div className="bg-slate-800/80 border border-slate-700 p-3.5 rounded-2xl">
+                    <span className="text-[10px] font-black uppercase text-amber-300 block mb-1 flex items-center">
+                      <Wallet className="w-3 h-3 mr-1" /> Wydatki z kasy (KW)
+                    </span>
+                    <span className="text-lg font-black text-amber-300">
+                      -{formatMoney(dailyNetworkSummary.sumExpenses)} <span className="text-xs text-slate-400">zł</span>
+                    </span>
                   </div>
-                  <div className="bg-white/5 border border-white/10 p-3.5 rounded-2xl">
+                  <div className="bg-slate-800/80 border border-slate-700 p-3.5 rounded-2xl">
                     <span className="text-[10px] font-black uppercase text-emerald-300 block mb-1">Gotówka po KW</span>
-                    <span className="text-lg font-black text-emerald-300">{formatMoney(dailyNetworkSummary.netCashInDrawer)} <span className="text-xs text-gray-400">zł</span></span>
+                    <span className="text-lg font-black text-emerald-300">
+                      {formatMoney(dailyNetworkSummary.netCashInDrawer)}{" "}
+                      <span className="text-xs text-slate-400">zł</span>
+                    </span>
                   </div>
-                  <div className={`p-3.5 rounded-2xl border ${dailyNetworkSummary.sumRoznica < 0 ? "bg-red-500/15 border-red-500/30" : "bg-white/5 border-white/10"}`}>
-                    <span className="text-[10px] font-black uppercase text-gray-300 block mb-1">Brak / Nadwyżka</span>
-                    <span className={`text-lg font-black ${dailyNetworkSummary.sumRoznica < 0 ? "text-red-400" : dailyNetworkSummary.sumRoznica > 0 ? "text-emerald-400" : "text-white"}`}>
-                      {dailyNetworkSummary.sumRoznica > 0 ? "+" : ""}{formatMoney(dailyNetworkSummary.sumRoznica)} <span className="text-xs text-gray-400">zł</span>
+                  <div
+                    className={`p-3.5 rounded-2xl border ${
+                      dailyNetworkSummary.sumRoznica < 0
+                        ? "bg-rose-500/15 border-rose-500/30"
+                        : "bg-slate-800/80 border-slate-700"
+                    }`}
+                  >
+                    <span className="text-[10px] font-black uppercase text-slate-300 block mb-1">Brak / Nadwyżka</span>
+                    <span
+                      className={`text-lg font-black ${
+                        dailyNetworkSummary.sumRoznica < 0
+                          ? "text-rose-400"
+                          : dailyNetworkSummary.sumRoznica > 0
+                          ? "text-emerald-400"
+                          : "text-white"
+                      }`}
+                    >
+                      {dailyNetworkSummary.sumRoznica > 0 ? "+" : ""}
+                      {formatMoney(dailyNetworkSummary.sumRoznica)} <span className="text-xs text-slate-400">zł</span>
                     </span>
                   </div>
                 </div>
               </div>
 
               {!isKlodzkoAdmin && (
-                <div className="space-y-3 border-b border-white/10 pb-6">
-                  <div className="flex items-center justify-between text-xs font-bold text-gray-300">
-                    <span>Udział poszczególnych lokali w łącznym utargu sieci (w wybranym okresie)</span>
-                    <span>Kliknij lokal poniżej, aby filtrować metody płatności</span>
+                <div className="space-y-3 border-b border-slate-800 pb-6">
+                  <div className="flex items-center justify-between text-xs font-bold text-slate-300">
+                    <span>Udział poszczególnych lokali w łącznym utargu sieci</span>
+                    <span className="text-slate-400">Kliknij lokal, aby filtrować metody płatności</span>
                   </div>
-                  <div className="w-full h-4 bg-white/10 rounded-full overflow-hidden flex p-0.5 gap-0.5">
+                  <div className="w-full h-3.5 bg-slate-800 rounded-full overflow-hidden flex p-0.5 gap-0.5">
                     {dailyNetworkSummary.totalRevenue > 0 ? (
                       dailyNetworkSummary.locationShares.map((locItem) =>
                         locItem.sharePct > 0 ? (
                           <div
                             key={locItem.location}
                             style={{ width: `${locItem.sharePct}%` }}
-                            onClick={() => setPaymentBreakdownLoc(paymentBreakdownLoc === locItem.location ? "All" : locItem.location)}
-                            className={`h-full cursor-pointer transition-colors duration-300 ${LOCATION_COLORS[locItem.location] || "bg-emerald-500"} first:rounded-l-full last:rounded-r-full hover:opacity-90`}
+                            onClick={() =>
+                              setPaymentBreakdownLoc(
+                                paymentBreakdownLoc === locItem.location ? "All" : locItem.location
+                              )
+                            }
+                            className={`h-full cursor-pointer transition-colors duration-300 ${
+                              LOCATION_COLORS[locItem.location] || "bg-emerald-500"
+                            } first:rounded-l-full last:rounded-r-full hover:opacity-90`}
                             title={`${locItem.location}: ${formatMoney(locItem.total)} zł (${locItem.sharePct}%)`}
                           />
                         ) : null
                       )
                     ) : (
-                      <div className="w-full h-full bg-white/5 rounded-full" />
+                      <div className="w-full h-full bg-slate-800 rounded-full" />
                     )}
                   </div>
                   <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 pt-1">
@@ -3816,16 +4766,26 @@ function NysaWarehouseForm({
                           key={locItem.location}
                           type="button"
                           onClick={() => setPaymentBreakdownLoc(isSelectedLoc ? "All" : locItem.location)}
-                          className={`p-3.5 rounded-2xl border text-left transition-colors flex items-center justify-between ${isSelectedLoc ? "bg-white/15 border-emerald-400 shadow-md" : "bg-white/5 border-white/10 hover:bg-white/10"}`}
+                          className={`p-3.5 rounded-2xl border text-left transition-colors flex items-center justify-between ${
+                            isSelectedLoc
+                              ? "bg-slate-800 border-emerald-400 shadow-md"
+                              : "bg-slate-800/50 border-slate-700/80 hover:bg-slate-800"
+                          }`}
                         >
                           <div className="flex items-center gap-2.5 min-w-0">
                             <span className={`w-3 h-3 rounded-full shrink-0 ${dotColor}`} />
                             <div className="truncate">
-                              <span className="text-xs font-extrabold text-white block truncate">{locItem.location}</span>
-                              <span className="text-sm font-black text-emerald-300">{formatMoney(locItem.total)} zł</span>
+                              <span className="text-xs font-extrabold text-white block truncate">
+                                {locItem.location}
+                              </span>
+                              <span className="text-sm font-black text-emerald-400">
+                                {formatMoney(locItem.total)} zł
+                              </span>
                             </div>
                           </div>
-                          <span className="text-xs font-black bg-white/10 text-white px-2.5 py-1 rounded-lg shrink-0 ml-2">{locItem.sharePct}%</span>
+                          <span className="text-xs font-black bg-slate-900 text-white px-2.5 py-1 rounded-lg shrink-0 ml-2">
+                            {locItem.sharePct}%
+                          </span>
                         </button>
                       );
                     })}
@@ -3836,50 +4796,45 @@ function NysaWarehouseForm({
               <div className="space-y-3">
                 <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
                   <div className="flex items-center gap-2">
-                    <span className="text-xs font-bold text-gray-300">Rozbicie form płatności:</span>
+                    <span className="text-xs font-bold text-slate-300">Rozbicie form płatności:</span>
                     <span className="text-xs font-black text-emerald-300 bg-emerald-500/20 border border-emerald-500/30 px-2.5 py-0.5 rounded-lg">
                       {activePaymentBreakdown.label} ({formatMoney(activePaymentBreakdown.total)} zł)
                     </span>
                   </div>
-                  {!isKlodzkoAdmin && (
-                    <div className="flex flex-wrap gap-1.5">
-                      {["All", ...LOCATIONS].map((loc) => (
-                        <button
-                          key={loc}
-                          type="button"
-                          onClick={() => setPaymentBreakdownLoc(loc)}
-                          className={`px-3 py-1 rounded-lg text-[11px] font-black transition-colors ${paymentBreakdownLoc === loc ? "bg-emerald-500 text-gray-950" : "bg-white/10 text-gray-300 hover:bg-white/20"}`}
-                        >
-                          {loc === "All" ? "Cała sieć" : loc}
-                        </button>
-                      ))}
-                    </div>
-                  )}
-                </div>
-
-                <div className="w-full h-4 bg-white/10 rounded-full overflow-hidden flex p-0.5 gap-0.5">
-                  {activePaymentBreakdown.total > 0 ? (
-                    <>
-                      <div style={{ width: `${activePaymentBreakdown.pctGotowka}%` }} className="h-full bg-amber-400 rounded-l-full" title={`Gotówka: ${activePaymentBreakdown.pctGotowka}%`} />
-                      <div style={{ width: `${activePaymentBreakdown.pctKarta}%` }} className="h-full bg-blue-500" title={`Karta: ${activePaymentBreakdown.pctKarta}%`} />
-                      <div style={{ width: `${activePaymentBreakdown.pctAplikacje}%` }} className="h-full bg-purple-500 rounded-r-full" title={`Aplikacje: ${activePaymentBreakdown.pctAplikacje}%`} />
-                    </>
-                  ) : (
-                    <div className="w-full h-full bg-white/5 rounded-full" />
-                  )}
                 </div>
 
                 <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 pt-1">
                   {[
-                    { label: "Gotówka", val: activePaymentBreakdown.gotowka, pct: activePaymentBreakdown.pctGotowka, dot: "bg-amber-400", badge: "bg-amber-400/20 text-amber-300" },
-                    { label: "Karta Płatnicza", val: activePaymentBreakdown.karta, pct: activePaymentBreakdown.pctKarta, dot: "bg-blue-500", badge: "bg-blue-500/20 text-blue-300" },
-                    { label: "Aplikacje (Uber/Glovo)", val: activePaymentBreakdown.aplikacje, pct: activePaymentBreakdown.pctAplikacje, dot: "bg-purple-500", badge: "bg-purple-500/20 text-purple-300" },
+                    {
+                      label: "Gotówka",
+                      val: activePaymentBreakdown.gotowka,
+                      pct: activePaymentBreakdown.pctGotowka,
+                      dot: "bg-amber-400",
+                      badge: "bg-amber-400/20 text-amber-300",
+                    },
+                    {
+                      label: "Karta Płatnicza",
+                      val: activePaymentBreakdown.karta,
+                      pct: activePaymentBreakdown.pctKarta,
+                      dot: "bg-blue-500",
+                      badge: "bg-blue-500/20 text-blue-300",
+                    },
+                    {
+                      label: "Aplikacje (Uber/Glovo)",
+                      val: activePaymentBreakdown.aplikacje,
+                      pct: activePaymentBreakdown.pctAplikacje,
+                      dot: "bg-purple-500",
+                      badge: "bg-purple-500/20 text-purple-300",
+                    },
                   ].map((m) => (
-                    <div key={m.label} className="bg-white/5 border border-white/10 p-3.5 rounded-2xl flex items-center justify-between">
+                    <div
+                      key={m.label}
+                      className="bg-slate-800/80 border border-slate-700 p-3.5 rounded-2xl flex items-center justify-between"
+                    >
                       <div className="flex items-center gap-2.5">
                         <span className={`w-3 h-3 rounded-full ${m.dot} shrink-0`} />
                         <div>
-                          <span className="text-xs font-bold text-gray-300 block">{m.label}</span>
+                          <span className="text-xs font-bold text-slate-300 block">{m.label}</span>
                           <span className="text-sm font-black text-white">{formatMoney(m.val)} zł</span>
                         </div>
                       </div>
@@ -3891,22 +4846,42 @@ function NysaWarehouseForm({
             </div>
 
             <div className="pt-2">
-              <h3 className="text-lg font-black text-gray-900 mb-4">
-                Szczegółowe raporty dzienne punktów z dnia: <span className="text-blue-600 underline">{selectedReportDate}</span>
+              <h3 className="text-lg font-black text-slate-900 mb-4">
+                Raporty dzienne punktów z dnia: <span className="text-blue-600 underline">{selectedReportDate}</span>
               </h3>
-              <div className={`grid grid-cols-1 ${allowedLocations.length > 1 ? "lg:grid-cols-2" : ""} gap-6`}>
+              <div className={`grid grid-cols-1 ${allowedLocations.length > 1 ? "lg:grid-cols-2" : ""} gap-5`}>
                 {allowedLocations.map((loc) => {
                   const report = reportsForSelectedDate.find((r) => r?.location === loc);
+                  const draft = draftsForSelectedDate.find((d) => d?.location === loc);
+                  const confirmedList = draft?.confirmedSections ? Object.values(draft.confirmedSections) : [];
+
                   if (!report) {
                     return (
-                      <div key={loc} className="bg-white p-6 rounded-[2rem] border-2 border-dashed border-gray-200 flex flex-col items-center justify-center text-center min-h-[220px]">
-                        <XCircle className="w-10 h-10 text-gray-300 mb-3" />
-                        <h3 className="text-xl font-black text-gray-800">{loc}</h3>
-                        <p className="text-gray-400 font-bold mt-1 mb-4">Brak raportu na dzień {selectedReportDate}</p>
+                      <div
+                        key={loc}
+                        className="bg-white p-6 rounded-3xl border border-slate-200 flex flex-col items-center justify-center text-center min-h-[210px]"
+                      >
+                        <XCircle className="w-9 h-9 text-slate-300 mb-2.5" />
+                        <h3 className="text-xl font-black text-slate-800">{loc}</h3>
+                        <p className="text-slate-400 font-bold text-xs mt-1 mb-3">
+                          Raport końcowy na dzień {selectedReportDate} nie został jeszcze wysłany
+                        </p>
+                        {confirmedList.length > 0 && (
+                          <div className="mb-4 flex flex-wrap justify-center gap-1.5">
+                            {confirmedList.map((c, idx) => (
+                              <span
+                                key={idx}
+                                className="text-[10px] font-black bg-emerald-50 text-emerald-700 border border-emerald-200 px-2.5 py-1 rounded-lg"
+                              >
+                                ✓ Zatwierdzono: {c.label} ({c.time})
+                              </span>
+                            ))}
+                          </div>
+                        )}
                         <button
                           type="button"
                           onClick={() => onEditHistoricalReport(loc, selectedReportDate, null)}
-                          className="px-4 py-2.5 bg-gray-900 hover:bg-gray-800 text-white text-xs font-black rounded-xl flex items-center transition-colors shadow-sm"
+                          className="px-4 py-2.5 bg-slate-900 hover:bg-slate-800 text-white text-xs font-black rounded-xl flex items-center transition-colors shadow-sm"
                         >
                           <PlusCircle className="w-4 h-4 mr-1.5" /> Utwórz raport za ten dzień
                         </button>
@@ -3923,71 +4898,106 @@ function NysaWarehouseForm({
                   const pApl = total > 0 ? Math.max(0, 100 - pGot - pKar) : 0;
                   const locExpenses = Array.isArray(report.expenses) ? report.expenses : [];
                   const locExpensesSum = calculateTotalExpenses(locExpenses);
-                  const effOrders = getEffectiveOrdersCount(report, parseSafeNumber(avgOrderFallbackVal) || DEFAULT_AVG_ORDER_VALUE);
+                  const effOrders = getEffectiveOrdersCount(
+                    report,
+                    parseSafeNumber(avgOrderFallbackVal) || DEFAULT_AVG_ORDER_VALUE
+                  );
 
                   return (
-                    <div key={loc} className="bg-white rounded-[2rem] border border-gray-200 shadow-sm overflow-hidden flex flex-col hover:shadow-md transition-shadow">
-                      <div className="bg-emerald-50 border-b border-emerald-100 p-5 flex justify-between items-center gap-2">
+                    <div
+                      key={loc}
+                      className="bg-white rounded-3xl border border-slate-200 shadow-sm overflow-hidden flex flex-col hover:shadow-md transition-shadow"
+                    >
+                      <div className="bg-slate-50 border-b border-slate-200 p-5 flex justify-between items-center gap-2">
                         <div>
-                          <h3 className="text-2xl font-black text-emerald-900">{loc}</h3>
-                          <span className="text-xs font-bold text-emerald-700">
-                            Zgłosił(a): {report.reporter} • Zamówienia: {effOrders} {parseSafeNumber(report.ordersCount) > 0 ? "(wpisane)" : "(wyliczone z utargu)"}
+                          <div className="flex items-center gap-2">
+                            <span className={`w-2.5 h-2.5 rounded-full ${LOCATION_COLORS[loc] || "bg-slate-900"}`} />
+                            <h3 className="text-xl font-black text-slate-900">{loc}</h3>
+                          </div>
+                          <span className="text-xs font-bold text-slate-500">
+                            Zgłosił(a): {report.reporter} • Zamówienia: {effOrders}
                           </span>
                         </div>
                         <button
                           type="button"
                           onClick={() => onEditHistoricalReport(loc, selectedReportDate, report)}
-                          className="bg-white hover:bg-emerald-100 text-emerald-900 border border-emerald-300 px-3.5 py-2 rounded-xl text-xs font-black flex items-center transition-colors shadow-sm"
+                          className="bg-white hover:bg-slate-100 text-slate-800 border border-slate-300 px-3.5 py-2 rounded-xl text-xs font-black flex items-center transition-colors shadow-sm"
                         >
-                          <Edit3 className="w-4 h-4 mr-1.5 text-emerald-700" /> Edytuj raport
+                          <Edit3 className="w-4 h-4 mr-1.5 text-slate-600" /> Edytuj raport
                         </button>
                       </div>
                       <div className="p-5 flex-1 flex flex-col">
-                        <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 mb-4">
-                          <div className="bg-gray-50 p-3.5 rounded-xl border border-gray-100 text-center">
-                            <span className="block text-[11px] font-bold text-gray-400 uppercase tracking-wide mb-1">Gotówka ({pGot}%)</span>
-                            <span className="text-base font-black text-gray-800">{formatMoney(got)} <span className="text-xs text-gray-500">zł</span></span>
+                        <div className="grid grid-cols-2 sm:grid-cols-3 gap-2.5 mb-4">
+                          <div className="bg-slate-50 p-3 rounded-2xl border border-slate-100 text-center">
+                            <span className="block text-[10px] font-bold text-slate-400 uppercase mb-0.5">
+                              Gotówka ({pGot}%)
+                            </span>
+                            <span className="text-sm sm:text-base font-black text-slate-900">
+                              {formatMoney(got)} zł
+                            </span>
                           </div>
-                          <div className="bg-gray-50 p-3.5 rounded-xl border border-gray-100 text-center">
-                            <span className="block text-[11px] font-bold text-gray-400 uppercase tracking-wide mb-1">Karta ({pKar}%)</span>
-                            <span className="text-base font-black text-gray-800">{formatMoney(kar)} <span className="text-xs text-gray-500">zł</span></span>
+                          <div className="bg-slate-50 p-3 rounded-2xl border border-slate-100 text-center">
+                            <span className="block text-[10px] font-bold text-slate-400 uppercase mb-0.5">
+                              Karta ({pKar}%)
+                            </span>
+                            <span className="text-sm sm:text-base font-black text-slate-900">
+                              {formatMoney(kar)} zł
+                            </span>
                           </div>
-                          <div className="bg-gray-50 p-3.5 rounded-xl border border-gray-100 text-center">
-                            <span className="block text-[11px] font-bold text-gray-400 uppercase tracking-wide mb-1">Aplikacje ({pApl}%)</span>
-                            <span className="text-base font-black text-gray-800">{formatMoney(apl)} <span className="text-xs text-gray-500">zł</span></span>
+                          <div className="bg-slate-50 p-3 rounded-2xl border border-slate-100 text-center">
+                            <span className="block text-[10px] font-bold text-slate-400 uppercase mb-0.5">
+                              Aplikacje ({pApl}%)
+                            </span>
+                            <span className="text-sm sm:text-base font-black text-slate-900">
+                              {formatMoney(apl)} zł
+                            </span>
                           </div>
-                          <div className="bg-indigo-50/60 p-3.5 rounded-xl border border-indigo-100 text-center">
-                            <span className="block text-[11px] font-bold text-indigo-600 uppercase tracking-wide mb-1">Raport Fiskalny</span>
-                            <span className="text-base font-black text-indigo-950">{formatMoney(report.revenue?.raportFiskalny)} <span className="text-xs text-indigo-500">zł</span></span>
+                          <div className="bg-blue-50/50 p-3 rounded-2xl border border-blue-100 text-center">
+                            <span className="block text-[10px] font-bold text-blue-600 uppercase mb-0.5">
+                              Raport Fiskalny
+                            </span>
+                            <span className="text-sm sm:text-base font-black text-blue-950">
+                              {formatMoney(report.revenue?.raportFiskalny)} zł
+                            </span>
                           </div>
-                          <div className={`p-3.5 rounded-xl border text-center sm:col-span-2 ${parseSafeNumber(report.revenue?.roznica) < 0 ? "bg-red-50 border-red-100" : "bg-gray-50 border-gray-100"}`}>
-                            <span className="block text-[11px] font-bold text-gray-400 uppercase tracking-wide mb-1">Brak / Nadwyżka</span>
-                            <span className={`text-base font-black ${parseSafeNumber(report.revenue?.roznica) < 0 ? "text-red-600" : "text-gray-800"}`}>
-                              {formatMoney(report.revenue?.roznica)} <span className="text-xs text-gray-500">zł</span>
+                          <div
+                            className={`p-3 rounded-2xl border text-center sm:col-span-2 ${
+                              parseSafeNumber(report.revenue?.roznica) < 0
+                                ? "bg-rose-50 border-rose-100"
+                                : "bg-slate-50 border-slate-100"
+                            }`}
+                          >
+                            <span className="block text-[10px] font-bold text-slate-400 uppercase mb-0.5">
+                              Brak / Nadwyżka
+                            </span>
+                            <span
+                              className={`text-sm sm:text-base font-black ${
+                                parseSafeNumber(report.revenue?.roznica) < 0 ? "text-rose-600" : "text-slate-900"
+                              }`}
+                            >
+                              {formatMoney(report.revenue?.roznica)} zł
                             </span>
                           </div>
                         </div>
 
-                        {total > 0 && (
-                          <div className="mb-4">
-                            <div className="w-full h-2 bg-gray-100 rounded-full overflow-hidden flex">
-                              <div style={{ width: `${pGot}%` }} className="h-full bg-amber-400" />
-                              <div style={{ width: `${pKar}%` }} className="h-full bg-blue-500" />
-                              <div style={{ width: `${pApl}%` }} className="h-full bg-purple-500" />
-                            </div>
-                          </div>
-                        )}
-
                         {locExpenses.length > 0 && (
-                          <div className="mb-4 p-3.5 bg-amber-50/70 border border-amber-200 rounded-xl text-xs">
+                          <div className="mb-4 p-3.5 bg-amber-50/60 border border-amber-200 rounded-2xl text-xs">
                             <div className="flex justify-between items-center mb-1.5">
-                              <span className="font-black text-amber-900 uppercase flex items-center"><Wallet className="w-3.5 h-3.5 mr-1 text-amber-700" /> Wydatki z kasy (KW):</span>
-                              <span className="font-black text-amber-900">-{formatMoney(locExpensesSum)} zł (W kasetce: {formatMoney(got - locExpensesSum)} zł)</span>
+                              <span className="font-black text-amber-900 uppercase flex items-center">
+                                <Wallet className="w-3.5 h-3.5 mr-1 text-amber-700" /> Wydatki z kasy (KW):
+                              </span>
+                              <span className="font-black text-amber-900">
+                                -{formatMoney(locExpensesSum)} zł (W kasetce: {formatMoney(got - locExpensesSum)} zł)
+                              </span>
                             </div>
                             <div className="flex flex-wrap gap-1.5">
                               {locExpenses.map((ex, i) => (
-                                <span key={i} className="bg-white border border-amber-200 px-2.5 py-1 rounded-lg font-bold text-gray-800">
-                                  {ex.description || "Wydatek"}: <strong className="text-amber-800">{formatMoney(ex.amount)} zł</strong>
+                                <span
+                                  key={i}
+                                  className="bg-white border border-amber-200 px-2.5 py-1 rounded-lg font-bold text-slate-800"
+                                >
+                                  {ex.description || "Wydatek"}:{" "}
+                                  <strong className="text-amber-800">{formatMoney(ex.amount)} zł</strong>
                                 </span>
                               ))}
                             </div>
@@ -3995,21 +5005,30 @@ function NysaWarehouseForm({
                         )}
 
                         {Array.isArray(report.employees) && report.employees.some((e) => e?.name || e?.hours) && (
-                          <div className="mb-4 p-3.5 bg-gray-50 border border-gray-100 rounded-xl text-xs">
-                            <span className="font-black text-gray-500 uppercase block mb-1.5">Obsada zmiany:</span>
+                          <div className="mb-4 p-3.5 bg-slate-50 border border-slate-100 rounded-2xl text-xs">
+                            <span className="font-black text-slate-400 uppercase block mb-1.5">Obsada zmiany:</span>
                             <div className="flex flex-wrap gap-2">
-                              {report.employees.filter((e) => e?.name || e?.hours).map((emp, idx) => (
-                                <span key={idx} className="bg-white border border-gray-200 px-2.5 py-1 rounded-lg font-bold text-gray-800">
-                                  {emp.name || "Pracownik"}: <span className="text-blue-600">{emp.hours || "-"}</span>
-                                </span>
-                              ))}
+                              {report.employees
+                                .filter((e) => e?.name || e?.hours)
+                                .map((emp, idx) => (
+                                  <span
+                                    key={idx}
+                                    className="bg-white border border-slate-200 px-2.5 py-1 rounded-lg font-bold text-slate-800"
+                                  >
+                                    {emp.name || "Pracownik"}: <span className="text-blue-600">{emp.hours || "-"}</span>
+                                  </span>
+                                ))}
                             </div>
                           </div>
                         )}
 
-                        <div className="flex justify-between items-end border-t border-gray-100 pt-5 mt-auto">
-                          <span className="text-sm font-bold text-gray-500 uppercase tracking-wider">Utarg całkowity:</span>
-                          <span className="text-3xl font-black text-emerald-600">{formatMoney(total)} <span className="text-lg text-emerald-500">zł</span></span>
+                        <div className="flex justify-between items-end border-t border-slate-100 pt-4 mt-auto">
+                          <span className="text-xs font-bold text-slate-400 uppercase tracking-wider">
+                            Utarg całkowity:
+                          </span>
+                          <span className="text-2xl sm:text-3xl font-black text-emerald-600">
+                            {formatMoney(total)} <span className="text-base text-emerald-500">zł</span>
+                          </span>
                         </div>
                       </div>
                     </div>
@@ -4022,19 +5041,24 @@ function NysaWarehouseForm({
 
         {tab === "inventory" && hasFullAnalytics && (
           <div className="space-y-6">
-            <div className="bg-white p-5 rounded-[2rem] border border-gray-200 shadow-sm flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4">
+            <div className="bg-white p-5 rounded-3xl border border-slate-200 shadow-sm flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4">
               <div>
-                <h2 className="text-2xl font-black text-gray-900 flex items-center">
-                  <Warehouse className="w-7 h-7 mr-3 text-purple-600" /> Magazyn, Średnie Zużycie na Zamówienie i Braki
+                <h2 className="text-xl sm:text-2xl font-black text-slate-900 flex items-center">
+                  <Warehouse className="w-6 h-6 mr-2.5 text-slate-700" /> Magazyn, Szkice Na Żywo i Braki
                 </h2>
-                <p className="text-xs font-semibold text-gray-500 mt-1">
-                  Zestawienie średniego zużycia produktów na 1 zamówienie (z jednostkami miary), stanów magazynowych, braków sosów oraz uwag końcowych.
+                <p className="text-xs font-semibold text-slate-500 mt-1">
+                  Podgląd stanów z wysłanych raportów ORAZ szkiców roboczych na żywo (gdy pracownik zatwierdzi np. Farutex w ciągu dnia).
                 </p>
               </div>
               <div className="flex flex-wrap items-center gap-3">
-                <div className="flex items-center bg-gray-50 border border-gray-200 rounded-xl px-3 py-2">
-                  <Calendar className="w-4 h-4 text-gray-500 mr-2" />
-                  <input type="date" value={selectedReportDate} onChange={(e) => setSelectedReportDate(e.target.value)} className="bg-transparent font-black text-sm text-gray-900 outline-none" />
+                <div className="flex items-center bg-slate-50 border border-slate-200 rounded-2xl px-3.5 py-2">
+                  <Calendar className="w-4 h-4 text-slate-500 mr-2" />
+                  <input
+                    type="date"
+                    value={selectedReportDate}
+                    onChange={(e) => setSelectedReportDate(e.target.value)}
+                    className="bg-transparent font-black text-sm text-slate-900 outline-none"
+                  />
                 </div>
                 {!isKlodzkoAdmin && (
                   <div className="flex flex-wrap gap-1.5">
@@ -4043,7 +5067,11 @@ function NysaWarehouseForm({
                         key={loc}
                         type="button"
                         onClick={() => setInventoryLocFilter(loc)}
-                        className={`px-3.5 py-2 rounded-xl font-bold text-xs border transition-colors ${inventoryLocFilter === loc ? "bg-purple-600 text-white border-purple-600" : "bg-white text-gray-600 border-gray-200 hover:bg-gray-50"}`}
+                        className={`px-3.5 py-2 rounded-xl font-bold text-xs border transition-colors ${
+                          inventoryLocFilter === loc
+                            ? "bg-slate-900 text-white border-slate-900"
+                            : "bg-white text-slate-600 border-slate-200 hover:bg-slate-50"
+                        }`}
                       >
                         {loc === "All" ? "Wszystkie punkty" : loc}
                       </button>
@@ -4053,23 +5081,43 @@ function NysaWarehouseForm({
               </div>
             </div>
 
-            <div className="bg-indigo-950 text-white p-6 rounded-[2rem] border border-indigo-800 shadow-lg space-y-5">
-              <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4 border-b border-white/10 pb-4">
-                <div>
-                  <span className="text-[11px] font-black uppercase bg-indigo-500/30 text-indigo-200 px-3 py-1 rounded-full">
-                    Planowanie zatowarowania — Analityka na 1 zamówienie
-                  </span>
-                  <h3 className="text-xl font-black mt-2">
-                    Średnie zużycie / udział produktów na 1 zamówienie ({selectedReportDate})
-                  </h3>
-                  <p className="text-xs text-indigo-200 font-medium mt-0.5">
-                    Wyliczane przez podzielenie zaraportowanych ilości przez łączną liczbę zamówień ({averageUsagePerOrderData.totalOrders} zam. w wybranych punktach).
-                  </p>
-                </div>
-                <div className="flex items-center gap-3 bg-white/10 p-3 rounded-2xl border border-white/15 shrink-0">
+            <div className="bg-slate-900 text-white rounded-3xl border border-slate-800 shadow-md overflow-hidden">
+              <div
+                onClick={() => setShowAvgUsagePanel((o) => !o)}
+                className="p-5 flex flex-col sm:flex-row sm:items-center justify-between gap-3 cursor-pointer select-none hover:bg-slate-800/60 transition-colors"
+              >
+                <div className="flex items-center gap-3">
+                  <div className="w-10 h-10 rounded-2xl bg-indigo-500/20 border border-indigo-400/30 flex items-center justify-center shrink-0">
+                    <BarChart3 className="w-5 h-5 text-indigo-300" />
+                  </div>
                   <div>
-                    <label className="block text-[10px] font-black uppercase text-indigo-200">Śr. wartość koszyka (gdy brak paragonów):</label>
-                    <div className="flex items-center gap-1.5 mt-1">
+                    <h3 className="font-extrabold text-base sm:text-lg text-white">
+                      Analityka: Średnie zużycie produktów na 1 zamówienie ({selectedReportDate})
+                    </h3>
+                    <p className="text-xs text-slate-400 font-medium">
+                      Łączna liczba zamówień z wybranego filtra: <strong className="text-white">{averageUsagePerOrderData.totalOrders}</strong> • Kliknij, aby {showAvgUsagePanel ? "zwinąć" : "rozwinąć"} tabelę przeliczników
+                    </p>
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  className="self-start sm:self-center px-3.5 py-2 rounded-xl bg-slate-800 text-slate-200 font-bold text-xs flex items-center shrink-0"
+                >
+                  {showAvgUsagePanel ? (
+                    <>Ukryj przeliczniki <ChevronUp className="w-4 h-4 ml-1.5" /></>
+                  ) : (
+                    <>Pokaż przeliczniki <ChevronDown className="w-4 h-4 ml-1.5" /></>
+                  )}
+                </button>
+              </div>
+
+              {showAvgUsagePanel && (
+                <div className="p-5 pt-2 border-t border-slate-800 space-y-4">
+                  <div className="flex flex-wrap items-center justify-between gap-3 bg-slate-800/70 p-3.5 rounded-2xl">
+                    <span className="text-xs font-semibold text-slate-300">
+                      Domyślna średnia wartość koszyka (używana, gdy w raporcie nie wpisano liczby paragonów):
+                    </span>
+                    <div className="flex items-center gap-2">
                       <input
                         type="text"
                         inputMode="decimal"
@@ -4078,99 +5126,129 @@ function NysaWarehouseForm({
                           const v = e.target.value;
                           if (v === "" || /^\d*[.,]?\d*$/.test(v)) setAvgOrderFallbackVal(v);
                         }}
-                        className="w-20 p-1.5 text-center font-black text-sm text-gray-900 bg-white rounded-lg outline-none"
+                        className="w-20 p-1.5 text-center font-black text-sm text-slate-900 bg-white rounded-xl outline-none"
                       />
-                      <span className="text-xs font-bold text-indigo-200">PLN / zam.</span>
+                      <span className="text-xs font-bold text-slate-300">PLN / zam.</span>
                     </div>
                   </div>
-                  <div className="pl-3 border-l border-white/15 text-right">
-                    <span className="block text-[10px] font-black uppercase text-emerald-300">Liczba zamówień:</span>
-                    <span className="text-2xl font-black text-white">{averageUsagePerOrderData.totalOrders}</span>
-                  </div>
-                </div>
-              </div>
 
-              {averageUsagePerOrderData.totalOrders === 0 ? (
-                <p className="text-sm text-indigo-200 font-bold py-4 text-center bg-white/5 rounded-2xl">
-                  Brak raportów z liczbą zamówień lub utargiem w dniu {selectedReportDate}, aby wyliczyć średnie zużycie na zamówienie.
-                </p>
-              ) : (
-                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                  {[
-                    { key: "vegetables", label: "Warzywa i Inne" },
-                    { key: "freezer", label: "Stan Zamrażarek" },
-                    { key: "farutex", label: "Farutex" },
-                    { key: "meat1", label: "Dostawa Mięso 1" },
-                    { key: "meat2", label: "Dostawa Mięso 2" },
-                    { key: "otherItems", label: "Opakowania / Chemia" },
-                  ].map((sec) => {
-                    const secTotals = averageUsagePerOrderData.totalsBySection[sec.key] || {};
-                    const entries = Object.entries(secTotals).filter(([, v]) => v > 0);
-                    return (
-                      <div key={sec.key} className="bg-white/5 border border-white/10 p-4 rounded-2xl">
-                        <h4 className="text-xs font-black uppercase text-amber-300 mb-2.5">{sec.label}</h4>
-                        {entries.length === 0 ? (
-                          <p className="text-xs text-gray-400 italic">Brak pozycji powyżej 0</p>
-                        ) : (
-                          <div className="space-y-1.5">
-                            {entries.map(([itemName, sumVal]) => {
-                              const perOrder = sumVal / averageUsagePerOrderData.totalOrders;
-                              const unit = getItemUnit(catalog, itemName);
-                              return (
-                                <div key={itemName} className="flex items-center justify-between text-xs bg-white/5 px-2.5 py-1.5 rounded-lg">
-                                  <span className="font-bold text-gray-200 truncate pr-2">{itemName} (Σ {sumVal} {unit})</span>
-                                  <span className="font-black text-emerald-300 shrink-0">
-                                    {perOrder.toFixed(3)} {unit} / zam.
-                                  </span>
-                                </div>
-                              );
-                            })}
+                  {averageUsagePerOrderData.totalOrders === 0 ? (
+                    <p className="text-sm text-slate-400 font-bold py-4 text-center">
+                      Brak raportów z liczbą zamówień lub utargiem w dniu {selectedReportDate}.
+                    </p>
+                  ) : (
+                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                      {[
+                        { key: "vegetables", label: "Warzywa i Inne" },
+                        { key: "freezer", label: "Stan Zamrażarek" },
+                        { key: "farutex", label: "Farutex" },
+                        { key: "meat1", label: "Dostawa Mięso 1" },
+                        { key: "meat2", label: "Dostawa Mięso 2" },
+                        { key: "otherItems", label: "Opakowania / Chemia" },
+                      ].map((sec) => {
+                        const secTotals = averageUsagePerOrderData.totalsBySection[sec.key] || {};
+                        const entries = Object.entries(secTotals).filter(([, v]) => v > 0);
+                        return (
+                          <div key={sec.key} className="bg-slate-800/60 border border-slate-700/80 p-4 rounded-2xl">
+                            <h4 className="text-xs font-black uppercase text-amber-300 mb-2.5">{sec.label}</h4>
+                            {entries.length === 0 ? (
+                              <p className="text-xs text-slate-500 italic">Brak pozycji powyżej 0</p>
+                            ) : (
+                              <div className="space-y-1.5">
+                                {entries.map(([itemName, sumVal]) => {
+                                  const perOrder = sumVal / averageUsagePerOrderData.totalOrders;
+                                  const unit = getItemUnit(catalog, itemName);
+                                  return (
+                                    <div
+                                      key={itemName}
+                                      className="flex items-center justify-between text-xs bg-slate-900/60 px-2.5 py-1.5 rounded-lg"
+                                    >
+                                      <span className="font-bold text-slate-200 truncate pr-2">
+                                        {itemName} (Σ {sumVal} {unit})
+                                      </span>
+                                      <span className="font-black text-emerald-400 shrink-0">
+                                        {perOrder.toFixed(3)} {unit} / zam.
+                                      </span>
+                                    </div>
+                                  );
+                                })}
+                              </div>
+                            )}
                           </div>
-                        )}
-                      </div>
-                    );
-                  })}
+                        );
+                      })}
+                    </div>
+                  )}
                 </div>
               )}
             </div>
 
-            <div className="bg-amber-50/70 p-6 rounded-[2rem] border-2 border-amber-200 shadow-sm">
-              <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 mb-4">
-                <h3 className="text-lg font-black text-amber-950 flex items-center">
-                  <MessageSquare className="w-5 h-5 mr-2 text-amber-600" /> Braki sosów, notatki i uwagi końcowe ({selectedReportDate})
+            <div className="bg-white p-6 rounded-3xl border border-slate-200 shadow-sm">
+              <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 mb-4 pb-3 border-b border-slate-100">
+                <h3 className="text-lg font-black text-slate-900 flex items-center">
+                  <MessageSquare className="w-5 h-5 mr-2 text-amber-500" /> Braki sosów, notatki i uwagi końcowe (
+                  {selectedReportDate})
                 </h3>
-                <span className="text-xs font-bold text-amber-800 bg-amber-200/70 px-3 py-1 rounded-full">Interaktywne statusy realizacji</span>
+                <span className="text-xs font-bold text-slate-500 bg-slate-100 px-3 py-1 rounded-full">
+                  Statusy realizacji braków
+                </span>
               </div>
 
-              <div className={`grid grid-cols-1 ${allowedLocations.length > 1 ? "sm:grid-cols-2 lg:grid-cols-4" : ""} gap-4`}>
+              <div
+                className={`grid grid-cols-1 ${
+                  allowedLocations.length > 1 ? "sm:grid-cols-2 lg:grid-cols-4" : ""
+                } gap-4`}
+              >
                 {allowedLocations
                   .filter((loc) => inventoryLocFilter === "All" || loc === inventoryLocFilter)
                   .map((loc) => {
-                    const rep = reportsForSelectedDate.find((r) => r?.location === loc);
+                    const rep = getEffectiveInventoryRecordForLocation(loc);
                     const missingSauces = Array.isArray(rep?.sauces) ? rep.sauces : [];
                     const hasFinalNote = !!rep?.notes?.trim();
                     const hasSauceNote = !!rep?.saucesNote?.trim();
 
                     return (
-                      <div key={loc} className="bg-white p-4 rounded-2xl border border-amber-200/80 shadow-sm flex flex-col justify-between">
+                      <div
+                        key={loc}
+                        className="bg-slate-50 p-4 rounded-2xl border border-slate-200/80 flex flex-col justify-between"
+                      >
                         <div>
-                          <div className="flex items-center justify-between border-b border-gray-100 pb-2.5 mb-3">
-                            <span className="font-black text-gray-900">{loc}</span>
-                            <span className={`text-[10px] font-black px-2 py-0.5 rounded-full uppercase ${!rep ? "bg-gray-100 text-gray-400" : missingSauces.length > 0 ? "bg-red-100 text-red-700" : "bg-emerald-100 text-emerald-700"}`}>
-                              {!rep ? "Brak raportu" : missingSauces.length > 0 ? `Braki sosów (${missingSauces.length})` : "Sosy OK"}
+                          <div className="flex items-center justify-between border-b border-slate-200/70 pb-2.5 mb-3">
+                            <span className="font-black text-slate-900">{loc}</span>
+                            <span
+                              className={`text-[10px] font-black px-2 py-0.5 rounded-full uppercase ${
+                                !rep
+                                  ? "bg-slate-200 text-slate-500"
+                                  : missingSauces.length > 0
+                                  ? "bg-rose-100 text-rose-700"
+                                  : "bg-emerald-100 text-emerald-700"
+                              }`}
+                            >
+                              {!rep
+                                ? "Brak danych"
+                                : missingSauces.length > 0
+                                ? `Braki sosów (${missingSauces.length})`
+                                : "Sosy OK"}
                             </span>
                           </div>
                           {!rep ? (
-                            <p className="text-xs text-gray-400 italic">Nie wysłano raportu na dzień {selectedReportDate}.</p>
+                            <p className="text-xs text-slate-400 italic">
+                              Brak raportu ani szkicu na dzień {selectedReportDate}.
+                            </p>
                           ) : (
                             <div className="space-y-3 text-xs">
-                              <div className="p-2.5 bg-gray-50 rounded-xl border border-gray-100">
-                                <span className="font-bold text-gray-500 block">Brakujące sosy:</span>
+                              <div className="p-2.5 bg-white rounded-xl border border-slate-200/80">
+                                <span className="font-bold text-slate-400 block mb-1">Brakujące sosy:</span>
                                 {missingSauces.length > 0 ? (
                                   <>
-                                    <div className="flex flex-wrap gap-1 mt-1">
+                                    <div className="flex flex-wrap gap-1">
                                       {missingSauces.map((s) => (
-                                        <span key={s} className="bg-red-50 text-red-700 border border-red-200 font-black px-2 py-0.5 rounded-md">{s}</span>
+                                        <span
+                                          key={s}
+                                          className="bg-rose-50 text-rose-700 border border-rose-200 font-black px-2 py-0.5 rounded-md"
+                                        >
+                                          {s}
+                                        </span>
                                       ))}
                                     </div>
                                     {renderIssueStatusSwitcher(rep, "sauces")}
@@ -4181,19 +5259,23 @@ function NysaWarehouseForm({
                               </div>
                               {hasSauceNote && (
                                 <div className="p-2.5 bg-blue-50/70 rounded-xl border border-blue-200/70">
-                                  <span className="font-black text-[10px] uppercase text-blue-800 block mb-0.5">Notatka do sosów:</span>
+                                  <span className="font-black text-[10px] uppercase text-blue-800 block mb-0.5">
+                                    Notatka do sosów:
+                                  </span>
                                   <p className="font-bold text-blue-950 whitespace-pre-wrap">{rep.saucesNote}</p>
                                   {renderIssueStatusSwitcher(rep, "saucesNote")}
                                 </div>
                               )}
                               {hasFinalNote ? (
                                 <div className="p-2.5 bg-amber-50/80 rounded-xl border border-amber-200">
-                                  <span className="font-black text-[10px] uppercase text-amber-800 block mb-0.5">Uwagi końcowe (Magazyn / Braki):</span>
-                                  <p className="font-bold text-gray-900 whitespace-pre-wrap">{rep.notes}</p>
+                                  <span className="font-black text-[10px] uppercase text-amber-800 block mb-0.5">
+                                    Uwagi końcowe:
+                                  </span>
+                                  <p className="font-bold text-slate-900 whitespace-pre-wrap">{rep.notes}</p>
                                   {renderIssueStatusSwitcher(rep, "notes")}
                                 </div>
                               ) : (
-                                <p className="text-[11px] text-gray-400 italic pt-1">Brak dodatkowych uwag końcowych.</p>
+                                <p className="text-[11px] text-slate-400 italic pt-1">Brak dodatkowych uwag końcowych.</p>
                               )}
                             </div>
                           )}
@@ -4208,101 +5290,177 @@ function NysaWarehouseForm({
               {allowedLocations
                 .filter((loc) => inventoryLocFilter === "All" || loc === inventoryLocFilter)
                 .map((loc) => {
-                  const rep = reportsForSelectedDate.find((r) => r?.location === loc);
-                  const repOrders = rep ? getEffectiveOrdersCount(rep, parseSafeNumber(avgOrderFallbackVal) || DEFAULT_AVG_ORDER_VALUE) : 0;
+                  const rep = getEffectiveInventoryRecordForLocation(loc);
+                  const repOrders = rep
+                    ? getEffectiveOrdersCount(rep, parseSafeNumber(avgOrderFallbackVal) || DEFAULT_AVG_ORDER_VALUE)
+                    : 0;
+                  const confirmedEntries = rep?.confirmedSections ? Object.values(rep.confirmedSections) : [];
+
                   return (
-                    <div key={loc} className="bg-white rounded-[2rem] border border-gray-200 shadow-sm overflow-hidden">
-                      <div className="bg-gray-900 text-white p-5 flex flex-wrap justify-between items-center gap-3">
+                    <div key={loc} className="bg-white rounded-3xl border border-slate-200 shadow-sm overflow-hidden">
+                      <div className="bg-slate-900 text-white p-5 flex flex-wrap justify-between items-center gap-3">
                         <div>
-                          <h3 className="text-xl font-black flex items-center"><Store className="w-5 h-5 mr-2 text-purple-400" /> Punkt: {loc}</h3>
-                          <p className="text-xs text-gray-400 font-semibold mt-0.5">
-                            Data stanu: {selectedReportDate} {rep ? `• Raportował(a): ${rep.reporter} • Liczba zamówień: ${repOrders}` : ""}
+                          <div className="flex items-center gap-2.5 flex-wrap">
+                            <h3 className="text-xl font-black flex items-center">
+                              <Store className="w-5 h-5 mr-2 text-slate-400" /> Punkt: {loc}
+                            </h3>
+                            {rep && (
+                              <span
+                                className={`text-[10px] font-black uppercase px-2.5 py-1 rounded-full ${
+                                  rep.isLiveDraftOnly
+                                    ? "bg-blue-500/20 text-blue-300 border border-blue-400/30"
+                                    : "bg-emerald-500/20 text-emerald-300 border border-emerald-400/30"
+                                }`}
+                              >
+                                {rep.isLiveDraftOnly
+                                  ? "Szkic roboczy na żywo (W trakcie zmiany)"
+                                  : "Raport końcowy wysłany"}
+                              </span>
+                            )}
+                          </div>
+                          <p className="text-xs text-slate-400 font-semibold mt-1">
+                            Data: {selectedReportDate}{" "}
+                            {rep ? `• Osoba: ${rep.reporter || "W trakcie wpisywania"} • Zamówienia: ${repOrders}` : ""}
                           </p>
+                          {confirmedEntries.length > 0 && (
+                            <div className="flex flex-wrap gap-1.5 mt-2">
+                              {confirmedEntries.map((c, idx) => (
+                                <span
+                                  key={idx}
+                                  className="text-[10px] font-black bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 px-2.5 py-0.5 rounded-md"
+                                >
+                                  ✓ {c.label} ({c.time})
+                                </span>
+                              ))}
+                            </div>
+                          )}
                         </div>
                         {rep && (
                           <button
                             type="button"
                             onClick={() => onEditHistoricalReport(loc, selectedReportDate, rep)}
-                            className="bg-white/10 hover:bg-white/20 text-white px-3.5 py-2 rounded-xl text-xs font-bold flex items-center transition-colors"
+                            className="bg-slate-800 hover:bg-slate-700 text-white px-3.5 py-2 rounded-xl text-xs font-bold flex items-center transition-colors border border-slate-700"
                           >
-                            <Edit3 className="w-4 h-4 mr-1.5" /> Edytuj stany w raporcie
+                            <Edit3 className="w-4 h-4 mr-1.5" /> Edytuj stany
                           </button>
                         )}
                       </div>
                       {!rep ? (
-                        <div className="p-8 text-center"><p className="text-gray-400 font-bold">Brak raportu magazynowego dla punktu {loc} w dniu {selectedReportDate}.</p></div>
+                        <div className="p-8 text-center">
+                          <p className="text-slate-400 font-bold text-sm">
+                            Brak raportu ani szkicu magazynowego dla punktu {loc} w dniu {selectedReportDate}.
+                          </p>
+                        </div>
                       ) : (
                         <div className="p-5 space-y-4">
                           <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
                             {renderInventoryGroup(
                               "Warzywa i Inne",
-                              (catalog?.vegetables || DEFAULT_CATALOG.vegetables).filter((it) => isItemAllowedForLocation(catalog, "vegetables", it, loc)),
+                              "vegetables",
+                              (catalog?.vegetables || DEFAULT_CATALOG.vegetables).filter((it) =>
+                                isItemAllowedForLocation(catalog, "vegetables", it, loc)
+                              ),
                               rep.vegetables,
-                              "text-green-700",
+                              rep.confirmedSections,
                               repOrders
                             )}
                             {renderInventoryGroup(
                               "Stan Zamrażarek",
-                              (catalog?.freezer || DEFAULT_CATALOG.freezer).filter((it) => isItemAllowedForLocation(catalog, "freezer", it, loc)),
+                              "freezer",
+                              (catalog?.freezer || DEFAULT_CATALOG.freezer).filter((it) =>
+                                isItemAllowedForLocation(catalog, "freezer", it, loc)
+                              ),
                               rep.freezer,
-                              "text-blue-700",
+                              rep.confirmedSections,
                               repOrders
                             )}
                           </div>
                           {renderInventoryGroup(
-                            " Farutex",
-                            (catalog?.farutex || DEFAULT_CATALOG.farutex).filter((it) => isItemAllowedForLocation(catalog, "farutex", it, loc)),
+                            "Farutex",
+                            "farutex",
+                            (catalog?.farutex || DEFAULT_CATALOG.farutex).filter((it) =>
+                              isItemAllowedForLocation(catalog, "farutex", it, loc)
+                            ),
                             rep.farutex,
-                            "text-orange-700",
+                            rep.confirmedSections,
                             repOrders
                           )}
                           <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
                             {renderInventoryGroup(
                               "Dostawa Mięso 1",
-                              (catalog?.meat1 || DEFAULT_CATALOG.meat1).filter((it) => isItemAllowedForLocation(catalog, "meat1", it, loc)),
+                              "meat1",
+                              (catalog?.meat1 || DEFAULT_CATALOG.meat1).filter((it) =>
+                                isItemAllowedForLocation(catalog, "meat1", it, loc)
+                              ),
                               rep.meat1,
-                              "text-red-700",
+                              rep.confirmedSections,
                               repOrders
                             )}
                             {renderInventoryGroup(
                               "Dostawa Mięso 2",
-                              (catalog?.meat2 || DEFAULT_CATALOG.meat2).filter((it) => isItemAllowedForLocation(catalog, "meat2", it, loc)),
+                              "meat2",
+                              (catalog?.meat2 || DEFAULT_CATALOG.meat2).filter((it) =>
+                                isItemAllowedForLocation(catalog, "meat2", it, loc)
+                              ),
                               rep.meat2,
-                              "text-red-700",
+                              rep.confirmedSections,
                               repOrders
                             )}
                           </div>
                           {renderInventoryGroup(
                             "Inne: Opakowania / Chemia",
-                            (catalog?.otherItems || DEFAULT_CATALOG.otherItems).filter((it) => isItemAllowedForLocation(catalog, "otherItems", it, loc)),
+                            "otherItems",
+                            (catalog?.otherItems || DEFAULT_CATALOG.otherItems).filter((it) =>
+                              isItemAllowedForLocation(catalog, "otherItems", it, loc)
+                            ),
                             rep.otherItems,
-                            "text-purple-700",
+                            rep.confirmedSections,
                             repOrders
                           )}
                           {customCategoriesList.map((cat) => {
                             const secData = rep.customSections?.[cat.id];
-                            const allowedCatItems = (cat.items || []).filter((it) => isItemAllowedForLocation(catalog, `custom:${cat.id}`, it, loc));
+                            const allowedCatItems = (cat.items || []).filter((it) =>
+                              isItemAllowedForLocation(catalog, `custom:${cat.id}`, it, loc)
+                            );
                             if (cat.type === "checkbox") {
                               const checkedArr = Array.isArray(secData) ? secData : [];
                               return (
-                                <div key={cat.id} className="bg-gray-50 p-4 rounded-2xl border border-gray-100">
-                                  <h4 className="text-xs font-black uppercase tracking-wider mb-2 text-indigo-700">{cat.name}</h4>
+                                <div key={cat.id} className="bg-slate-50 p-4 rounded-2xl border border-slate-200/80">
+                                  <h4 className="text-xs font-black uppercase tracking-wider mb-2 text-slate-700">
+                                    {cat.name}
+                                  </h4>
                                   {checkedArr.length > 0 ? (
                                     <>
                                       <div className="flex flex-wrap gap-1.5">
                                         {checkedArr.map((it) => (
-                                          <span key={it} className="bg-indigo-100 text-indigo-800 font-black text-xs px-2.5 py-1 rounded-lg">{it}</span>
+                                          <span
+                                            key={it}
+                                            className="bg-slate-900 text-white font-black text-xs px-2.5 py-1 rounded-lg"
+                                          >
+                                            {it}
+                                          </span>
                                         ))}
                                       </div>
                                       {renderIssueStatusSwitcher(rep, `custom_${cat.id}`)}
                                     </>
                                   ) : (
-                                    <p className="text-xs text-gray-400 font-semibold">Brak zaznaczonych pozycji</p>
+                                    <p className="text-xs text-slate-400 font-semibold">Brak zaznaczonych pozycji</p>
                                   )}
                                 </div>
                               );
                             }
-                            return <div key={cat.id}>{renderInventoryGroup(cat.name, allowedCatItems, secData, "text-indigo-700", repOrders)}</div>;
+                            return (
+                              <div key={cat.id}>
+                                {renderInventoryGroup(
+                                  cat.name,
+                                  `custom_${cat.id}`,
+                                  allowedCatItems,
+                                  secData,
+                                  rep.confirmedSections,
+                                  repOrders
+                                )}
+                              </div>
+                            );
                           })}
                         </div>
                       )}
@@ -4311,19 +5469,31 @@ function NysaWarehouseForm({
                 })}
 
               {!isKlodzkoAdmin && (inventoryLocFilter === "All" || inventoryLocFilter === "Nysa") && (
-                <div className="bg-purple-50/40 rounded-[2rem] border-2 border-purple-200 shadow-sm overflow-hidden">
-                  <div className="bg-purple-900 text-white p-5 flex justify-between items-center">
+                <div className="bg-white rounded-3xl border border-slate-200 shadow-sm overflow-hidden">
+                  <div className="bg-purple-950 text-white p-5 flex justify-between items-center">
                     <div>
                       <h3 className="text-xl font-black">Magazyn Główny Nysa (Osobny formularz)</h3>
                       <p className="text-xs text-purple-200 font-semibold mt-0.5">Data: {selectedReportDate}</p>
                     </div>
                   </div>
                   {!nysaWarehouseForSelectedDate ? (
-                    <div className="p-6 text-center text-gray-400 font-bold">Brak wypełnionego formularza Magazynu Głównego Nysa na dzień {selectedReportDate}.</div>
+                    <div className="p-6 text-center text-slate-400 font-bold text-sm">
+                      Brak wypełnionego formularza Magazynu Głównego Nysa na dzień {selectedReportDate}.
+                    </div>
                   ) : (
                     <div className="p-5 grid grid-cols-1 lg:grid-cols-2 gap-4">
-                      {renderInventoryGroup("Magazyn Nysa - Żywność", catalog?.nysaFood || DEFAULT_CATALOG.nysaFood, nysaWarehouseForSelectedDate.food, "text-purple-800")}
-                      {renderInventoryGroup("Magazyn Nysa - Opakowania", catalog?.nysaPack || DEFAULT_CATALOG.nysaPack, nysaWarehouseForSelectedDate.pack, "text-purple-800")}
+                      {renderInventoryGroup(
+                        "Magazyn Nysa - Żywność",
+                        "nysaFood",
+                        catalog?.nysaFood || DEFAULT_CATALOG.nysaFood,
+                        nysaWarehouseForSelectedDate.food
+                      )}
+                      {renderInventoryGroup(
+                        "Magazyn Nysa - Opakowania",
+                        "nysaPack",
+                        catalog?.nysaPack || DEFAULT_CATALOG.nysaPack,
+                        nysaWarehouseForSelectedDate.pack
+                      )}
                     </div>
                   )}
                 </div>
@@ -4334,14 +5504,16 @@ function NysaWarehouseForm({
 
         {tab === "stats" && hasFullAnalytics && dayStats && (
           <div className="space-y-6">
-            <div className="bg-white p-6 rounded-[2rem] border border-gray-200 shadow-sm space-y-5">
+            <div className="bg-white p-6 rounded-3xl border border-slate-200 shadow-sm space-y-5">
               <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4">
                 <div>
-                  <h2 className="text-2xl font-black text-gray-900 flex items-center">
-                    <BarChart3 className="w-7 h-7 mr-3 text-emerald-600" /> Statystyka Dni Tygodnia {isKlodzkoAdmin ? "(Kłodzko)" : ""}
+                  <h2 className="text-2xl font-black text-slate-900 flex items-center">
+                    <BarChart3 className="w-7 h-7 mr-3 text-emerald-600" /> Statystyka Dni Tygodnia{" "}
+                    {isKlodzkoAdmin ? "(Kłodzko)" : ""}
                   </h2>
-                  <p className="text-sm text-gray-500 font-medium mt-1">
-                    Przeanalizowane raporty w wybranym okresie: <span className="font-black text-gray-900">{dayStats.totalReportsCount}</span> • Łączny utarg: <span className="font-black text-emerald-600">{formatMoney(dayStats.totalPeriodRevenue)} zł</span>
+                  <p className="text-sm text-slate-500 font-medium mt-1">
+                    Przeanalizowane raporty: <span className="font-black text-slate-900">{dayStats.totalReportsCount}</span> •
+                    Łączny utarg: <span className="font-black text-emerald-600">{formatMoney(dayStats.totalPeriodRevenue)} zł</span>
                   </p>
                 </div>
                 {!isKlodzkoAdmin && (
@@ -4351,7 +5523,11 @@ function NysaWarehouseForm({
                         key={loc}
                         type="button"
                         onClick={() => setStatsLocation(loc)}
-                        className={`px-4 py-2 rounded-xl font-bold text-xs transition-colors border ${statsLocation === loc ? (loc === "All" ? "bg-gray-900 text-white border-gray-900 shadow-sm" : "bg-emerald-600 text-white border-emerald-600 shadow-sm") : "bg-white text-gray-600 border-gray-200 hover:bg-gray-50"}`}
+                        className={`px-4 py-2 rounded-xl font-bold text-xs transition-colors border ${
+                          statsLocation === loc
+                            ? "bg-slate-900 text-white border-slate-900 shadow-sm"
+                            : "bg-white text-slate-600 border-slate-200 hover:bg-slate-50"
+                        }`}
                       >
                         {loc === "All" ? "Cała sieć" : loc}
                       </button>
@@ -4360,18 +5536,22 @@ function NysaWarehouseForm({
                 )}
               </div>
 
-              <div className="pt-4 border-t border-gray-100 flex flex-col md:flex-row md:items-center justify-between gap-4">
+              <div className="pt-4 border-t border-slate-100 flex flex-col md:flex-row md:items-center justify-between gap-4">
                 <div className="flex flex-wrap gap-2">
                   {[
-                    { id: "week", label: "Wybierz Tydzień z kalendarza", hasIcon: true },
-                    { id: "range", label: "Dowolny zakres dat (Od - Do)" },
+                    { id: "week", label: "Tydzień z kalendarza", hasIcon: true },
+                    { id: "range", label: "Zakres dat (Od - Do)" },
                     { id: "all", label: "Cała historia" },
                   ].map((m) => (
                     <button
                       key={m.id}
                       type="button"
                       onClick={() => setStatsFilterMode(m.id)}
-                      className={`px-4 py-2.5 rounded-xl font-extrabold text-xs transition-colors flex items-center ${statsFilterMode === m.id ? "bg-blue-600 text-white shadow-sm" : "bg-gray-100 text-gray-700 hover:bg-gray-200"}`}
+                      className={`px-4 py-2.5 rounded-xl font-extrabold text-xs transition-colors flex items-center ${
+                        statsFilterMode === m.id
+                          ? "bg-slate-900 text-white shadow-sm"
+                          : "bg-slate-100 text-slate-700 hover:bg-slate-200"
+                      }`}
                     >
                       {m.hasIcon && <Calendar className="w-4 h-4 mr-1.5" />} {m.label}
                     </button>
@@ -4379,26 +5559,54 @@ function NysaWarehouseForm({
                 </div>
 
                 {statsFilterMode === "week" && (
-                  <div className="flex flex-wrap items-center gap-2 bg-blue-50/70 p-2.5 rounded-2xl border border-blue-200">
-                    <button type="button" onClick={() => shiftStatsWeek(-7)} className="px-3 py-1.5 bg-white hover:bg-gray-100 text-gray-800 rounded-xl font-black text-xs border border-gray-200 shadow-sm">Poprzedni tydz.</button>
-                    <div className="flex items-center bg-white px-3 py-1.5 rounded-xl border border-blue-200">
-                      <span className="text-[11px] font-bold text-gray-400 mr-2">Wskaż dzień tygodnia:</span>
-                      <input type="date" value={statsWeekRefDate} onChange={(e) => setStatsWeekRefDate(e.target.value)} className="font-black text-xs text-blue-900 outline-none bg-transparent" />
+                  <div className="flex flex-wrap items-center gap-2 bg-slate-50 p-2.5 rounded-2xl border border-slate-200">
+                    <button
+                      type="button"
+                      onClick={() => shiftStatsWeek(-7)}
+                      className="px-3 py-1.5 bg-white hover:bg-slate-100 text-slate-800 rounded-xl font-black text-xs border border-slate-200 shadow-sm"
+                    >
+                      Poprzedni tydz.
+                    </button>
+                    <div className="flex items-center bg-white px-3 py-1.5 rounded-xl border border-slate-200">
+                      <input
+                        type="date"
+                        value={statsWeekRefDate}
+                        onChange={(e) => setStatsWeekRefDate(e.target.value)}
+                        className="font-black text-xs text-slate-900 outline-none bg-transparent"
+                      />
                     </div>
-                    <button type="button" onClick={() => shiftStatsWeek(7)} className="px-3 py-1.5 bg-white hover:bg-gray-100 text-gray-800 rounded-xl font-black text-xs border border-gray-200 shadow-sm">Następny tydz.</button>
-                    <span className="text-xs font-black text-blue-900 px-2">Tydzień: {dayStats.activeStart} — {dayStats.activeEnd}</span>
+                    <button
+                      type="button"
+                      onClick={() => shiftStatsWeek(7)}
+                      className="px-3 py-1.5 bg-white hover:bg-slate-100 text-slate-800 rounded-xl font-black text-xs border border-slate-200 shadow-sm"
+                    >
+                      Następny tydz.
+                    </button>
+                    <span className="text-xs font-black text-slate-700 px-2">
+                      {dayStats.activeStart} — {dayStats.activeEnd}
+                    </span>
                   </div>
                 )}
 
                 {statsFilterMode === "range" && (
-                  <div className="flex flex-wrap items-center gap-2 bg-blue-50/70 p-2.5 rounded-2xl border border-blue-200">
-                    <div className="flex items-center bg-white px-3 py-1.5 rounded-xl border border-blue-200">
-                      <span className="text-[11px] font-bold text-gray-400 mr-2">Od:</span>
-                      <input type="date" value={statsCustomStart} onChange={(e) => setStatsCustomStart(e.target.value)} className="font-black text-xs text-gray-900 outline-none bg-transparent" />
+                  <div className="flex flex-wrap items-center gap-2 bg-slate-50 p-2.5 rounded-2xl border border-slate-200">
+                    <div className="flex items-center bg-white px-3 py-1.5 rounded-xl border border-slate-200">
+                      <span className="text-[11px] font-bold text-slate-400 mr-2">Od:</span>
+                      <input
+                        type="date"
+                        value={statsCustomStart}
+                        onChange={(e) => setStatsCustomStart(e.target.value)}
+                        className="font-black text-xs text-slate-900 outline-none bg-transparent"
+                      />
                     </div>
-                    <div className="flex items-center bg-white px-3 py-1.5 rounded-xl border border-blue-200">
-                      <span className="text-[11px] font-bold text-gray-400 mr-2">Do:</span>
-                      <input type="date" value={statsCustomEnd} onChange={(e) => setStatsCustomEnd(e.target.value)} className="font-black text-xs text-gray-900 outline-none bg-transparent" />
+                    <div className="flex items-center bg-white px-3 py-1.5 rounded-xl border border-slate-200">
+                      <span className="text-[11px] font-bold text-slate-400 mr-2">Do:</span>
+                      <input
+                        type="date"
+                        value={statsCustomEnd}
+                        onChange={(e) => setStatsCustomEnd(e.target.value)}
+                        className="font-black text-xs text-slate-900 outline-none bg-transparent"
+                      />
                     </div>
                   </div>
                 )}
@@ -4407,58 +5615,85 @@ function NysaWarehouseForm({
 
             {dayStats.bestDay ? (
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                <div className="bg-emerald-50 border-2 border-emerald-200 p-6 rounded-[2rem] flex items-center justify-between shadow-sm">
+                <div className="bg-white border-2 border-emerald-400 p-6 rounded-3xl flex items-center justify-between shadow-sm">
                   <div>
-                    <span className="text-[11px] font-black uppercase tracking-wider text-emerald-700 bg-emerald-200/70 px-3 py-1 rounded-full">Najlepszy dzień w wybranym okresie</span>
-                    <h3 className="text-3xl font-black text-emerald-950 mt-3">{dayStats.bestDay.name}</h3>
-                    <p className="text-lg font-extrabold text-emerald-700 mt-1">śr. {formatMoney(dayStats.bestDay.avg)} zł</p>
-                    <p className="text-xs font-semibold text-emerald-600/80 mt-1">Na podstawie {dayStats.bestDay.count} raportów (łącznie {formatMoney(dayStats.bestDay.sum)} zł)</p>
+                    <span className="text-[11px] font-black uppercase tracking-wider text-emerald-800 bg-emerald-100 px-3 py-1 rounded-full">
+                      Najlepszy dzień tygodnia
+                    </span>
+                    <h3 className="text-3xl font-black text-slate-900 mt-3">{dayStats.bestDay.name}</h3>
+                    <p className="text-lg font-extrabold text-emerald-600 mt-1">śr. {formatMoney(dayStats.bestDay.avg)} zł</p>
+                    <p className="text-xs font-semibold text-slate-500 mt-1">
+                      Na podstawie {dayStats.bestDay.count} raportów (łącznie {formatMoney(dayStats.bestDay.sum)} zł)
+                    </p>
                   </div>
-                  <div className="w-14 h-14 rounded-2xl bg-emerald-600 text-white flex items-center justify-center shrink-0 shadow-lg shadow-emerald-600/20"><TrendingUp className="w-7 h-7" /></div>
+                  <div className="w-14 h-14 rounded-2xl bg-emerald-600 text-white flex items-center justify-center shrink-0 shadow-md">
+                    <TrendingUp className="w-7 h-7" />
+                  </div>
                 </div>
-                <div className="bg-orange-50 border-2 border-orange-200 p-6 rounded-[2rem] flex items-center justify-between shadow-sm">
+                <div className="bg-white border-2 border-amber-300 p-6 rounded-3xl flex items-center justify-between shadow-sm">
                   <div>
-                    <span className="text-[11px] font-black uppercase tracking-wider text-orange-800 bg-orange-200/70 px-3 py-1 rounded-full">Najsłabszy dzień w wybranym okresie</span>
-                    <h3 className="text-3xl font-black text-orange-950 mt-3">{dayStats.worstDay.name}</h3>
-                    <p className="text-lg font-extrabold text-orange-700 mt-1">śr. {formatMoney(dayStats.worstDay.avg)} zł</p>
-                    <p className="text-xs font-semibold text-orange-600/80 mt-1">Na podstawie {dayStats.worstDay.count} raportów (łącznie {formatMoney(dayStats.worstDay.sum)} zł)</p>
+                    <span className="text-[11px] font-black uppercase tracking-wider text-amber-800 bg-amber-100 px-3 py-1 rounded-full">
+                      Najsłabszy dzień tygodnia
+                    </span>
+                    <h3 className="text-3xl font-black text-slate-900 mt-3">{dayStats.worstDay.name}</h3>
+                    <p className="text-lg font-extrabold text-amber-600 mt-1">śr. {formatMoney(dayStats.worstDay.avg)} zł</p>
+                    <p className="text-xs font-semibold text-slate-500 mt-1">
+                      Na podstawie {dayStats.worstDay.count} raportów (łącznie {formatMoney(dayStats.worstDay.sum)} zł)
+                    </p>
                   </div>
-                  <div className="w-14 h-14 rounded-2xl bg-orange-500 text-white flex items-center justify-center shrink-0 shadow-lg shadow-orange-500/20"><TrendingDown className="w-7 h-7" /></div>
+                  <div className="w-14 h-14 rounded-2xl bg-amber-500 text-white flex items-center justify-center shrink-0 shadow-md">
+                    <TrendingDown className="w-7 h-7" />
+                  </div>
                 </div>
               </div>
             ) : (
-              <div className="bg-white p-8 rounded-[2rem] border-2 border-dashed border-gray-200 text-center">
-                <p className="text-gray-400 font-bold">Brak zapisanych raportów z utargiem dla wybranego tygodnia / zakresu dat.</p>
+              <div className="bg-white p-8 rounded-3xl border border-slate-200 text-center">
+                <p className="text-slate-400 font-bold">Brak zapisanych raportów z utargiem dla wybranego okresu.</p>
               </div>
             )}
 
-            <div className="bg-white p-6 rounded-[2rem] border border-gray-200 shadow-sm space-y-5">
-              <h3 className="font-extrabold text-lg text-gray-900">Utarg według dni tygodnia (Poniedziałek – Niedziela)</h3>
-              <div className="space-y-4">
+            <div className="bg-white p-6 rounded-3xl border border-slate-200 shadow-sm space-y-5">
+              <h3 className="font-extrabold text-lg text-slate-900">
+                Utarg według dni tygodnia (Poniedziałek – Niedziela)
+              </h3>
+              <div className="space-y-3.5">
                 {dayStats.statsList.map((d) => {
                   const percent = dayStats.maxAvg > 0 ? Math.round((d.avg / dayStats.maxAvg) * 100) : 0;
                   const isBest = dayStats.bestDay?.id === d.id && d.count > 0;
-                  const isWorst = dayStats.worstDay?.id === d.id && d.count > 0 && dayStats.bestDay?.id !== dayStats.worstDay?.id;
+                  const isWorst =
+                    dayStats.worstDay?.id === d.id && d.count > 0 && dayStats.bestDay?.id !== dayStats.worstDay?.id;
                   return (
-                    <div key={d.id} className="p-4 rounded-2xl bg-gray-50 border border-gray-100">
+                    <div key={d.id} className="p-4 rounded-2xl bg-slate-50 border border-slate-100">
                       <div className="flex flex-wrap items-center justify-between gap-2 mb-2">
                         <div className="flex items-center gap-2">
-                          <span className="font-black text-gray-900 text-base">{d.name}</span>
-                          <span className="text-xs font-bold text-gray-400">({d.count} {d.count === 1 ? "raport" : d.count >= 2 && d.count <= 4 ? "raporty" : "raportów"})</span>
-                          {isBest && <span className="text-[10px] font-black uppercase bg-emerald-100 text-emerald-700 px-2.5 py-0.5 rounded-full">Najlepszy</span>}
-                          {isWorst && <span className="text-[10px] font-black uppercase bg-orange-100 text-orange-700 px-2.5 py-0.5 rounded-full">Najsłabszy</span>}
+                          <span className="font-black text-slate-900 text-base">{d.name}</span>
+                          <span className="text-xs font-bold text-slate-400">({d.count} rap.)</span>
+                          {isBest && (
+                            <span className="text-[10px] font-black uppercase bg-emerald-100 text-emerald-700 px-2.5 py-0.5 rounded-full">
+                              Najlepszy
+                            </span>
+                          )}
+                          {isWorst && (
+                            <span className="text-[10px] font-black uppercase bg-amber-100 text-amber-800 px-2.5 py-0.5 rounded-full">
+                              Najsłabszy
+                            </span>
+                          )}
                         </div>
                         <div className="text-right">
-                          <span className="text-xs font-bold text-gray-400 uppercase mr-1.5">Średnio:</span>
-                          <span className="text-lg font-black text-gray-900">{formatMoney(d.avg)} <span className="text-xs text-gray-500">zł</span></span>
+                          <span className="text-xs font-bold text-slate-400 uppercase mr-1.5">Średnio:</span>
+                          <span className="text-lg font-black text-slate-900">
+                            {formatMoney(d.avg)} <span className="text-xs text-slate-500">zł</span>
+                          </span>
                         </div>
                       </div>
-                      <div className="w-full h-3 bg-gray-200 rounded-full overflow-hidden">
-                        <div className={`h-full rounded-full transition-colors duration-300 ${isBest ? "bg-emerald-500" : isWorst ? "bg-orange-400" : "bg-blue-500"}`} style={{ width: `${percent}%` }} />
+                      <div className="w-full h-2.5 bg-slate-200 rounded-full overflow-hidden">
+                        <div
+                          className={`h-full rounded-full transition-all duration-300 ${
+                            isBest ? "bg-emerald-500" : isWorst ? "bg-amber-400" : "bg-slate-800"
+                          }`}
+                          style={{ width: `${percent}%` }}
+                        />
                       </div>
-                      {d.count > 0 && (
-                        <div className="mt-2 text-right"><span className="text-[11px] font-semibold text-gray-400">Suma całkowita z tych dni: {formatMoney(d.sum)} zł</span></div>
-                      )}
                     </div>
                   );
                 })}
@@ -4469,10 +5704,10 @@ function NysaWarehouseForm({
 
         {tab === "hours" && (
           <div className="space-y-6">
-            <div className="bg-gradient-to-br from-slate-900 via-indigo-950 to-slate-900 text-white p-6 rounded-[2rem] border border-indigo-700/70 shadow-xl space-y-5">
-              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-white/10 pb-4">
+            <div className="bg-slate-900 text-white p-6 rounded-3xl border border-slate-800 shadow-lg space-y-5">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-slate-800 pb-4">
                 <div className="flex items-center gap-3">
-                  <div className="w-12 h-12 rounded-2xl bg-emerald-500/20 border border-emerald-400/40 flex items-center justify-center shrink-0">
+                  <div className="w-11 h-11 rounded-2xl bg-emerald-500/20 border border-emerald-400/30 flex items-center justify-center shrink-0">
                     <Timer className="w-6 h-6 text-emerald-400" />
                   </div>
                   <div>
@@ -4483,37 +5718,42 @@ function NysaWarehouseForm({
                         Aktywnych: {activeLiveShifts.length}
                       </span>
                     </div>
-                    <p className="text-xs text-indigo-200/80 font-medium mt-0.5">
-                      Widzisz tu każdego pracownika, który rozpoczął zmianę. Jeśli ktoś zapomniał odbić wyjścia, możesz zamknąć zmianę ręcznie.
+                    <p className="text-xs text-slate-400 font-medium mt-0.5">
+                      Widzisz tu każdego pracownika na zmianie. Jeśli ktoś zapomniał odbić wyjścia, możesz zamknąć zmianę ręcznie.
                     </p>
                   </div>
                 </div>
               </div>
 
               {activeLiveShifts.length === 0 ? (
-                <div className="bg-white/5 border border-white/10 p-6 rounded-2xl text-center">
-                  <p className="text-sm font-bold text-indigo-200">Aktualnie żaden pracownik nie ma włączonej aktywnej zmiany na czytniku.</p>
+                <div className="bg-slate-800/60 border border-slate-700/80 p-6 rounded-2xl text-center">
+                  <p className="text-sm font-bold text-slate-300">
+                    Aktualnie żaden pracownik nie ma włączonej aktywnej zmiany na czytniku.
+                  </p>
                 </div>
               ) : (
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                   {activeLiveShifts.map((sh) => {
                     const isClosingThis = closingShiftId === sh.id;
                     return (
-                      <div key={sh.id} className="bg-white/10 border border-emerald-400/40 p-4 rounded-2xl flex flex-col justify-between gap-3">
+                      <div
+                        key={sh.id}
+                        className="bg-slate-800 border border-slate-700 p-4 rounded-2xl flex flex-col justify-between gap-3"
+                      >
                         <div className="flex items-start justify-between gap-2">
                           <div>
                             <div className="flex items-center gap-2 flex-wrap">
-                              <span className="text-[10px] font-black uppercase bg-indigo-500/40 text-indigo-100 px-2.5 py-0.5 rounded-md border border-indigo-400/30">
+                              <span className="text-[10px] font-black uppercase bg-slate-700 text-slate-200 px-2.5 py-0.5 rounded-md">
                                 {sh.location}
                               </span>
-                              <span className="text-[10px] font-bold text-indigo-200">Data: {sh.date}</span>
+                              <span className="text-[10px] font-bold text-slate-400">Data: {sh.date}</span>
                             </div>
                             <h4 className="font-black text-lg text-white mt-1 flex items-center gap-2">
-                              <span className="w-2.5 h-2.5 rounded-full bg-emerald-400 animate-pulse" />
+                              <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
                               {sh.employeeName}
                             </h4>
-                            <p className="text-xs font-bold text-indigo-200 mt-1">
-                              Rozpoczęto o: <strong className="text-white">{sh.startHM}</strong> • Czas pracy na żywo:{" "}
+                            <p className="text-xs font-bold text-slate-300 mt-1">
+                              Start: <strong className="text-white">{sh.startHM}</strong> • Czas:{" "}
                               <strong className="text-emerald-300 bg-emerald-500/20 px-2 py-0.5 rounded-md">
                                 {formatLiveDuration(sh.startTime, nowMs)}
                               </strong>
@@ -4526,7 +5766,7 @@ function NysaWarehouseForm({
                                 setClosingShiftId(sh.id);
                                 setCustomEndTimeInput(formatTimeHM(new Date()));
                               }}
-                              className="shrink-0 bg-red-500 hover:bg-red-600 text-white font-black text-xs px-3.5 py-2.5 rounded-xl flex items-center shadow-md transition-colors"
+                              className="shrink-0 bg-rose-600 hover:bg-rose-500 text-white font-black text-xs px-3.5 py-2.5 rounded-xl flex items-center shadow-sm transition-colors"
                             >
                               <Square className="w-3.5 h-3.5 mr-1.5 fill-current" /> Zakończ z panelu
                             </button>
@@ -4534,16 +5774,16 @@ function NysaWarehouseForm({
                         </div>
 
                         {isClosingThis && (
-                          <div className="pt-3 border-t border-white/15 bg-black/25 p-3 rounded-xl space-y-2.5">
+                          <div className="pt-3 border-t border-slate-700 bg-slate-900/80 p-3 rounded-xl space-y-2.5">
                             <label className="block text-[11px] font-black uppercase text-amber-300">
-                              Podaj godzinę zakończenia zmiany (np. gdy pracownik zapomniał się wylogować):
+                              Podaj godzinę zakończenia zmiany:
                             </label>
                             <div className="flex flex-wrap items-center gap-2">
                               <input
                                 type="time"
                                 value={customEndTimeInput}
                                 onChange={(e) => setCustomEndTimeInput(e.target.value)}
-                                className="px-3 py-2 bg-white text-gray-900 font-black text-sm rounded-xl outline-none"
+                                className="px-3 py-2 bg-white text-slate-900 font-black text-sm rounded-xl outline-none"
                               />
                               <button
                                 type="button"
@@ -4551,14 +5791,14 @@ function NysaWarehouseForm({
                                   await onClockOut(sh, customEndTimeInput || formatTimeHM(new Date()), name);
                                   setClosingShiftId(null);
                                 }}
-                                className="flex-1 bg-emerald-500 hover:bg-emerald-400 text-gray-950 font-black text-xs py-2.5 px-4 rounded-xl transition-colors"
+                                className="flex-1 bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-black text-xs py-2.5 px-4 rounded-xl transition-colors"
                               >
-                                Zatwierdź i zamknij ({sh.startHM}-{customEndTimeInput})
+                                Zatwierdź ({sh.startHM}-{customEndTimeInput})
                               </button>
                               <button
                                 type="button"
                                 onClick={() => setClosingShiftId(null)}
-                                className="bg-white/15 hover:bg-white/25 text-white font-bold text-xs py-2.5 px-3 rounded-xl"
+                                className="bg-slate-700 hover:bg-slate-600 text-white font-bold text-xs py-2.5 px-3 rounded-xl"
                               >
                                 Anuluj
                               </button>
@@ -4572,16 +5812,15 @@ function NysaWarehouseForm({
               )}
             </div>
 
-            {(isOwner || isKlodzkoAdmin) && renderEmployeeManagerWidget()}
-
-            <div className="bg-white p-6 rounded-[2rem] border border-gray-200 shadow-sm space-y-5">
+            <div className="bg-white p-6 rounded-3xl border border-slate-200 shadow-sm space-y-5">
               <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4">
                 <div>
-                  <h2 className="text-2xl font-black text-gray-900 flex items-center">
-                    <Clock className="w-7 h-7 mr-3 text-indigo-600" /> Podsumowanie Godzin Pracy {isKlodzkoAdmin ? "(Punkt Kłodzko)" : ""}
+                  <h2 className="text-2xl font-black text-slate-900 flex items-center">
+                    <Clock className="w-7 h-7 mr-3 text-slate-700" /> Podsumowanie Godzin Pracy{" "}
+                    {isKlodzkoAdmin ? "(Punkt Kłodzko)" : ""}
                   </h2>
-                  <p className="text-xs font-semibold text-gray-500 mt-1">
-                    Automatycznie łączy odbicia z czytnika RCP oraz wpisy z raportów dobowych (bez dublowania tego samego dnia i pracownika).
+                  <p className="text-xs font-semibold text-slate-500 mt-1">
+                    Automatycznie łączy odbicia z czytnika RCP oraz wpisy z raportów dobowych.
                   </p>
                 </div>
                 {!isKlodzkoAdmin && (
@@ -4591,7 +5830,11 @@ function NysaWarehouseForm({
                         key={loc}
                         type="button"
                         onClick={() => setHoursLocation(loc)}
-                        className={`px-3.5 py-2 rounded-xl font-bold text-xs border transition-colors ${hoursLocation === loc ? "bg-indigo-600 text-white border-indigo-600" : "bg-white text-gray-600 border-gray-200 hover:bg-gray-50"}`}
+                        className={`px-3.5 py-2 rounded-xl font-bold text-xs border transition-colors ${
+                          hoursLocation === loc
+                            ? "bg-slate-900 text-white border-slate-900"
+                            : "bg-white text-slate-600 border-slate-200 hover:bg-slate-50"
+                        }`}
                       >
                         {loc === "All" ? "Wszystkie punkty" : loc}
                       </button>
@@ -4600,22 +5843,39 @@ function NysaWarehouseForm({
                 )}
               </div>
 
-              <div className="pt-4 border-t border-gray-100 flex flex-wrap items-center justify-between gap-3">
+              <div className="pt-4 border-t border-slate-100 flex flex-wrap items-center justify-between gap-3">
                 <div className="flex flex-wrap items-center gap-3">
-                  <div className="flex items-center bg-gray-50 px-3 py-2 rounded-xl border border-gray-200">
-                    <span className="text-xs font-bold text-gray-500 mr-2">Od dnia:</span>
-                    <input type="date" value={hoursStartDate} onChange={(e) => setHoursStartDate(e.target.value)} className="font-black text-xs text-gray-900 bg-transparent outline-none" />
+                  <div className="flex items-center bg-slate-50 px-3 py-2 rounded-xl border border-slate-200">
+                    <span className="text-xs font-bold text-slate-500 mr-2">Od dnia:</span>
+                    <input
+                      type="date"
+                      value={hoursStartDate}
+                      onChange={(e) => setHoursStartDate(e.target.value)}
+                      className="font-black text-xs text-slate-900 bg-transparent outline-none"
+                    />
                   </div>
-                  <div className="flex items-center bg-gray-50 px-3 py-2 rounded-xl border border-gray-200">
-                    <span className="text-xs font-bold text-gray-500 mr-2">Do dnia:</span>
-                    <input type="date" value={hoursEndDate} onChange={(e) => setHoursEndDate(e.target.value)} className="font-black text-xs text-gray-900 bg-transparent outline-none" />
+                  <div className="flex items-center bg-slate-50 px-3 py-2 rounded-xl border border-slate-200">
+                    <span className="text-xs font-bold text-slate-500 mr-2">Do dnia:</span>
+                    <input
+                      type="date"
+                      value={hoursEndDate}
+                      onChange={(e) => setHoursEndDate(e.target.value)}
+                      className="font-black text-xs text-slate-900 bg-transparent outline-none"
+                    />
                   </div>
-                  <button type="button" onClick={() => { setHoursStartDate(""); setHoursEndDate(""); }} className="px-3.5 py-2 bg-gray-100 hover:bg-gray-200 text-gray-700 font-bold text-xs rounded-xl transition-colors">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setHoursStartDate("");
+                      setHoursEndDate("");
+                    }}
+                    className="px-3.5 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold text-xs rounded-xl transition-colors"
+                  >
                     Pokaż wszystkie daty
                   </button>
                 </div>
 
-                <div className="flex bg-gray-100 p-1 rounded-xl border border-gray-200">
+                <div className="flex bg-slate-100 p-1 rounded-xl border border-slate-200">
                   {[
                     { id: "combined", label: "Połączone (RCP + Raporty)" },
                     { id: "rcp", label: "Tylko Czytnik RCP" },
@@ -4626,7 +5886,9 @@ function NysaWarehouseForm({
                       type="button"
                       onClick={() => setHoursSourceMode(mode.id)}
                       className={`px-3 py-1.5 rounded-lg font-black text-[11px] transition-colors ${
-                        hoursSourceMode === mode.id ? "bg-indigo-600 text-white shadow-sm" : "text-gray-600 hover:text-gray-900"
+                        hoursSourceMode === mode.id
+                          ? "bg-slate-900 text-white shadow-sm"
+                          : "text-slate-600 hover:text-slate-900"
                       }`}
                     >
                       {mode.label}
@@ -4637,53 +5899,83 @@ function NysaWarehouseForm({
             </div>
 
             {workHoursData.summaryList.length > 0 && (
-              <div className="bg-indigo-50/60 p-6 rounded-[2rem] border-2 border-indigo-100 shadow-sm">
-                <h3 className="font-extrabold text-indigo-950 text-lg mb-4 flex items-center">
-                  <Users className="w-5 h-5 mr-2 text-indigo-600" /> Suma przepracowanych godzin według pracowników (wybrany okres)
+              <div className="bg-white p-6 rounded-3xl border border-slate-200 shadow-sm">
+                <h3 className="font-extrabold text-slate-900 text-lg mb-4 flex items-center">
+                  <Users className="w-5 h-5 mr-2 text-slate-600" /> Suma przepracowanych godzin według pracowników
                 </h3>
-                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3.5">
                   {workHoursData.summaryList.map((person) => (
-                    <div key={person.displayName} className="bg-white p-4 rounded-2xl border border-indigo-100 shadow-sm flex items-center justify-between">
+                    <div
+                      key={person.displayName}
+                      className="bg-slate-50 p-4 rounded-2xl border border-slate-200/80 flex items-center justify-between"
+                    >
                       <div>
-                        <p className="font-black text-gray-900 text-base">{person.displayName}</p>
-                        <p className="text-xs font-semibold text-gray-500 mt-0.5">Liczba zmian: {person.shiftsCount} • {person.locations.join(", ")}</p>
+                        <p className="font-black text-slate-900 text-base">{person.displayName}</p>
+                        <p className="text-xs font-semibold text-slate-500 mt-0.5">
+                          Zmiany: {person.shiftsCount} • {person.locations.join(", ")}
+                        </p>
                       </div>
-                      <div className="text-right"><span className="text-xl font-black text-indigo-600">{person.totalHours} h</span></div>
+                      <div className="text-right">
+                        <span className="text-xl font-black text-slate-900 bg-white border border-slate-200 px-3 py-1 rounded-xl">
+                          {person.totalHours} h
+                        </span>
+                      </div>
                     </div>
                   ))}
                 </div>
               </div>
             )}
 
-            <div className="bg-white p-6 rounded-[2rem] border border-gray-200 shadow-sm">
-              <h3 className="font-extrabold text-gray-900 text-lg mb-4">Szczegółowy wykaz zmian ({workHoursData.entries.length})</h3>
+            <div className="bg-white p-6 rounded-3xl border border-slate-200 shadow-sm">
+              <h3 className="font-extrabold text-slate-900 text-lg mb-4">
+                Szczegółowy wykaz zmian ({workHoursData.entries.length})
+              </h3>
               {workHoursData.entries.length === 0 ? (
-                <p className="text-gray-400 font-bold text-center py-6">Brak zarejestrowanych godzin pracy dla wybranych filtrów.</p>
+                <p className="text-slate-400 font-bold text-center py-6">
+                  Brak zarejestrowanych godzin pracy dla wybranych filtrów.
+                </p>
               ) : (
-                <div className="space-y-3">
+                <div className="space-y-2.5">
                   {workHoursData.entries.map((entry) => (
-                    <div key={entry.id} className="p-4 rounded-2xl bg-gray-50 border border-gray-100 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                    <div
+                      key={entry.id}
+                      className="p-4 rounded-2xl bg-slate-50 border border-slate-200/70 flex flex-col sm:flex-row sm:items-center justify-between gap-3"
+                    >
                       <div className="flex flex-wrap items-center gap-2.5">
-                        <span className="px-3 py-1 bg-gray-900 text-white font-black text-xs rounded-lg">{entry.date}</span>
-                        <span className="px-3 py-1 bg-indigo-100 text-indigo-800 font-black text-xs rounded-lg">{entry.location}</span>
-                        <span className={`px-2.5 py-0.5 font-black text-[10px] uppercase rounded-md ${entry.source === "RCP Czytnik" ? "bg-emerald-100 text-emerald-800 border border-emerald-200" : "bg-blue-50 text-blue-700 border border-blue-200"}`}>
+                        <span className="px-3 py-1 bg-slate-900 text-white font-black text-xs rounded-lg">
+                          {entry.date}
+                        </span>
+                        <span className="px-3 py-1 bg-white border border-slate-200 text-slate-800 font-black text-xs rounded-lg">
+                          {entry.location}
+                        </span>
+                        <span
+                          className={`px-2.5 py-0.5 font-black text-[10px] uppercase rounded-md ${
+                            entry.source === "RCP Czytnik"
+                              ? "bg-emerald-50 text-emerald-700 border border-emerald-200"
+                              : "bg-blue-50 text-blue-700 border border-blue-200"
+                          }`}
+                        >
                           {entry.source}
                         </span>
-                        <span className="font-extrabold text-gray-900 text-base">{entry.name}</span>
+                        <span className="font-extrabold text-slate-900 text-base">{entry.name}</span>
                       </div>
-                      <div className="flex items-center justify-between sm:justify-end gap-3 border-t sm:border-t-0 pt-2 sm:pt-0 border-gray-200">
-                        <span className="text-xs font-bold text-gray-500">
-                          Godziny: <strong className="text-gray-900">{entry.rawHours}</strong>
+                      <div className="flex items-center justify-between sm:justify-end gap-3 border-t sm:border-t-0 pt-2 sm:pt-0 border-slate-200">
+                        <span className="text-xs font-bold text-slate-500">
+                          Godziny: <strong className="text-slate-900">{entry.rawHours}</strong>
                           {entry.closedBy && entry.closedBy !== entry.name && (
                             <span className="text-[10px] text-amber-700 ml-1.5">(zamknął: {entry.closedBy})</span>
                           )}
                         </span>
-                        {entry.calculatedHours > 0 && <span className="bg-emerald-100 text-emerald-800 font-black text-xs px-3 py-1 rounded-full">{entry.calculatedHours} godz.</span>}
+                        {entry.calculatedHours > 0 && (
+                          <span className="bg-emerald-100 text-emerald-800 font-black text-xs px-3 py-1 rounded-full">
+                            {entry.calculatedHours} godz.
+                          </span>
+                        )}
                         {entry.shiftId && isOwner && (
                           <button
                             type="button"
                             onClick={() => onDeleteShift && onDeleteShift(entry.shiftId)}
-                            className="p-1.5 text-red-500 hover:bg-red-50 rounded-lg transition-colors"
+                            className="p-1.5 text-rose-500 hover:bg-rose-50 rounded-lg transition-colors"
                             title="Usuń odbicie RCP"
                           >
                             <Trash2 className="w-4 h-4" />
@@ -4700,19 +5992,36 @@ function NysaWarehouseForm({
 
         {tab === "tasks" && (
           <div className="space-y-6">
-            <div className="bg-white p-6 rounded-[2rem] shadow-sm border border-gray-200">
+            <div className="bg-white p-6 rounded-3xl shadow-sm border border-slate-200">
               <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-5">
                 <div>
-                  <h2 className="font-extrabold text-gray-900 flex items-center text-xl">
-                    <PlusCircle className="w-6 h-6 mr-2 text-blue-600" /> Ustaw Zadanie Dnia {isKlodzkoAdmin ? "dla punktu Kłodzko" : "dla punktu / sieci"}
+                  <h2 className="font-extrabold text-slate-900 flex items-center text-xl">
+                    <PlusCircle className="w-6 h-6 mr-2 text-slate-800" /> Ustaw Zadanie Dnia{" "}
+                    {isKlodzkoAdmin ? "dla punktu Kłodzko" : "dla punktu / sieci"}
                   </h2>
-                  <p className="text-xs font-semibold text-gray-500 mt-1">Wybierz czy zadanie jest jednorazowe (doraźne), czy ma pojawiać się cyklicznie, oraz określ godzinę (deadline) wykonania.</p>
+                  <p className="text-xs font-semibold text-slate-500 mt-1">
+                    Wybierz czy zadanie jest jednorazowe, czy cykliczne, oraz określ godzinę (deadline) wykonania.
+                  </p>
                 </div>
-                <div className="flex bg-gray-100 p-1 rounded-2xl border border-gray-200 self-start sm:self-center">
-                  <button type="button" onClick={() => setNewTaskType("adhoc")} className={`px-3.5 py-2 rounded-xl font-black text-xs transition-colors ${newTaskType === "adhoc" ? "bg-blue-600 text-white shadow-sm" : "text-gray-600 hover:text-gray-900"}`}>
+                <div className="flex bg-slate-100 p-1 rounded-2xl border border-slate-200 self-start sm:self-center">
+                  <button
+                    type="button"
+                    onClick={() => setNewTaskType("adhoc")}
+                    className={`px-3.5 py-2 rounded-xl font-black text-xs transition-colors ${
+                      newTaskType === "adhoc" ? "bg-slate-900 text-white shadow-sm" : "text-slate-600 hover:text-slate-900"
+                    }`}
+                  >
                     Jednorazowe / Doraźne
                   </button>
-                  <button type="button" onClick={() => setNewTaskType("recurring")} className={`px-3.5 py-2 rounded-xl font-black text-xs transition-colors ${newTaskType === "recurring" ? "bg-indigo-600 text-white shadow-sm" : "text-gray-600 hover:text-gray-900"}`}>
+                  <button
+                    type="button"
+                    onClick={() => setNewTaskType("recurring")}
+                    className={`px-3.5 py-2 rounded-xl font-black text-xs transition-colors ${
+                      newTaskType === "recurring"
+                        ? "bg-slate-900 text-white shadow-sm"
+                        : "text-slate-600 hover:text-slate-900"
+                    }`}
+                  >
                     Stałe harmonogramowe
                   </button>
                 </div>
@@ -4721,11 +6030,21 @@ function NysaWarehouseForm({
               <form onSubmit={handleAddTask} className="space-y-4">
                 <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
                   {isKlodzkoAdmin ? (
-                    <div className="w-full p-4 bg-gray-100 border border-gray-200 rounded-xl font-black text-gray-700 flex items-center">Punkt docelowy: Kłodzko</div>
+                    <div className="w-full p-4 bg-slate-100 border border-slate-200 rounded-2xl font-black text-slate-700 flex items-center">
+                      Punkt docelowy: Kłodzko
+                    </div>
                   ) : (
-                    <select value={newTaskLoc} onChange={(e) => setNewTaskLoc(e.target.value)} className="w-full p-4 bg-gray-50 border border-gray-200 rounded-xl font-bold text-gray-800 outline-none focus:ring-2 focus:ring-blue-500">
+                    <select
+                      value={newTaskLoc}
+                      onChange={(e) => setNewTaskLoc(e.target.value)}
+                      className="w-full p-4 bg-slate-50 border border-slate-200 rounded-2xl font-bold text-slate-800 outline-none focus:border-slate-900"
+                    >
                       <option value="All">Dla wszystkich punktów (All)</option>
-                      {LOCATIONS.map((l) => <option key={l} value={l}>{l}</option>)}
+                      {LOCATIONS.map((l) => (
+                        <option key={l} value={l}>
+                          {l}
+                        </option>
+                      ))}
                     </select>
                   )}
                   <input
@@ -4733,27 +6052,33 @@ function NysaWarehouseForm({
                     required
                     value={newTask}
                     onChange={(e) => setNewTask(e.target.value)}
-                    className="sm:col-span-1 w-full p-4 bg-gray-50 border border-gray-200 rounded-xl font-medium outline-none focus:ring-2 focus:ring-blue-500"
-                    placeholder={newTaskType === "recurring" ? "Opisz zadanie cykliczne..." : "Opisz zadanie na dziś..."}
+                    className="sm:col-span-1 w-full p-4 bg-slate-50 border border-slate-200 rounded-2xl font-medium outline-none focus:bg-white focus:border-slate-900"
+                    placeholder={
+                      newTaskType === "recurring" ? "Opisz zadanie cykliczne..." : "Opisz zadanie na dziś..."
+                    }
                   />
-                  <div className="flex items-center bg-gray-50 border border-gray-200 rounded-xl px-4 py-2">
-                    <Clock className="w-5 h-5 text-red-500 mr-2.5 shrink-0" />
+                  <div className="flex items-center bg-slate-50 border border-slate-200 rounded-2xl px-4 py-2">
+                    <Clock className="w-5 h-5 text-rose-500 mr-2.5 shrink-0" />
                     <div className="flex-1">
-                      <label className="block text-[10px] font-black uppercase text-gray-400">Deadline (Do godziny):</label>
+                      <label className="block text-[10px] font-black uppercase text-slate-400">
+                        Deadline (Do godziny):
+                      </label>
                       <input
                         type="time"
                         required
                         value={newTaskDeadline}
                         onChange={(e) => setNewTaskDeadline(e.target.value)}
-                        className="w-full bg-transparent font-black text-base text-gray-900 outline-none"
+                        className="w-full bg-transparent font-black text-base text-slate-900 outline-none"
                       />
                     </div>
                   </div>
                 </div>
 
                 {newTaskType === "recurring" && (
-                  <div className="p-4 bg-indigo-50/60 border border-indigo-200 rounded-2xl space-y-2.5">
-                    <label className="block text-xs font-black uppercase text-indigo-900">Wybierz dni tygodnia, w które zadanie ma pojawiać się pracownikom (wielokrotny wybór):</label>
+                  <div className="p-4 bg-slate-50 border border-slate-200 rounded-2xl space-y-2.5">
+                    <label className="block text-xs font-black uppercase text-slate-700">
+                      Wybierz dni tygodnia, w które zadanie ma pojawiać się pracownikom:
+                    </label>
                     <div className="flex flex-wrap gap-2">
                       {DAYS_OF_WEEK.map((d) => {
                         const isSelected = newTaskDays.includes(d.id);
@@ -4762,7 +6087,11 @@ function NysaWarehouseForm({
                             key={d.id}
                             type="button"
                             onClick={() => toggleNewTaskDay(d.id)}
-                            className={`px-4 py-2.5 rounded-xl font-black text-xs border-2 transition-colors ${isSelected ? "bg-indigo-600 text-white border-indigo-600 shadow-sm" : "bg-white text-gray-700 border-gray-200 hover:border-indigo-300"}`}
+                            className={`px-4 py-2.5 rounded-xl font-black text-xs border transition-colors ${
+                              isSelected
+                                ? "bg-slate-900 text-white border-slate-900 shadow-sm"
+                                : "bg-white text-slate-700 border-slate-200 hover:border-slate-400"
+                            }`}
                           >
                             {d.short} ({d.name})
                           </button>
@@ -4772,275 +6101,395 @@ function NysaWarehouseForm({
                   </div>
                 )}
 
-                <button type="submit" className={`w-full text-white font-bold py-4 rounded-xl shadow-lg active:scale-95 transition-transform ${newTaskType === "recurring" ? "bg-indigo-600 hover:bg-indigo-700 shadow-indigo-600/30" : "bg-blue-600 hover:bg-blue-700 shadow-blue-600/30"}`}>
-                  {newTaskType === "recurring" ? "Zapisz stałe zadanie harmonogramowe" : "Wyślij zadanie doraźne na punkt"}
+                <button
+                  type="submit"
+                  className="w-full bg-slate-900 hover:bg-slate-800 text-white font-bold py-4 rounded-2xl shadow-md active:scale-[0.99] transition-all"
+                >
+                  {newTaskType === "recurring"
+                    ? "Zapisz stałe zadanie harmonogramowe"
+                    : "Wyślij zadanie doraźne na punkt"}
                 </button>
               </form>
             </div>
 
             <div className="space-y-3">
-              <h3 className="font-bold text-gray-500 uppercase text-xs tracking-wider ml-2 mb-3 mt-6">Zadania doraźne / jednorazowe ({adhocVisibleTasks.length})</h3>
-              {adhocVisibleTasks.length === 0 ? <p className="text-gray-400 font-bold ml-2 text-sm">Brak aktywnych zadań doraźnych.</p> : adhocVisibleTasks.map(renderTaskCard)}
+              <h3 className="font-bold text-slate-500 uppercase text-xs tracking-wider ml-2 mb-3 mt-6">
+                Zadania doraźne / jednorazowe ({adhocVisibleTasks.length})
+              </h3>
+              {adhocVisibleTasks.length === 0 ? (
+                <p className="text-slate-400 font-bold ml-2 text-sm">Brak aktywnych zadań doraźnych.</p>
+              ) : (
+                adhocVisibleTasks.map(renderTaskCard)
+              )}
             </div>
 
             <div className="space-y-3 pt-4">
-              <h3 className="font-bold text-indigo-600 uppercase text-xs tracking-wider ml-2 mb-3">Stałe zadania harmonogramowe — Cykliczne ({recurringVisibleTasks.length})</h3>
-              {recurringVisibleTasks.length === 0 ? <p className="text-gray-400 font-bold ml-2 text-sm">Brak zapisanych stałych zadań harmonogramowych.</p> : recurringVisibleTasks.map(renderTaskCard)}
+              <h3 className="font-bold text-slate-500 uppercase text-xs tracking-wider ml-2 mb-3">
+                Stałe zadania harmonogramowe — Cykliczne ({recurringVisibleTasks.length})
+              </h3>
+              {recurringVisibleTasks.length === 0 ? (
+                <p className="text-slate-400 font-bold ml-2 text-sm">Brak zapisanych stałych zadań harmonogramowych.</p>
+              ) : (
+                recurringVisibleTasks.map(renderTaskCard)
+              )}
             </div>
           </div>
         )}
 
         {tab === "catalog" && isOwner && (
-          <div className="space-y-8">
-            <div className="bg-emerald-950 text-white p-6 rounded-[2rem] border border-emerald-800 shadow-lg flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-              <div>
-                <h3 className="text-xl font-black flex items-center"><Download className="w-6 h-6 mr-2.5 text-emerald-400" /> Kopia Zapasowa i Eksport Danych</h3>
-                <p className="text-xs text-gray-300 font-medium mt-1">Pobierz pełne archiwum raportów i odbić RCP na swój telefon lub komputer w formacie Excel (CSV) lub pełnego obrazu bazy (JSON).</p>
-              </div>
-              <div className="flex flex-wrap gap-2 shrink-0">
-                <button type="button" onClick={handleDownloadCSV} className="px-4 py-3 bg-emerald-500 hover:bg-emerald-400 text-gray-950 font-black text-xs rounded-xl flex items-center transition-colors shadow-md">
-                  <FileSpreadsheet className="w-4 h-4 mr-1.5" /> Pobierz Excel (CSV)
+          <div className="space-y-6">
+            <div className="bg-white p-2 rounded-2xl border border-slate-200 shadow-sm grid grid-cols-2 sm:grid-cols-4 gap-1.5">
+              {[
+                { id: "assortment", label: "1. Asortyment i Jednostki" },
+                { id: "staff_pins", label: "2. Kadra i Kody PIN" },
+                { id: "schedule", label: "3. Harmonogram Dni" },
+                { id: "backup", label: "4. Kopia i Eksport Bazy" },
+              ].map((st) => (
+                <button
+                  key={st.id}
+                  type="button"
+                  onClick={() => setCatalogSubTab(st.id)}
+                  className={`py-3 px-3 rounded-xl font-extrabold text-xs transition-all ${
+                    catalogSubTab === st.id
+                      ? "bg-slate-900 text-white shadow-sm"
+                      : "bg-slate-50 text-slate-600 hover:bg-slate-100"
+                  }`}
+                >
+                  {st.label}
                 </button>
-                <button type="button" onClick={handleDownloadFullBackupJSON} className="px-4 py-3 bg-white/10 hover:bg-white/20 text-white border border-white/20 font-black text-xs rounded-xl flex items-center transition-colors">
-                  <Download className="w-4 h-4 mr-1.5" /> Pełna Kopia (JSON)
-                </button>
-              </div>
+              ))}
             </div>
 
-            {renderEmployeeManagerWidget()}
+            {catalogSubTab === "assortment" && (
+              <>
+                <div className="bg-white p-6 rounded-3xl border border-slate-200 shadow-sm">
+                  <div className="mb-6">
+                    <h2 className="text-xl sm:text-2xl font-black text-slate-900 flex items-center">
+                      <Settings className="w-6 h-6 mr-2.5 text-slate-700" /> Zarządzanie Asortymentem, Jednostkami Miary i Lokalami
+                    </h2>
+                    <p className="text-xs font-semibold text-slate-500 mt-1">
+                      Dodawaj pozycje, wybieraj ich jednostkę miary (kg, szt., g, op., l, wiadro) i przypisuj je do konkretnych lokali.
+                    </p>
+                  </div>
 
-            <div className="bg-white p-6 rounded-[2rem] border border-gray-200 shadow-sm space-y-4">
-              <h3 className="text-xl font-black text-gray-900 flex items-center">
-                <Calendar className="w-6 h-6 mr-2.5 text-orange-600" /> Harmonogram Dostaw i Uzupełniania (Dni aktywności dla każdej kategorii)
-              </h3>
-              <p className="text-xs font-semibold text-gray-500">
-                Wybierz dni tygodnia, w które poszczególne kategorie mają być podświetlane pracownikom jako "Do uzupełnienia dziś" i automatycznie rozwijane.
-              </p>
+                  <div className="space-y-4">
+                    <div>
+                      <label className="block text-xs font-black uppercase text-slate-500 mb-2 ml-1">
+                        Wybierz kategorię / sekcję formularza:
+                      </label>
+                      <select
+                        value={selectedCatalogCategory}
+                        onChange={(e) => setSelectedCatalogCategory(e.target.value)}
+                        className="w-full p-4 bg-slate-50 border border-slate-200 rounded-2xl font-extrabold text-slate-900 outline-none focus:border-slate-900"
+                      >
+                        <optgroup label="Standardowe kategorie formularza">
+                          {builtInCategoriesMeta.map((c) => (
+                            <option key={c.key} value={c.key}>
+                              {c.label}
+                            </option>
+                          ))}
+                        </optgroup>
+                        {customCategoriesList.length > 0 && (
+                          <optgroup label="Dodatkowe kategorie własne">
+                            {customCategoriesList.map((c) => (
+                              <option key={c.id} value={`custom:${c.id}`}>
+                                {c.name} ({c.type === "checkbox" ? "Lista Checkbox" : "Licznik +/-"})
+                              </option>
+                            ))}
+                          </optgroup>
+                        )}
+                      </select>
+                    </div>
 
-              <form onSubmit={handleSaveDeliveryDays} className="space-y-4 pt-2">
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  {[
-                    { key: "vegetables", label: "Warzywa i Inne" },
-                    { key: "freezer", label: "Stan Zamrażarek" },
-                    { key: "farutex", label: "Farutex" },
-                    { key: "meat1", label: "Dostawa Mięso 1" },
-                    { key: "meat2", label: "Dostawa Mięso 2" },
-                    { key: "otherItems", label: "Inne: Opakowania / Chemia" },
-                    { key: "sauces", label: "Braki: Sosy" },
-                    ...customCategoriesList.map((cat) => ({ key: `custom_${cat.id}`, label: `Kategoria własna: ${cat.name}` })),
-                  ].map(({ key, label }) => {
-                    const activeDays = Array.isArray(deliveryDaysDraft[key]) ? deliveryDaysDraft[key].map(Number) : [];
-                    return (
-                      <div key={key} className="p-4 bg-gray-50 rounded-2xl border border-gray-200 space-y-2.5">
-                        <div className="flex items-center justify-between">
-                          <span className="block text-xs font-black uppercase text-gray-800">{label}</span>
-                          <span className="text-[10px] font-bold text-gray-400">Wybrano dni: {activeDays.length}/7</span>
-                        </div>
-                        <div className="flex flex-wrap gap-1.5">
-                          {DAYS_OF_WEEK.map((d) => {
-                            const isSelected = activeDays.includes(d.id);
+                    <form onSubmit={handleAddCatalogItem} className="flex flex-col sm:flex-row gap-3 pt-2">
+                      <input
+                        type="text"
+                        value={newItemName}
+                        onChange={(e) => setNewItemName(e.target.value)}
+                        placeholder="Wpisz nazwę nowej pozycji (np. Fartuch czarny, Ser cheddar)..."
+                        className="flex-[2] p-4 bg-slate-50 border border-slate-200 rounded-2xl font-bold text-slate-900 outline-none focus:bg-white focus:border-slate-900"
+                      />
+                      <select
+                        value={newItemUnit}
+                        onChange={(e) => setNewItemUnit(e.target.value)}
+                        className="p-4 bg-slate-50 border border-slate-200 rounded-2xl font-black text-slate-800 outline-none focus:border-slate-900"
+                      >
+                        {AVAILABLE_UNITS.map((u) => (
+                          <option key={u} value={u}>
+                            Jednostka: {u}
+                          </option>
+                        ))}
+                      </select>
+                      <button
+                        type="submit"
+                        className="px-6 py-4 bg-slate-900 hover:bg-slate-800 text-white font-black rounded-2xl shadow-md flex items-center justify-center transition-colors shrink-0"
+                      >
+                        <PlusCircle className="w-5 h-5 mr-2" /> Dodaj pozycję
+                      </button>
+                    </form>
+
+                    <div className="pt-4 border-t border-slate-100">
+                      <div className="flex items-center justify-between mb-3">
+                        <span className="text-xs font-black uppercase text-slate-400">
+                          Pozycje w tej kategorii ({activeCategoryItems.length}):
+                        </span>
+                        {selectedCatalogCategory.startsWith("custom:") && (
+                          <button
+                            type="button"
+                            onClick={() => handleDeleteCustomCategory(selectedCatalogCategory.replace("custom:", ""))}
+                            className="text-xs font-black text-rose-600 hover:text-rose-700 flex items-center bg-rose-50 px-3 py-1.5 rounded-xl"
+                          >
+                            <Trash2 className="w-3.5 h-3.5 mr-1" /> Usuń całą tę kategorię
+                          </button>
+                        )}
+                      </div>
+
+                      {activeCategoryItems.length === 0 ? (
+                        <p className="text-sm text-slate-400 font-bold py-6 text-center bg-slate-50 rounded-2xl border border-dashed border-slate-200">
+                          Brak pozycji w tej kategorii.
+                        </p>
+                      ) : (
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                          {activeCategoryItems.map((item) => {
+                            const mapKey = `${selectedCatalogCategory}__${item}`;
+                            const assignedLocs = Array.isArray(catalog?.itemLocations?.[mapKey])
+                              ? catalog.itemLocations[mapKey]
+                              : LOCATIONS;
+                            const currentUnit = getItemUnit(catalog, item);
                             return (
-                              <button
-                                key={d.id}
-                                type="button"
-                                onClick={() => handleToggleDeliveryDay(key, d.id)}
-                                className={`px-3 py-2 rounded-xl font-black text-xs border-2 transition-colors ${isSelected ? "bg-orange-600 text-white border-orange-600 shadow-sm" : "bg-white text-gray-700 border-gray-200 hover:border-orange-300"}`}
+                              <div
+                                key={item}
+                                className="p-4 bg-slate-50 hover:bg-white border border-slate-200 rounded-2xl flex flex-col justify-between gap-3 transition-colors shadow-sm"
                               >
-                                {d.short}
-                              </button>
+                                <div className="flex items-center justify-between gap-2">
+                                  <span className="font-extrabold text-slate-900 text-sm truncate">{item}</span>
+                                  <div className="flex items-center gap-1.5 shrink-0">
+                                    <select
+                                      value={currentUnit}
+                                      onChange={(e) => handleChangeCatalogItemUnit(item, e.target.value)}
+                                      className="px-2.5 py-1.5 bg-white border border-slate-200 rounded-lg text-xs font-black text-slate-800 outline-none"
+                                      title="Zmień jednostkę miary"
+                                    >
+                                      {AVAILABLE_UNITS.map((u) => (
+                                        <option key={u} value={u}>
+                                          {u}
+                                        </option>
+                                      ))}
+                                    </select>
+                                    <button
+                                      type="button"
+                                      onClick={() => handleRemoveCatalogItem(item)}
+                                      className="p-2 text-rose-500 hover:bg-rose-50 hover:text-rose-700 rounded-lg transition-colors shrink-0"
+                                      title="Usuń pozycję"
+                                    >
+                                      <Trash2 className="w-4 h-4" />
+                                    </button>
+                                  </div>
+                                </div>
+                                <div className="pt-2 border-t border-slate-200/70">
+                                  <span className="block text-[10px] font-black uppercase text-slate-400 mb-1.5">
+                                    Widoczność w punktach:
+                                  </span>
+                                  <div className="flex flex-wrap gap-1.5">
+                                    {LOCATIONS.map((loc) => {
+                                      const isAssigned = assignedLocs.includes(loc);
+                                      return (
+                                        <button
+                                          key={loc}
+                                          type="button"
+                                          onClick={() => handleToggleItemLocation(item, loc)}
+                                          className={`px-2.5 py-1 rounded-lg text-[11px] font-black border transition-colors ${
+                                            isAssigned
+                                              ? "bg-slate-900 text-white border-slate-900 shadow-sm"
+                                              : "bg-white text-slate-400 border-slate-200 hover:border-slate-400"
+                                          }`}
+                                        >
+                                          {loc}
+                                        </button>
+                                      );
+                                    })}
+                                  </div>
+                                </div>
+                              </div>
                             );
                           })}
                         </div>
-                      </div>
-                    );
-                  })}
+                      )}
+                    </div>
+                  </div>
                 </div>
 
-                <button type="submit" className="px-6 py-4 bg-orange-600 hover:bg-orange-700 text-white font-black rounded-xl shadow-md transition-colors text-sm">
-                  Zapisz harmonogram wszystkich kategorii
-                </button>
-              </form>
-            </div>
-
-            <div className="bg-white p-6 rounded-[2rem] border border-gray-200 shadow-sm">
-              <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 mb-6">
-                <div>
-                  <h2 className="text-2xl font-black text-gray-900 flex items-center">
-                    <Settings className="w-7 h-7 mr-3 text-amber-600" /> Zarządzanie Asortymentem, Jednostkami Miary i Lokalami
-                  </h2>
-                  <p className="text-xs font-semibold text-gray-500 mt-1">
-                    Dodawaj pozycje, wybieraj ich jednostkę miary (kg, szt., g, op., l, wiadro) i przypisuj je do konkretnych lokali.
+                <div className="bg-white p-6 rounded-3xl border border-slate-200 shadow-sm">
+                  <h3 className="text-xl font-black text-slate-900 flex items-center mb-2">
+                    <FolderPlus className="w-6 h-6 mr-2.5 text-slate-700" /> Utwórz Nową Kategorię w Formularzu
+                  </h3>
+                  <p className="text-xs font-semibold text-slate-500 mb-4">
+                    Jeśli potrzebujesz dodatkowej sekcji (np. „Napoje”, „Sprzęt i Odzież”), utwórz ją tutaj.
                   </p>
+                  <form onSubmit={handleCreateCustomCategory} className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                    <input
+                      type="text"
+                      value={newCategoryName}
+                      onChange={(e) => setNewCategoryName(e.target.value)}
+                      placeholder="Nazwa nowej kategorii..."
+                      className="sm:col-span-1 p-4 bg-slate-50 border border-slate-200 rounded-2xl font-bold text-slate-900 outline-none focus:bg-white focus:border-slate-900"
+                    />
+                    <select
+                      value={newCategoryType}
+                      onChange={(e) => setNewCategoryType(e.target.value)}
+                      className="p-4 bg-slate-50 border border-slate-200 rounded-2xl font-bold text-slate-800 outline-none focus:border-slate-900"
+                    >
+                      <option value="counter">Licznik ilościowy (+/- jak magazyn)</option>
+                      <option value="checkbox">Lista zaznaczania (Checkbox jak braki sosów)</option>
+                    </select>
+                    <button
+                      type="submit"
+                      className="p-4 bg-slate-900 hover:bg-slate-800 text-white font-black rounded-2xl shadow-md flex items-center justify-center transition-colors"
+                    >
+                      <PlusCircle className="w-5 h-5 mr-2" /> Dodaj kategorię
+                    </button>
+                  </form>
                 </div>
-              </div>
+              </>
+            )}
 
-              <div className="space-y-4">
-                <div>
-                  <label className="block text-xs font-black uppercase text-gray-500 mb-2 ml-1">1. Wybierz kategorię / sekcję formularza:</label>
-                  <select
-                    value={selectedCatalogCategory}
-                    onChange={(e) => setSelectedCatalogCategory(e.target.value)}
-                    className="w-full p-4 bg-amber-50/50 border-2 border-amber-200 rounded-2xl font-extrabold text-gray-900 outline-none focus:ring-2 focus:ring-amber-500"
-                  >
-                    <optgroup label="Standardowe kategorie formularza">
-                      {builtInCategoriesMeta.map((c) => <option key={c.key} value={c.key}>{c.label}</option>)}
-                    </optgroup>
-                    {customCategoriesList.length > 0 && (
-                      <optgroup label="Dodatkowe kategorie własne">
-                        {customCategoriesList.map((c) => (
-                          <option key={c.id} value={`custom:${c.id}`}>{c.name} ({c.type === "checkbox" ? "Lista Checkbox" : "Licznik +/-"})</option>
-                        ))}
-                      </optgroup>
-                    )}
-                  </select>
+            {catalogSubTab === "staff_pins" && (
+              <>
+                {renderEmployeeManagerWidget()}
+
+                <div className="bg-white p-6 rounded-3xl border border-slate-200 shadow-sm">
+                  <h3 className="text-xl font-black text-slate-900 flex items-center mb-2">
+                    <KeyRound className="w-6 h-6 mr-2.5 text-slate-700" /> Unikalne Kody PIN dla Punktów
+                  </h3>
+                  <p className="text-xs font-semibold text-slate-500 mb-5">
+                    Każdy punkt posiada własny kod PIN do odblokowania pulpitu lokalu.
+                  </p>
+                  <form onSubmit={handleSavePins} className="space-y-4">
+                    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+                      {LOCATIONS.map((loc) => (
+                        <div key={loc} className="p-4 bg-slate-50 rounded-2xl border border-slate-200">
+                          <label className="block text-xs font-black uppercase text-slate-500 mb-1.5">
+                            PIN punktu: {loc}
+                          </label>
+                          <input
+                            type="text"
+                            inputMode="numeric"
+                            value={pinDrafts[loc] || ""}
+                            onChange={(e) => setPinDrafts((prev) => ({ ...prev, [loc]: e.target.value }))}
+                            className="w-full p-3 bg-white border border-slate-300 rounded-xl font-black text-xl text-center tracking-widest text-slate-900 outline-none focus:border-slate-900"
+                            required
+                          />
+                        </div>
+                      ))}
+                    </div>
+                    <button
+                      type="submit"
+                      className="px-6 py-4 bg-slate-900 hover:bg-slate-800 text-white font-black rounded-2xl shadow-md transition-colors text-sm"
+                    >
+                      Zapisz kody PIN punktów
+                    </button>
+                  </form>
                 </div>
+              </>
+            )}
 
-                <form onSubmit={handleAddCatalogItem} className="flex flex-col sm:flex-row gap-3 pt-2">
-                  <input
-                    type="text"
-                    value={newItemName}
-                    onChange={(e) => setNewItemName(e.target.value)}
-                    placeholder="Wpisz nazwę nowej pozycji (np. Fartuch czarny, Ser cheddar)..."
-                    className="flex-[2] p-4 bg-gray-50 border border-gray-200 rounded-xl font-bold text-gray-900 outline-none focus:bg-white focus:ring-2 focus:ring-amber-500"
-                  />
-                  <select
-                    value={newItemUnit}
-                    onChange={(e) => setNewItemUnit(e.target.value)}
-                    className="p-4 bg-gray-50 border border-gray-200 rounded-xl font-black text-gray-800 outline-none focus:ring-2 focus:ring-amber-500"
-                  >
-                    {AVAILABLE_UNITS.map((u) => (
-                      <option key={u} value={u}>Jednostka: {u}</option>
-                    ))}
-                  </select>
-                  <button type="submit" className="px-6 py-4 bg-amber-600 hover:bg-amber-700 text-white font-black rounded-xl shadow-md flex items-center justify-center transition-colors shrink-0">
-                    <PlusCircle className="w-5 h-5 mr-2" /> Dodaj pozycję
-                  </button>
-                </form>
+            {catalogSubTab === "schedule" && (
+              <div className="bg-white p-6 rounded-3xl border border-slate-200 shadow-sm space-y-4">
+                <h3 className="text-xl font-black text-slate-900 flex items-center">
+                  <Calendar className="w-6 h-6 mr-2.5 text-slate-700" /> Harmonogram Dostaw i Uzupełniania
+                </h3>
+                <p className="text-xs font-semibold text-slate-500">
+                  Wybierz dni tygodnia, w które poszczególne sekcje są domyślnie wyświetlane pracownikom w raporcie dziennym.
+                </p>
 
-                <div className="pt-4 border-t border-gray-100">
-                  <div className="flex items-center justify-between mb-3">
-                    <span className="text-xs font-black uppercase text-gray-400">Aktualne pozycje, jednostki i przypisane lokale ({activeCategoryItems.length}):</span>
-                    {selectedCatalogCategory.startsWith("custom:") && (
-                      <button
-                        type="button"
-                        onClick={() => handleDeleteCustomCategory(selectedCatalogCategory.replace("custom:", ""))}
-                        className="text-xs font-black text-red-600 hover:text-red-700 flex items-center bg-red-50 px-3 py-1.5 rounded-lg"
-                      >
-                        <Trash2 className="w-3.5 h-3.5 mr-1" /> Usuń całą tę kategorię
-                      </button>
-                    )}
+                <form onSubmit={handleSaveDeliveryDays} className="space-y-4 pt-2">
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    {[
+                      { key: "vegetables", label: "Warzywa i Inne" },
+                      { key: "freezer", label: "Stan Zamrażarek" },
+                      { key: "farutex", label: "Farutex" },
+                      { key: "meat1", label: "Dostawa Mięso 1" },
+                      { key: "meat2", label: "Dostawa Mięso 2" },
+                      { key: "otherItems", label: "Inne: Opakowania / Chemia" },
+                      { key: "sauces", label: "Braki: Sosy" },
+                      ...customCategoriesList.map((cat) => ({
+                        key: `custom_${cat.id}`,
+                        label: `Kategoria własna: ${cat.name}`,
+                      })),
+                    ].map(({ key, label }) => {
+                      const activeDays = Array.isArray(deliveryDaysDraft[key])
+                        ? deliveryDaysDraft[key].map(Number)
+                        : [];
+                      return (
+                        <div key={key} className="p-4 bg-slate-50 rounded-2xl border border-slate-200 space-y-2.5">
+                          <div className="flex items-center justify-between">
+                            <span className="block text-xs font-black uppercase text-slate-800">{label}</span>
+                            <span className="text-[10px] font-bold text-slate-400">
+                              Wybrano dni: {activeDays.length}/7
+                            </span>
+                          </div>
+                          <div className="flex flex-wrap gap-1.5">
+                            {DAYS_OF_WEEK.map((d) => {
+                              const isSelected = activeDays.includes(d.id);
+                              return (
+                                <button
+                                  key={d.id}
+                                  type="button"
+                                  onClick={() => handleToggleDeliveryDay(key, d.id)}
+                                  className={`px-3 py-2 rounded-xl font-black text-xs border transition-colors ${
+                                    isSelected
+                                      ? "bg-slate-900 text-white border-slate-900 shadow-sm"
+                                      : "bg-white text-slate-600 border-slate-200 hover:border-slate-400"
+                                  }`}
+                                >
+                                  {d.short}
+                                </button>
+                              );
+                            })}
+                          </div>
+                        </div>
+                      );
+                    })}
                   </div>
 
-                  {activeCategoryItems.length === 0 ? (
-                    <p className="text-sm text-gray-400 font-bold py-6 text-center bg-gray-50 rounded-2xl border border-dashed border-gray-200">Brak pozycji w tej kategorii. Dodaj pierwszą pozycję powyżej.</p>
-                  ) : (
-                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                      {activeCategoryItems.map((item) => {
-                        const mapKey = `${selectedCatalogCategory}__${item}`;
-                        const assignedLocs = Array.isArray(catalog?.itemLocations?.[mapKey])
-                          ? catalog.itemLocations[mapKey]
-                          : LOCATIONS;
-                        const currentUnit = getItemUnit(catalog, item);
-                        return (
-                          <div key={item} className="p-4 bg-gray-50 hover:bg-white border border-gray-200 rounded-2xl flex flex-col justify-between gap-3 transition-colors shadow-sm">
-                            <div className="flex items-center justify-between gap-2">
-                              <span className="font-extrabold text-gray-900 text-sm truncate">{item}</span>
-                              <div className="flex items-center gap-1.5 shrink-0">
-                                <select
-                                  value={currentUnit}
-                                  onChange={(e) => handleChangeCatalogItemUnit(item, e.target.value)}
-                                  className="px-2.5 py-1.5 bg-blue-50 border border-blue-200 rounded-lg text-xs font-black text-blue-800 outline-none"
-                                  title="Zmień jednostkę miary"
-                                >
-                                  {AVAILABLE_UNITS.map((u) => (
-                                    <option key={u} value={u}>{u}</option>
-                                  ))}
-                                </select>
-                                <button type="button" onClick={() => handleRemoveCatalogItem(item)} className="p-2 text-red-500 hover:bg-red-50 hover:text-red-700 rounded-lg transition-colors shrink-0" title="Usuń pozycję">
-                                  <Trash2 className="w-4 h-4" />
-                                </button>
-                              </div>
-                            </div>
-                            <div className="pt-2 border-t border-gray-200/70">
-                              <span className="block text-[10px] font-black uppercase text-gray-400 mb-1.5">Widoczność w punktach:</span>
-                              <div className="flex flex-wrap gap-1.5">
-                                {LOCATIONS.map((loc) => {
-                                  const isAssigned = assignedLocs.includes(loc);
-                                  return (
-                                    <button
-                                      key={loc}
-                                      type="button"
-                                      onClick={() => handleToggleItemLocation(item, loc)}
-                                      className={`px-2.5 py-1 rounded-lg text-[11px] font-black border transition-colors ${
-                                        isAssigned
-                                          ? "bg-amber-600 text-white border-amber-600 shadow-sm"
-                                          : "bg-white text-gray-400 border-gray-200 hover:border-amber-300"
-                                      }`}
-                                    >
-                                      {loc}
-                                    </button>
-                                  );
-                                })}
-                              </div>
-                            </div>
-                          </div>
-                        );
-                      })}
-                    </div>
-                  )}
+                  <button
+                    type="submit"
+                    className="px-6 py-4 bg-slate-900 hover:bg-slate-800 text-white font-black rounded-2xl shadow-md transition-colors text-sm"
+                  >
+                    Zapisz harmonogram wszystkich kategorii
+                  </button>
+                </form>
+              </div>
+            )}
+
+            {catalogSubTab === "backup" && (
+              <div className="bg-slate-900 text-white p-6 sm:p-8 rounded-3xl border border-slate-800 shadow-lg flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+                <div>
+                  <h3 className="text-xl font-black flex items-center">
+                    <Download className="w-6 h-6 mr-2.5 text-emerald-400" /> Kopia Zapasowa i Eksport Danych
+                  </h3>
+                  <p className="text-xs text-slate-300 font-medium mt-1">
+                    Pobierz pełne archiwum raportów i odbić czytnika RCP w formacie Excel (CSV) lub pełnego obrazu bazy (JSON).
+                  </p>
+                </div>
+                <div className="flex flex-wrap gap-2.5 shrink-0">
+                  <button
+                    type="button"
+                    onClick={handleDownloadCSV}
+                    className="px-4 py-3.5 bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-black text-xs rounded-2xl flex items-center transition-colors shadow-md"
+                  >
+                    <FileSpreadsheet className="w-4 h-4 mr-1.5" /> Pobierz Excel (CSV)
+                  </button>
+                  <button
+                    type="button"
+                    onClick={handleDownloadFullBackupJSON}
+                    className="px-4 py-3.5 bg-slate-800 hover:bg-slate-700 text-white border border-slate-700 font-black text-xs rounded-2xl flex items-center transition-colors"
+                  >
+                    <Download className="w-4 h-4 mr-1.5" /> Pełna Kopia (JSON)
+                  </button>
                 </div>
               </div>
-            </div>
-
-            <div className="bg-white p-6 rounded-[2rem] border border-gray-200 shadow-sm">
-              <h3 className="text-xl font-black text-gray-900 flex items-center mb-2">
-                <FolderPlus className="w-6 h-6 mr-2.5 text-indigo-600" /> Utwórz Nową Kategorię w Formularzu Pracownika
-              </h3>
-              <p className="text-xs font-semibold text-gray-500 mb-4">Jeśli potrzebujesz zupełnie nowej sekcji (np. "Napoje", "Sprzęt i Odzież", "Chemia gospodarcza"), utwórz ją tutaj.</p>
-              <form onSubmit={handleCreateCustomCategory} className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-                <input
-                  type="text"
-                  value={newCategoryName}
-                  onChange={(e) => setNewCategoryName(e.target.value)}
-                  placeholder="Nazwa nowej kategorii (np. Odzież )..."
-                  className="sm:col-span-1 p-4 bg-gray-50 border border-gray-200 rounded-xl font-bold text-gray-900 outline-none focus:bg-white focus:ring-2 focus:ring-indigo-500"
-                />
-                <select value={newCategoryType} onChange={(e) => setNewCategoryType(e.target.value)} className="p-4 bg-gray-50 border border-gray-200 rounded-xl font-bold text-gray-800 outline-none focus:ring-2 focus:ring-indigo-500">
-                  <option value="counter">Licznik ilościowy (+/- jak magazyn)</option>
-                  <option value="checkbox">Lista zaznaczania (Checkbox jak braki sosów)</option>
-                </select>
-                <button type="submit" className="p-4 bg-indigo-600 hover:bg-indigo-700 text-white font-black rounded-xl shadow-md flex items-center justify-center transition-colors">
-                  <PlusCircle className="w-5 h-5 mr-2" /> Dodaj kategorię
-                </button>
-              </form>
-            </div>
-
-            <div className="bg-white p-6 rounded-[2rem] border border-gray-200 shadow-sm">
-              <h3 className="text-xl font-black text-gray-900 flex items-center mb-2">
-                <KeyRound className="w-6 h-6 mr-2.5 text-blue-600" /> Unikalne Kody PIN dla Punktów (Logowanie Pracowników)
-              </h3>
-              <p className="text-xs font-semibold text-gray-500 mb-5">Każdy punkt posiada własny kod PIN. Pracownik z jednego punktu nie wejdzie na formularz innego punktu.</p>
-              <form onSubmit={handleSavePins} className="space-y-4">
-                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-                  {LOCATIONS.map((loc) => (
-                    <div key={loc} className="p-4 bg-gray-50 rounded-2xl border border-gray-200">
-                      <label className="block text-xs font-black uppercase text-gray-500 mb-1.5">PIN punktu: {loc}</label>
-                      <input
-                        type="text"
-                        inputMode="numeric"
-                        value={pinDrafts[loc] || ""}
-                        onChange={(e) => setPinDrafts((prev) => ({ ...prev, [loc]: e.target.value }))}
-                        className="w-full p-3 bg-white border border-gray-300 rounded-xl font-black text-xl text-center tracking-widest text-gray-900 outline-none focus:ring-2 focus:ring-blue-500"
-                        required
-                      />
-                    </div>
-                  ))}
-                </div>
-                <button type="submit" className="px-6 py-4 bg-gray-900 hover:bg-gray-800 text-white font-black rounded-xl shadow-md transition-colors text-sm">
-                  Zapisz kody PIN punktów
-                </button>
-              </form>
-            </div>
+            )}
           </div>
         )}
       </div>
