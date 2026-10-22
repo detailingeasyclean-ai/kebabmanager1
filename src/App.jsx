@@ -5717,19 +5717,20 @@ function NysaWarehouseForm({
           r.employees.forEach((emp) => {
             const empName = String(emp?.name || "").trim();
             const empHoursRaw = String(emp?.hours ?? "").trim();
-            if (empName || empHoursRaw) {
+            const parsedHrs = calculateWorkedHours(empHoursRaw);
+
+            if (empName && empHoursRaw && !isZeroHoursValue(empHoursRaw) && parsedHrs > 0) {
               const dedupKey = `${r.date}_${r.location}_${empName.toLowerCase()}`;
               if (hoursSourceMode === "combined" && recordedKeys.has(dedupKey)) {
                 return;
               }
-              const parsedHrs = calculateWorkedHours(empHoursRaw);
               addEntryToSummary({
                 id: `rep_${r.id}_${empName}_${empHoursRaw}`,
                 source: "Raport dobowy",
                 date: r.date,
                 location: r.location,
-                name: empName || "(Nie wpisano imienia)",
-                rawHours: isZeroHoursValue(empHoursRaw) ? "0h (Wyzerowano)" : empHoursRaw || "-",
+                name: empName,
+                rawHours: empHoursRaw,
                 calculatedHours: parsedHrs,
               });
             }
