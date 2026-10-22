@@ -2010,6 +2010,7 @@ export default function App() {
     if (String(pin).trim() === String(expectedPin).trim()) {
       setUnlockedLocation(currentLocation);
       setView("locationDashboard");
+      requestNotificationPermission(currentLocation);
     } else {
       setModalMsg(`Błędny kod PIN dla punktu ${currentLocation}! Dostęp zablokowany.`);
     }
