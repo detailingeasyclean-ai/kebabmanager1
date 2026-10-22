@@ -3749,8 +3749,8 @@ export default function App() {
             >
               <ArrowLeft className="w-5 h-5" />
             </button>
-            <div className="min-w-0 truncate">
-              <h1 className="font-extrabold text-gray-900 text-base sm:text-xl truncate">
+           <div className="min-w-0 flex-1 pr-2">
+              <h1 className="font-extrabold text-gray-900 text-sm sm:text-xl leading-tight break-words">
                 {isAdminEdit
                   ? `Edycja Archiwum: ${location}`
                   : isCashOnly
@@ -3759,16 +3759,16 @@ export default function App() {
                   ? `Stany Magazynowe i Braki: ${location}`
                   : `Raport Dzienny: ${location}`}
               </h1>
-              <div className="text-xs font-semibold text-gray-500 truncate flex items-center gap-2 flex-wrap mt-0.5">
+              <div className="text-xs font-semibold text-gray-500 flex items-center gap-1.5 flex-wrap mt-1">
                 <span>Data: {todayStr}</span>
                 {!isCashOnly && !isAdminEdit && (
                   isInventorySubmittedFinal ? (
                     <span className="inline-flex items-center text-[10px] font-black text-white bg-green-600 px-2.5 py-0.5 rounded-full">
-                      <CheckCircle2 className="w-3 h-3 mr-1" /> ZATWIERDZONE FINALNIE (godz. {inventorySubmittedHM || "-"})
+                      <CheckCircle2 className="w-3 h-3 mr-1 shrink-0" /> ZATWIERDZONE FINALNIE ({inventorySubmittedHM || "-"})
                     </span>
                   ) : (
                     <span className="inline-flex items-center text-[10px] font-black text-blue-800 bg-blue-100 border border-blue-200 px-2.5 py-0.5 rounded-full">
-                      <span className="w-1.5 h-1.5 rounded-full bg-blue-600 animate-ping mr-1.5" />
+                      <span className="w-1.5 h-1.5 rounded-full bg-blue-600 animate-ping mr-1.5 shrink-0" />
                       W trakcie wpisywania (Podgląd na żywo)
                     </span>
                   )
@@ -3915,11 +3915,11 @@ export default function App() {
                       const currentEmpHours = employees[i]?.hours ?? "";
                       const isZeroed = isZeroHoursValue(currentEmpHours);
                       return (
-                        <div key={i} className="flex gap-2 flex-wrap sm:flex-nowrap items-center">
+                        <div key={i} className="flex flex-col sm:flex-row gap-2 w-full">
                           <select
                             value={currentEmpName}
                             onChange={(e) => updateEmployee(i, "name", e.target.value)}
-                            className="flex-[2] min-w-[150px] p-4 bg-gray-50 border border-gray-200 focus:bg-white rounded-xl outline-none focus:ring-2 focus:ring-blue-500 font-semibold text-sm shadow-inner text-gray-900"
+                            className="w-full sm:flex-[2] p-3.5 sm:p-4 bg-gray-50 border border-gray-200 focus:bg-white rounded-xl outline-none focus:ring-2 focus:ring-blue-500 font-semibold text-sm shadow-inner text-gray-900"
                           >
                             <option value="">{`— Pracownik ${i + 1} (${location}) —`}</option>
                             {currentEmpName && !locationEmployeesList.includes(currentEmpName) && (
@@ -3931,12 +3931,12 @@ export default function App() {
                               </option>
                             ))}
                           </select>
-                          <div className="flex-1 min-w-[150px] flex items-center gap-1.5">
+                          <div className="w-full sm:flex-1 flex items-center gap-2 min-w-0">
                             <input
                               type="text"
                               value={currentEmpHours}
                               onChange={(e) => updateEmployee(i, "hours", e.target.value)}
-                              className={`flex-1 p-4 border rounded-xl outline-none focus:ring-2 focus:ring-blue-500 font-semibold text-sm text-center shadow-inner transition-colors ${
+                              className={`w-full min-w-0 flex-1 p-3.5 sm:p-4 border rounded-xl outline-none focus:ring-2 focus:ring-blue-500 font-semibold text-sm text-center shadow-inner transition-colors ${
                                 isZeroed
                                   ? "bg-red-50 border-red-300 text-red-700 font-black"
                                   : "bg-gray-50 border-gray-200 focus:bg-white text-gray-900"
@@ -3947,7 +3947,7 @@ export default function App() {
                               type="button"
                               onClick={() => handleSetZeroHoursForEmployee(i)}
                               title="Wpisz 0 godzin (anuluj przypadkowe odbicie RCP)"
-                              className={`px-3.5 py-4 rounded-xl font-black text-xs border transition-colors shrink-0 ${
+                              className={`px-4 py-3.5 sm:py-4 rounded-xl font-black text-xs border transition-colors shrink-0 ${
                                 isZeroed
                                   ? "bg-red-600 text-white border-red-600 shadow-sm"
                                   : "bg-gray-100 hover:bg-red-50 text-gray-700 hover:text-red-700 border-gray-200"
