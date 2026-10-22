@@ -341,7 +341,7 @@ const getTaskProofForLocation = (task, loc, dateStr) => {
   return task?.completionProofs?.[key] || null;
 };
 
-const isTaskRelevantForLocationAndDate = (task, loc, dateStr) => {
+const isTaskScheduledForLocationAndDate = (task, loc, dateStr) => {
   if (!task || task.active === false) return false;
   if (task.location !== "All" && task.location !== loc) return false;
   if (task.type === "recurring") {
@@ -349,6 +349,11 @@ const isTaskRelevantForLocationAndDate = (task, loc, dateStr) => {
     const days = Array.isArray(task.daysOfWeek) ? task.daysOfWeek.map(Number) : [];
     if (!days.includes(dayIdx)) return false;
   }
+  return true;
+};
+
+const isTaskRelevantForLocationAndDate = (task, loc, dateStr) => {
+  if (!isTaskScheduledForLocationAndDate(task, loc, dateStr)) return false;
   return !isTaskCompletedByLocation(task, loc, dateStr);
 };
 
@@ -369,9 +374,45 @@ const parseSafeNumber = (val) => {
   return isNaN(parsed) ? 0 : parsed;
 };
 
+const isZeroHoursValue = (val) => {
+  if (val === undefined || val === null) return false;
+  const clean = String(val).trim().toLowerCase().replace(",", ".");
+  return (
+    clean === "0" ||
+    clean === "0h" ||
+    clean === "0.0" ||
+    clean === "0.00" ||
+    clean === "0 godz" ||
+    clean === "0 godz."
+  );
+};
+
 const hasAnyPositiveValue = (obj) => {
   if (!obj || typeof obj !== "object") return false;
   return Object.values(obj).some((v) => parseSafeNumber(v) > 0);
+};
+
+const hasAnyReportCashData = (rep) => {
+  if (!rep) return false;
+  if (rep.cashSubmitted) return true;
+  const rev = rep.revenue || {};
+  const hasRev =
+    parseSafeNumber(rev.gotowka) > 0 ||
+    parseSafeNumber(rev.karta) > 0 ||
+    parseSafeNumber(rev.aplikacje) > 0 ||
+    parseSafeNumber(rev.raportFiskalny) > 0;
+  return hasRev;
+};
+
+const hasAnyReportInventoryData = (rep) => {
+  if (!rep) return false;
+  if (rep.inventorySubmitted) return true;
+  if (rep.confirmedSections && Object.keys(rep.confirmedSections).length > 0) return true;
+  if (Array.isArray(rep.sauces) && rep.sauces.length > 0) return true;
+  if (rep.saucesNote || rep.notes) return true;
+  return ["vegetables", "freezer", "farutex", "meat1", "meat2", "otherItems"].some((sec) =>
+    hasAnyPositiveValue(rep[sec])
+  );
 };
 
 const sanitizeRecord = (obj) => {
@@ -423,6 +464,7 @@ const getEffectiveOrdersCount = (report, fallbackAvgOrderVal = DEFAULT_AVG_ORDER
 const calculateWorkedHours = (hoursStr) => {
   if (!hoursStr) return 0;
   const clean = String(hoursStr).trim();
+  if (isZeroHoursValue(clean)) return 0;
   if (clean.includes("-")) {
     const parts = clean.split("-");
     if (parts.length === 2) {
@@ -690,7 +732,7 @@ const ConfirmExitModal = memo(({ isOpen, onConfirm, onCancel }) => {
         </div>
         <h4 className="text-gray-900 font-extrabold text-lg mb-2">Wrócić do pulpitu lokalu?</h4>
         <p className="text-gray-600 text-sm font-medium mb-6">
-          Wszystkie wpisane stany są automatycznie zachowane w szkicu roboczym (w telefonie oraz w podglądzie managera).
+          Wszystkie wpisane dane są automatycznie synchronizowane na żywo (w telefonie oraz w podglądzie managera).
         </p>
         <div className="flex gap-3">
           <button
@@ -698,7 +740,7 @@ const ConfirmExitModal = memo(({ isOpen, onConfirm, onCancel }) => {
             onClick={onCancel}
             className="flex-1 bg-gray-100 hover:bg-gray-200 text-gray-800 py-3 rounded-xl font-bold transition-colors text-sm"
           >
-            Zostań w raporcie
+            Zostań w formularzu
           </button>
           <button
             type="button"
@@ -741,9 +783,12 @@ const TaskPhotoModal = memo(({ task, location, todayStr, employeesList = [], onC
   };
 
   const handleConfirm = async (e) => {
-    e.preventDefault();
+    if (e) {
+      e.preventDefault();
+      e.stopPropagation();
+    }
     if (isPhotoRequired && !photoDataUrl) {
-      setErrorMsg("To zadanie wymaga zrobienia zdjęcia potwierdzającego wykonanie!");
+      setErrorMsg("UWAGA: To zadanie wymaga dodania zdjęcia! Zrób zdjęcie aparatem lub wybierz je z galerii przed zatwierdzeniem.");
       return;
     }
     setSubmitting(true);
@@ -760,8 +805,14 @@ const TaskPhotoModal = memo(({ task, location, todayStr, employeesList = [], onC
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/70 backdrop-blur-sm overflow-y-auto">
-      <div className="bg-white p-6 rounded-[2rem] shadow-2xl border border-gray-100 w-full max-w-md my-auto">
+    <div
+      onClick={(e) => e.stopPropagation()}
+      className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/70 backdrop-blur-sm overflow-y-auto"
+    >
+      <div
+        onClick={(e) => e.stopPropagation()}
+        className="bg-white p-6 rounded-[2rem] shadow-2xl border border-gray-100 w-full max-w-md my-auto"
+      >
         <div className="flex items-center justify-between gap-2 pb-4 border-b border-gray-100">
           <div className="flex items-center gap-2.5">
             <div className="w-10 h-10 rounded-2xl bg-emerald-100 text-emerald-700 flex items-center justify-center shrink-0">
@@ -776,14 +827,17 @@ const TaskPhotoModal = memo(({ task, location, todayStr, employeesList = [], onC
           </div>
           <button
             type="button"
-            onClick={onClose}
+            onClick={(e) => {
+              e.stopPropagation();
+              onClose();
+            }}
             className="p-2 text-gray-400 hover:text-gray-700 rounded-xl hover:bg-gray-100"
           >
             <XCircle className="w-5 h-5" />
           </button>
         </div>
 
-        <form onSubmit={handleConfirm} className="mt-4 space-y-4">
+        <div className="mt-4 space-y-4">
           <div className="p-3.5 bg-amber-50 border border-amber-200 rounded-2xl">
             <span className="text-[10px] font-black uppercase text-amber-800 block mb-1">
               Treść zadania (do godz. {task.deadlineTime || "22:00"}):
@@ -872,7 +926,10 @@ const TaskPhotoModal = memo(({ task, location, todayStr, employeesList = [], onC
                 <div className="flex justify-end">
                   <button
                     type="button"
-                    onClick={() => setPhotoDataUrl("")}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setPhotoDataUrl("");
+                    }}
                     className="text-xs font-black text-red-600 bg-red-50 hover:bg-red-100 px-3 py-1.5 rounded-xl flex items-center transition-colors"
                   >
                     <RotateCcw className="w-3.5 h-3.5 mr-1" /> Zmień / zrób nowe zdjęcie
@@ -890,27 +947,38 @@ const TaskPhotoModal = memo(({ task, location, todayStr, employeesList = [], onC
               type="text"
               value={note}
               onChange={(e) => setNote(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") {
+                  e.preventDefault();
+                  handleConfirm(e);
+                }
+              }}
               placeholder="Np. Frytownica umyta i zalana świeżą fryturą..."
               className="w-full p-3.5 bg-gray-50 border border-gray-200 rounded-xl font-semibold text-sm text-gray-900 outline-none focus:bg-white focus:ring-2 focus:ring-emerald-500"
             />
           </div>
 
           {errorMsg && (
-            <div className="p-3 bg-red-50 border border-red-200 text-red-700 text-xs font-bold rounded-xl text-center">
-              {errorMsg}
+            <div className="p-3.5 bg-red-50 border-2 border-red-300 text-red-800 text-xs font-black rounded-2xl text-center flex items-center justify-center gap-2 shadow-sm">
+              <AlertTriangle className="w-5 h-5 text-red-600 shrink-0" />
+              <span>{errorMsg}</span>
             </div>
           )}
 
           <div className="flex gap-2.5 pt-2">
             <button
               type="button"
-              onClick={onClose}
+              onClick={(e) => {
+                e.stopPropagation();
+                onClose();
+              }}
               className="flex-1 py-3.5 bg-gray-100 hover:bg-gray-200 text-gray-700 font-bold text-sm rounded-xl transition-colors"
             >
               Anuluj
             </button>
             <button
-              type="submit"
+              type="button"
+              onClick={handleConfirm}
               disabled={compressing || submitting}
               className="flex-[2] py-3.5 bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white font-black text-sm rounded-xl shadow-lg shadow-emerald-600/20 flex items-center justify-center transition-colors"
             >
@@ -918,7 +986,7 @@ const TaskPhotoModal = memo(({ task, location, todayStr, employeesList = [], onC
               {submitting ? "Zapisywanie..." : "Zatwierdź wykonanie"}
             </button>
           </div>
-        </form>
+        </div>
       </div>
     </div>
   );
@@ -1108,7 +1176,10 @@ const UrgentTasksBanner = memo(({ tasks, location, todayStr, employeesList = [],
                     {onCompleteTask && (
                       <button
                         type="button"
-                        onClick={() => setActivePhotoTask(t)}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setActivePhotoTask(t);
+                        }}
                         className="shrink-0 bg-emerald-500 hover:bg-emerald-400 text-gray-950 font-black text-xs px-4 py-2.5 rounded-xl flex items-center justify-center transition-colors shadow-md"
                       >
                         <Camera className="w-4 h-4 mr-1.5" />
@@ -1123,6 +1194,211 @@ const UrgentTasksBanner = memo(({ tasks, location, todayStr, employeesList = [],
         </div>
       </div>
     </>
+  );
+});
+
+const LocationTasksView = memo(({ location, todayStr, pendingTasks = [], completedTasks = [], employeesList = [], onCompleteTask, onBack }) => {
+  const [activePhotoTask, setActivePhotoTask] = useState(null);
+  const [previewProofData, setPreviewProofData] = useState(null);
+
+  return (
+    <div className="min-h-screen bg-gray-50 pb-16">
+      <TaskPhotoModal
+        task={activePhotoTask}
+        location={location}
+        todayStr={todayStr}
+        employeesList={employeesList}
+        onConfirm={(taskObj, photoPayload) => onCompleteTask && onCompleteTask(taskObj, photoPayload)}
+        onClose={() => setActivePhotoTask(null)}
+      />
+
+      <PhotoPreviewModal
+        proof={previewProofData?.proof}
+        taskText={previewProofData?.taskText}
+        onClose={() => setPreviewProofData(null)}
+      />
+
+      <div className="sticky top-0 z-40 bg-white/95 backdrop-blur-md border-b border-gray-200 px-4 py-3.5 shadow-sm">
+        <div className="max-w-3xl mx-auto flex items-center justify-between">
+          <div className="flex items-center gap-3 min-w-0">
+            <button
+              type="button"
+              onClick={onBack}
+              className="w-10 h-10 rounded-full bg-gray-100 hover:bg-gray-200 text-gray-700 flex items-center justify-center transition-colors shrink-0"
+            >
+              <ArrowLeft className="w-5 h-5" />
+            </button>
+            <div className="min-w-0">
+              <h1 className="font-extrabold text-gray-900 text-lg sm:text-xl truncate">
+                Zadania Dnia i Fotokontrola: {location}
+              </h1>
+              <p className="text-xs font-semibold text-gray-500">
+                Dzień rozliczeniowy: {todayStr} • Do wykonania: {pendingTasks.length} • Zrealizowane: {completedTasks.length}
+              </p>
+            </div>
+          </div>
+          <span className={`px-3 py-1.5 rounded-full text-xs font-black border ${LOCATION_BADGE_STYLES[location] || "bg-blue-100 text-blue-800 border-blue-200"}`}>
+            {todayStr}
+          </span>
+        </div>
+      </div>
+
+      <div className="max-w-3xl mx-auto p-4 sm:p-6 space-y-6">
+        <div className="bg-white p-5 sm:p-6 rounded-[2rem] border border-gray-200 shadow-sm space-y-4">
+          <div className="flex items-center justify-between gap-2 border-b border-gray-100 pb-4">
+            <div className="flex items-center gap-2.5">
+              <div className={`w-10 h-10 rounded-2xl flex items-center justify-center shrink-0 ${pendingTasks.length > 0 ? "bg-amber-100 text-amber-700" : "bg-emerald-100 text-emerald-700"}`}>
+                <ClipboardList className="w-5 h-5" />
+              </div>
+              <div>
+                <h2 className="font-extrabold text-gray-900 text-base sm:text-lg">
+                  Zadania do wykonania dzisiaj ({pendingTasks.length})
+                </h2>
+                <p className="text-xs font-semibold text-gray-500">
+                  Kliknij przycisk przy zadaniu, aby zrobić zdjęcie i oznaczyć je jako zrealizowane.
+                </p>
+              </div>
+            </div>
+          </div>
+
+          {pendingTasks.length === 0 ? (
+            <div className="p-6 bg-emerald-50/70 border-2 border-emerald-200 rounded-2xl text-center space-y-1">
+              <CheckCircle2 className="w-10 h-10 text-emerald-600 mx-auto mb-2" />
+              <p className="font-black text-emerald-950 text-base">
+                Wszystkie zadania na dziś dla punktu {location} zostały wykonane!
+              </p>
+              <p className="text-xs font-semibold text-emerald-700">
+                Dobra robota — poniżej możesz zobaczyć listę zrealizowanych dzisiaj zadań.
+              </p>
+            </div>
+          ) : (
+            <div className="space-y-3">
+              {pendingTasks.map((t) => {
+                const isRecurring = t.type === "recurring";
+                const requiresPhoto = t.requirePhoto !== false;
+                const scheduledDaysText =
+                  isRecurring && Array.isArray(t.daysOfWeek)
+                    ? DAYS_OF_WEEK.filter((d) => t.daysOfWeek.map(Number).includes(d.id))
+                        .map((d) => d.short)
+                        .join(", ")
+                    : "";
+                return (
+                  <div
+                    key={t.id}
+                    className="p-4 rounded-2xl border-2 border-amber-200 bg-amber-50/50 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 shadow-sm"
+                  >
+                    <div className="space-y-1.5 min-w-0">
+                      <div className="flex flex-wrap items-center gap-1.5">
+                        <span className="text-[10px] font-black uppercase bg-amber-200 text-amber-900 px-2.5 py-0.5 rounded-md">
+                          {isRecurring ? `Cykliczne (${scheduledDaysText})` : "Zadanie doraźne"}
+                        </span>
+                        <span className="inline-flex items-center text-[11px] font-black bg-red-100 text-red-800 border border-red-200 px-2.5 py-0.5 rounded-md">
+                          <Clock className="w-3 h-3 mr-1" />
+                          Do godz.: {t.deadlineTime || "22:00"}
+                        </span>
+                        <span className={`inline-flex items-center text-[10px] font-black px-2.5 py-0.5 rounded-md ${requiresPhoto ? "bg-emerald-100 text-emerald-800 border border-emerald-200" : "bg-gray-100 text-gray-600"}`}>
+                          <Camera className="w-3 h-3 mr-1" />
+                          {requiresPhoto ? "Wymagane zdjęcie" : "Zdjęcie opcjonalne"}
+                        </span>
+                        {t.createdBy && (
+                          <span className="text-[10px] font-bold text-gray-500">
+                            • Zlecił(a): {t.createdBy}
+                          </span>
+                        )}
+                      </div>
+                      <p className="font-extrabold text-gray-900 text-sm sm:text-base break-words pt-0.5">
+                        {t.text}
+                      </p>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => setActivePhotoTask(t)}
+                      className="shrink-0 bg-emerald-600 hover:bg-emerald-700 text-white font-black text-xs px-4 py-3 rounded-xl flex items-center justify-center transition-colors shadow-md"
+                    >
+                      <Camera className="w-4 h-4 mr-1.5" />
+                      {requiresPhoto ? "Zrób zdjęcie i wykonaj" : "Oznacz jako wykonane"}
+                    </button>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </div>
+
+        <div className="bg-white p-5 sm:p-6 rounded-[2rem] border border-gray-200 shadow-sm space-y-4">
+          <div className="flex items-center justify-between gap-2 border-b border-gray-100 pb-4">
+            <div className="flex items-center gap-2.5">
+              <div className="w-10 h-10 rounded-2xl bg-emerald-100 text-emerald-700 flex items-center justify-center shrink-0">
+                <CheckCircle2 className="w-5 h-5" />
+              </div>
+              <div>
+                <h2 className="font-extrabold text-gray-900 text-base sm:text-lg">
+                  Zrealizowane dzisiaj zadania ({completedTasks.length})
+                </h2>
+                <p className="text-xs font-semibold text-gray-500">
+                  Podgląd zadań wykonanych w dniu {todayStr} wraz z fotokontrolą.
+                </p>
+              </div>
+            </div>
+          </div>
+
+          {completedTasks.length === 0 ? (
+            <p className="text-sm text-gray-400 font-bold py-6 text-center bg-gray-50 rounded-2xl border border-dashed border-gray-200">
+              Brak zrealizowanych zadań w dniu {todayStr}.
+            </p>
+          ) : (
+            <div className="space-y-3">
+              {completedTasks.map((t) => {
+                const proof = getTaskProofForLocation(t, location, todayStr);
+                return (
+                  <div
+                    key={t.id}
+                    className="p-4 rounded-2xl border border-emerald-200 bg-emerald-50/40 flex flex-col sm:flex-row sm:items-center justify-between gap-3"
+                  >
+                    <div className="space-y-1 min-w-0">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <span className="inline-flex items-center text-[10px] font-black uppercase bg-emerald-600 text-white px-2.5 py-0.5 rounded-md">
+                          <CheckCircle2 className="w-3 h-3 mr-1" /> Wykonane {proof?.completedHM ? `o godz. ${proof.completedHM}` : ""}
+                        </span>
+                        {proof?.completedByEmployee && (
+                          <span className="text-xs font-extrabold text-emerald-900">
+                            Wykonał(a): {proof.completedByEmployee}
+                          </span>
+                        )}
+                      </div>
+                      <p className="font-bold text-gray-900 text-sm sm:text-base break-words">{t.text}</p>
+                      {proof?.note && (
+                        <p className="text-xs font-semibold text-gray-600 bg-white/80 px-3 py-1.5 rounded-xl border border-emerald-200 inline-block">
+                          Notatka: „{proof.note}”
+                        </p>
+                      )}
+                    </div>
+
+                    {proof?.photoDataUrl && (
+                      <div className="flex items-center gap-2.5 shrink-0">
+                        <img
+                          src={proof.photoDataUrl}
+                          alt="Dowód wykonania"
+                          onClick={() => setPreviewProofData({ proof, taskText: t.text })}
+                          className="w-14 h-14 rounded-xl object-cover border-2 border-emerald-400 cursor-pointer hover:opacity-90"
+                        />
+                        <button
+                          type="button"
+                          onClick={() => setPreviewProofData({ proof, taskText: t.text })}
+                          className="px-3.5 py-2 bg-white hover:bg-emerald-100 text-emerald-900 border border-emerald-300 font-black text-xs rounded-xl flex items-center transition-colors shadow-sm"
+                        >
+                          <Eye className="w-3.5 h-3.5 mr-1.5" /> Podgląd zdjęcia
+                        </button>
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
   );
 });
 
@@ -1290,14 +1566,16 @@ const LocationDashboard = memo(({
   todayReport,
   liveDraft,
   todayNysaWarehouse,
-  tasks,
-  onCompleteTask,
+  pendingTasks = [],
+  completedTasks = [],
   employeesList,
   activeShifts,
   todayCompletedShifts,
   onClockIn,
   onClockOut,
-  onOpenReport,
+  onOpenTasksView,
+  onOpenCashReport,
+  onOpenInventoryReport,
   onOpenNysaWarehouse,
   onBack,
 }) => {
@@ -1320,9 +1598,32 @@ const LocationDashboard = memo(({
   };
 
   const confirmedSectionsList = useMemo(() => {
-    const src = liveDraft?.confirmedSections || todayReport?.confirmedSections || {};
+    const src = {
+      ...(todayReport?.confirmedSections || {}),
+      ...(liveDraft?.confirmedSections || {}),
+    };
     return Object.entries(src).map(([k, v]) => ({ key: k, ...v }));
   }, [liveDraft, todayReport]);
+
+  const isCashDone = useMemo(
+    () => Boolean(todayReport?.cashSubmitted || hasAnyReportCashData(todayReport)),
+    [todayReport]
+  );
+
+  const isInventorySubmittedFinal = useMemo(
+    () => Boolean(todayReport?.inventorySubmitted || liveDraft?.inventorySubmitted),
+    [todayReport, liveDraft]
+  );
+
+  const inventorySubmittedHM = todayReport?.inventorySubmittedHM || liveDraft?.inventorySubmittedHM || "";
+
+  const hasLiveInventoryProgress = useMemo(
+    () =>
+      confirmedSectionsList.length > 0 ||
+      hasAnyReportInventoryData(liveDraft) ||
+      hasAnyReportInventoryData(todayReport),
+    [confirmedSectionsList, liveDraft, todayReport]
+  );
 
   return (
     <div className="min-h-screen bg-gray-50 pb-16">
@@ -1379,14 +1680,6 @@ const LocationDashboard = memo(({
           </div>
         )}
 
-        <UrgentTasksBanner
-          tasks={tasks}
-          location={location}
-          todayStr={todayStr}
-          employeesList={employeesList}
-          onCompleteTask={onCompleteTask}
-        />
-
         <ShiftClockWidget
           location={location}
           employeesList={employeesList}
@@ -1396,81 +1689,170 @@ const LocationDashboard = memo(({
           onClockOut={onClockOut}
         />
 
-        <div className={`grid grid-cols-1 ${location === "Nysa" ? "sm:grid-cols-2" : ""} gap-4`}>
+        <button
+          type="button"
+          onClick={onOpenTasksView}
+          className={`w-full p-5 sm:p-6 rounded-[2rem] text-left transition-all active:scale-[0.99] border-2 shadow-sm hover:shadow-md flex items-center justify-between gap-4 ${
+            pendingTasks.length > 0
+              ? "bg-gradient-to-r from-amber-50 via-red-50/70 to-amber-50 border-red-300 hover:border-red-400"
+              : "bg-emerald-50/60 border-emerald-300 hover:border-emerald-400"
+          }`}
+        >
+          <div className="space-y-1.5 min-w-0">
+            <div className="flex items-center gap-2 flex-wrap">
+              <span
+                className={`text-[11px] font-black uppercase px-3 py-1 rounded-full flex items-center ${
+                  pendingTasks.length > 0 ? "bg-red-600 text-white shadow-sm" : "bg-emerald-200 text-emerald-900"
+                }`}
+              >
+                <ClipboardList className="w-3.5 h-3.5 mr-1.5" />
+                {pendingTasks.length > 0
+                  ? `Do wykonania dziś: ${pendingTasks.length}`
+                  : "Wszystkie zadania wykonane"}
+              </span>
+              <span className="text-[11px] font-black bg-white text-gray-700 border border-gray-200 px-3 py-1 rounded-full">
+                Zrealizowane dziś: {completedTasks.length}
+              </span>
+            </div>
+            <h2 className="text-xl sm:text-2xl font-black text-gray-900 pt-1">
+              Zadania Dnia i Fotokontrola
+            </h2>
+            <p className="text-xs font-semibold text-gray-600">
+              Otwórz listę zadań dla punktu {location}, dodaj zdjęcie potwierdzające lub sprawdź wykonane zadania.
+            </p>
+          </div>
+          <div
+            className={`w-12 h-12 rounded-2xl text-white flex items-center justify-center shrink-0 shadow-md ${
+              pendingTasks.length > 0 ? "bg-red-600" : "bg-emerald-600"
+            }`}
+          >
+            <Camera className="w-6 h-6" />
+          </div>
+        </button>
+
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
           <button
             type="button"
-            onClick={onOpenReport}
+            onClick={onOpenCashReport}
             className={`p-6 rounded-[2rem] text-left transition-all active:scale-[0.99] border-2 shadow-sm hover:shadow-md flex flex-col justify-between ${
-              todayReport
-                ? "bg-green-50/60 border-green-300 hover:border-green-400"
+              isCashDone
+                ? "bg-emerald-50/70 border-emerald-300 hover:border-emerald-400"
+                : "bg-white border-emerald-300 hover:border-emerald-400"
+            }`}
+          >
+            <div>
+              <div className="flex items-center justify-between gap-2 mb-3">
+                <span
+                  className={`text-[11px] font-black uppercase px-3 py-1 rounded-full ${
+                    isCashDone ? "bg-emerald-200 text-emerald-950" : "bg-emerald-600 text-white"
+                  }`}
+                >
+                  {isCashDone
+                    ? `Utarg zapisany ${todayReport?.cashSubmittedHM ? `(${todayReport.cashSubmittedHM})` : ""}`
+                    : "Formularz Kasowy"}
+                </span>
+                <div className="w-10 h-10 rounded-2xl bg-emerald-600 text-white flex items-center justify-center shrink-0 shadow-md">
+                  <Banknote className="w-5 h-5" />
+                </div>
+              </div>
+              <h2 className="text-xl sm:text-2xl font-black text-gray-900 mb-1">
+                Utarg Dobowy i Obsada
+              </h2>
+              <p className="text-xs font-semibold text-gray-600">
+                Raport kasowy: gotówka, terminal, aplikacje, raport fiskalny, wydatki z kasy (KW) oraz godziny pracy.
+              </p>
+            </div>
+            {isCashDone && (
+              <div className="mt-4 pt-3 border-t border-emerald-200/70 flex items-center justify-between text-xs font-black text-emerald-900">
+                <span>Zgłosił(a): {todayReport?.cashSubmittedBy || todayReport?.reporter || "Pracownik"}</span>
+                <span className="underline">Edytuj kasę →</span>
+              </div>
+            )}
+          </button>
+
+          <button
+            type="button"
+            onClick={onOpenInventoryReport}
+            className={`p-6 rounded-[2rem] text-left transition-all active:scale-[0.99] border-2 shadow-sm hover:shadow-md flex flex-col justify-between ${
+              isInventorySubmittedFinal
+                ? "bg-green-50/70 border-green-400 hover:border-green-500"
                 : "bg-blue-50/60 border-blue-300 hover:border-blue-400"
             }`}
           >
             <div>
               <div className="flex items-center justify-between gap-2 mb-3">
-                <span className={`text-[11px] font-black uppercase px-3 py-1 rounded-full ${
-                  todayReport
-                    ? "bg-green-200 text-green-900"
-                    : confirmedSectionsList.length > 0
-                    ? "bg-blue-200 text-blue-900"
-                    : "bg-blue-600 text-white"
-                }`}>
-                  {todayReport
-                    ? "Raport wysłany"
-                    : confirmedSectionsList.length > 0
-                    ? `Szkic aktywny (Zatwierdzono: ${confirmedSectionsList.length})`
-                    : "Formularz dobowy"}
+                <span
+                  className={`text-[11px] font-black uppercase px-3 py-1 rounded-full ${
+                    isInventorySubmittedFinal
+                      ? "bg-green-600 text-white"
+                      : hasLiveInventoryProgress
+                      ? "bg-blue-200 text-blue-950"
+                      : "bg-blue-600 text-white"
+                  }`}
+                >
+                  {isInventorySubmittedFinal
+                    ? `ZATWIERDZONE FINALNIE ${inventorySubmittedHM ? `(${inventorySubmittedHM})` : ""}`
+                    : hasLiveInventoryProgress
+                    ? "W trakcie wpisywania (Live)"
+                    : "Formularz Magazynowy"}
                 </span>
-                <div className={`w-10 h-10 rounded-2xl text-white flex items-center justify-center shrink-0 shadow-md ${todayReport ? "bg-green-600" : "bg-blue-600"}`}>
-                  <ArrowLeft className="w-5 h-5 rotate-180" />
+                <div
+                  className={`w-10 h-10 rounded-2xl text-white flex items-center justify-center shrink-0 shadow-md ${
+                    isInventorySubmittedFinal ? "bg-green-600" : "bg-blue-600"
+                  }`}
+                >
+                  <Package className="w-5 h-5" />
                 </div>
               </div>
-              <h2 className="text-2xl font-black text-gray-900 mb-1">
-                {todayReport ? "Edytuj Raport Dzienny" : "Otwórz Raport Dzienny"}
+              <h2 className="text-xl sm:text-2xl font-black text-gray-900 mb-1">
+                Stany Magazynowe i Braki
               </h2>
               <p className="text-xs font-semibold text-gray-600">
-                Uzupełnij stany magazynowe (np. Farutex), braki sosów lub zamknij utarg na koniec zmiany.
+                Warzywa, mroźnia, dostawy (Farutex / Mięso 1 / Mięso 2), braki sosów, opakowania oraz uwagi magazynowe.
               </p>
             </div>
 
             {confirmedSectionsList.length > 0 && (
               <div className="mt-4 pt-3 border-t border-blue-200/60 flex flex-wrap gap-1.5">
                 {confirmedSectionsList.map((sec) => (
-                  <span key={sec.key} className="text-[10px] font-black bg-emerald-100 text-emerald-800 border border-emerald-300 px-2.5 py-0.5 rounded-md">
+                  <span
+                    key={sec.key}
+                    className="text-[10px] font-black bg-emerald-100 text-emerald-800 border border-emerald-300 px-2.5 py-0.5 rounded-md"
+                  >
                     ✓ {sec.label || sec.key} ({sec.time})
                   </span>
                 ))}
               </div>
             )}
           </button>
-
-          {location === "Nysa" && (
-            <button
-              type="button"
-              onClick={onOpenNysaWarehouse}
-              className={`p-6 rounded-[2rem] text-left transition-all active:scale-[0.99] border-2 shadow-sm hover:shadow-md flex flex-col justify-between ${
-                todayNysaWarehouse ? "bg-purple-50/70 border-purple-300" : "bg-white border-purple-300 hover:border-purple-400"
-              }`}
-            >
-              <div>
-                <div className="flex items-center justify-between gap-2 mb-3">
-                  <span className="text-[11px] font-black uppercase px-3 py-1 rounded-full bg-purple-200 text-purple-900">
-                    Magazyn Główny Nysa
-                  </span>
-                  <div className="w-10 h-10 rounded-2xl bg-purple-600 text-white flex items-center justify-center shrink-0 shadow-md">
-                    <Warehouse className="w-5 h-5" />
-                  </div>
-                </div>
-                <h2 className="text-2xl font-black text-gray-900 mb-1">
-                  {todayNysaWarehouse ? "Aktualizuj Magazyn Nysa" : "Uzupełnij Magazyn Nysa"}
-                </h2>
-                <p className="text-xs font-semibold text-gray-600">
-                  Osobny formularz stanów żywności i opakowań dla magazynu głównego w Nysie.
-                </p>
-              </div>
-            </button>
-          )}
         </div>
+
+        {location === "Nysa" && (
+          <button
+            type="button"
+            onClick={onOpenNysaWarehouse}
+            className={`w-full p-6 rounded-[2rem] text-left transition-all active:scale-[0.99] border-2 shadow-sm hover:shadow-md flex flex-col justify-between ${
+              todayNysaWarehouse ? "bg-purple-50/70 border-purple-300" : "bg-white border-purple-300 hover:border-purple-400"
+            }`}
+          >
+            <div>
+              <div className="flex items-center justify-between gap-2 mb-3">
+                <span className="text-[11px] font-black uppercase px-3 py-1 rounded-full bg-purple-200 text-purple-900">
+                  Magazyn Główny Nysa
+                </span>
+                <div className="w-10 h-10 rounded-2xl bg-purple-600 text-white flex items-center justify-center shrink-0 shadow-md">
+                  <Warehouse className="w-5 h-5" />
+                </div>
+              </div>
+              <h2 className="text-2xl font-black text-gray-900 mb-1">
+                {todayNysaWarehouse ? "Aktualizuj Magazyn Nysa" : "Uzupełnij Magazyn Nysa"}
+              </h2>
+              <p className="text-xs font-semibold text-gray-600">
+                Osobny formularz stanów żywności i opakowań dla magazynu głównego w Nysie.
+              </p>
+            </div>
+          </button>
+        )}
 
         <div className="bg-yellow-50 p-6 rounded-[2rem] border-2 border-yellow-200 shadow-sm relative overflow-hidden">
           <div className="absolute -right-4 -bottom-4 opacity-10 pointer-events-none">
@@ -1505,8 +1887,8 @@ export default function App() {
     try {
       const permission = await Notification.requestPermission();
       if (permission === "granted" && messaging && db) {
-        const token = await getToken(messaging, { 
-          vapidKey: "BBzMq3ZdYRR_vOcZNiHw7dV4q_cwwZqtxN892acs3RLpKPBQ23mKIWNkMnyEEn1CsKdASuKiO95ty1bOtjk-s00" 
+        const token = await getToken(messaging, {
+          vapidKey: "BBzMq3ZdYRR_vOcZNiHw7dV4q_cwwZqtxN892acs3RLpKPBQ23mKIWNkMnyEEn1CsKdASuKiO95ty1bOtjk-s00"
         });
         if (token) {
           await setDoc(doc(db, "artifacts", appId, "public", "data", "fcm_tokens", token), {
@@ -1520,6 +1902,7 @@ export default function App() {
       console.error("Błąd pobierania zgody na powiadomienia:", error);
     }
   };
+
   const [user, setUser] = useState(null);
   const [view, setView] = useState("select");
   const [currentLocation, setCurrentLocation] = useState("");
@@ -1660,6 +2043,21 @@ export default function App() {
                 merged[sec] = loser[sec];
               }
             });
+            if (!Array.isArray(winner.sauces) && Array.isArray(loser.sauces)) {
+              merged.sauces = loser.sauces;
+            }
+            if (!winner.saucesNote && loser.saucesNote) {
+              merged.saucesNote = loser.saucesNote;
+            }
+            if (!winner.notes && loser.notes) {
+              merged.notes = loser.notes;
+            }
+            if (loser.customSections || winner.customSections) {
+              merged.customSections = { ...(loser.customSections || {}), ...(winner.customSections || {}) };
+            }
+            if (loser.confirmedSections || winner.confirmedSections) {
+              merged.confirmedSections = { ...(loser.confirmedSections || {}), ...(winner.confirmedSections || {}) };
+            }
             if (docSnap.id === key) merged.id = key;
             byKey[key] = merged;
           }
@@ -1851,7 +2249,9 @@ export default function App() {
             (e) => (e?.name || "").trim().toLowerCase() === (shiftObj.employeeName || "").trim().toLowerCase()
           );
           if (matchIdx !== -1) {
-            prevEmps[matchIdx] = { name: shiftObj.employeeName, hours: rangeStr };
+            if (!isZeroHoursValue(prevEmps[matchIdx]?.hours)) {
+              prevEmps[matchIdx] = { name: shiftObj.employeeName, hours: rangeStr };
+            }
           } else {
             const emptyIdx = prevEmps.findIndex((e) => !e?.name && !e?.hours);
             if (emptyIdx !== -1) prevEmps[emptyIdx] = { name: shiftObj.employeeName, hours: rangeStr };
@@ -2038,6 +2438,16 @@ export default function App() {
     [tasks, currentLocation, activeGastroDate]
   );
 
+  const currentCompletedTasksToday = useMemo(
+    () =>
+      tasks.filter(
+        (t) =>
+          isTaskScheduledForLocationAndDate(t, currentLocation, activeGastroDate) &&
+          isTaskCompletedByLocation(t, currentLocation, activeGastroDate)
+      ),
+    [tasks, currentLocation, activeGastroDate]
+  );
+
   const adminEditTasks = useMemo(
     () =>
       adminEditingReport
@@ -2091,23 +2501,27 @@ export default function App() {
 
           <div className="w-full flex flex-col gap-4">
             {LOCATIONS.map((loc) => {
-              const isDone = !!todayReports[loc];
+              const rep = todayReports[loc];
               const draft = todayLiveDrafts[loc];
-              const confirmedCount = draft?.confirmedSections ? Object.keys(draft.confirmedSections).length : 0;
+              const isCashDone = Boolean(rep?.cashSubmitted || hasAnyReportCashData(rep));
+              const isInvDone = Boolean(rep?.inventorySubmitted || draft?.inventorySubmitted);
+              const isInvLive = !isInvDone && (hasAnyReportInventoryData(draft) || hasAnyReportInventoryData(rep));
               const locTasksCount = tasks.filter((t) => isTaskRelevantForLocationAndDate(t, loc, activeGastroDate)).length;
               const locActiveWorkers = activeShifts.filter((s) => s?.location === loc);
               const isUnlockedHere = unlockedLocation === loc;
+              const isFullyDone = isCashDone && isInvDone;
+
               return (
                 <button
                   key={loc}
                   type="button"
                   onClick={() => handleNav(loc)}
                   className={`relative p-5 rounded-[2rem] flex items-center justify-between transition-transform active:scale-95 border-2 shadow-sm hover:shadow-md ${
-                    isDone ? "bg-white border-green-200 hover:border-green-300" : "bg-white border-gray-100 hover:border-blue-300"
+                    isFullyDone ? "bg-white border-green-200 hover:border-green-300" : "bg-white border-gray-100 hover:border-blue-300"
                   }`}
                 >
                   <div className="flex flex-col items-start text-left">
-                    <div className="flex items-center gap-2 mb-1 flex-wrap">
+                    <div className="flex items-center gap-2 mb-1.5 flex-wrap">
                       <span className={`w-3 h-3 rounded-full ${LOCATION_COLORS[loc] || "bg-blue-600"}`} />
                       <span className="text-2xl font-black text-gray-900">{loc}</span>
                       {locActiveWorkers.length > 0 && (
@@ -2127,30 +2541,38 @@ export default function App() {
                         </span>
                       )}
                     </div>
-                    <div className="flex items-center opacity-90">
-                      {isDone ? (
-                        <>
-                          <CheckCircle2 className="w-4 h-4 text-green-500 mr-1.5" />
-                          <span className="text-sm font-bold text-green-600">Raport wysłany pomyślnie</span>
-                        </>
-                      ) : confirmedCount > 0 ? (
-                        <>
-                          <Clock className="w-4 h-4 text-blue-500 mr-1.5" />
-                          <span className="text-sm font-bold text-blue-600">
-                            W trakcie (Zatwierdzone sekcje: {confirmedCount})
-                          </span>
-                        </>
-                      ) : (
-                        <>
-                          <XCircle className="w-4 h-4 text-red-400 mr-1.5" />
-                          <span className="text-sm font-bold text-red-500">Raport nie zrobiony</span>
-                        </>
-                      )}
+                    <div className="flex flex-wrap items-center gap-2 opacity-95">
+                      <span
+                        className={`text-[11px] font-black px-2.5 py-0.5 rounded-lg flex items-center ${
+                          isCashDone
+                            ? "bg-emerald-100 text-emerald-800"
+                            : "bg-gray-100 text-gray-600"
+                        }`}
+                      >
+                        {isCashDone ? <CheckCircle2 className="w-3.5 h-3.5 mr-1 text-emerald-600" /> : <Clock className="w-3.5 h-3.5 mr-1 text-gray-400" />}
+                        Utarg: {isCashDone ? "Wysłany" : "Brak"}
+                      </span>
+                      <span
+                        className={`text-[11px] font-black px-2.5 py-0.5 rounded-lg flex items-center ${
+                          isInvDone
+                            ? "bg-green-100 text-green-800"
+                            : isInvLive
+                            ? "bg-blue-100 text-blue-800"
+                            : "bg-gray-100 text-gray-600"
+                        }`}
+                      >
+                        {isInvDone ? (
+                          <CheckCircle2 className="w-3.5 h-3.5 mr-1 text-green-600" />
+                        ) : (
+                          <Package className="w-3.5 h-3.5 mr-1 opacity-75" />
+                        )}
+                        Magazyn: {isInvDone ? "Zatwierdzony" : isInvLive ? "W trakcie (Live)" : "Brak"}
+                      </span>
                     </div>
                   </div>
                   <div
-                    className={`w-12 h-12 rounded-full flex items-center justify-center transition-colors ${
-                      isDone ? "bg-green-50 text-green-600" : "bg-gray-100 text-gray-500"
+                    className={`w-12 h-12 rounded-full flex items-center justify-center transition-colors shrink-0 ${
+                      isFullyDone ? "bg-green-50 text-green-600" : "bg-gray-100 text-gray-500"
                     }`}
                   >
                     <ArrowLeft className="w-6 h-6 rotate-180" />
@@ -2198,16 +2620,30 @@ export default function App() {
           todayReport={todayReports[currentLocation]}
           liveDraft={todayLiveDrafts[currentLocation]}
           todayNysaWarehouse={todayNysaWarehouse}
-          tasks={currentEmployeeTasks}
-          onCompleteTask={(t, photoPayload) => handleCompleteTaskGlobal(t, currentLocation, activeGastroDate, photoPayload)}
+          pendingTasks={currentEmployeeTasks}
+          completedTasks={currentCompletedTasksToday}
           employeesList={catalog?.employeesByLocation?.[currentLocation] || DEFAULT_EMPLOYEES_BY_LOCATION[currentLocation] || []}
           activeShifts={activeShifts}
           todayCompletedShifts={todayCompletedShifts}
           onClockIn={handleClockIn}
           onClockOut={handleClockOut}
-          onOpenReport={() => setView("employee")}
+          onOpenTasksView={() => setView("locationTasks")}
+          onOpenCashReport={() => setView("employeeCash")}
+          onOpenInventoryReport={() => setView("employeeInventory")}
           onOpenNysaWarehouse={() => setView("nysaWarehouse")}
           onBack={() => setView("select")}
+        />
+      )}
+
+      {view === "locationTasks" && (
+        <LocationTasksView
+          location={currentLocation}
+          todayStr={activeGastroDate}
+          pendingTasks={currentEmployeeTasks}
+          completedTasks={currentCompletedTasksToday}
+          employeesList={catalog?.employeesByLocation?.[currentLocation] || DEFAULT_EMPLOYEES_BY_LOCATION[currentLocation] || []}
+          onCompleteTask={(t, photoPayload) => handleCompleteTaskGlobal(t, currentLocation, activeGastroDate, photoPayload)}
+          onBack={() => setView("locationDashboard")}
         />
       )}
 
@@ -2224,12 +2660,34 @@ export default function App() {
         />
       )}
 
-      {view === "employee" && (
+      {view === "employeeCash" && (
         <EmployeeForm
-          key={`${currentLocation}_${activeGastroDate}`}
+          key={`cash_${currentLocation}_${activeGastroDate}`}
           db={db}
           appId={appId}
           location={currentLocation}
+          formMode="cash"
+          existingData={todayReports[currentLocation]}
+          existingCloudDraft={todayLiveDrafts[currentLocation]}
+          previousReport={previousReportForCurrentLoc}
+          catalog={catalog}
+          tasks={currentEmployeeTasks}
+          activeShifts={activeShifts}
+          todayCompletedShifts={todayCompletedShifts}
+          onCompleteTask={(t, photoPayload) => handleCompleteTaskGlobal(t, currentLocation, activeGastroDate, photoPayload)}
+          onBack={() => setView("locationDashboard")}
+          todayStr={activeGastroDate}
+          onShowModal={setModalMsg}
+        />
+      )}
+
+      {view === "employeeInventory" && (
+        <EmployeeForm
+          key={`inv_${currentLocation}_${activeGastroDate}`}
+          db={db}
+          appId={appId}
+          location={currentLocation}
+          formMode="inventory"
           existingData={todayReports[currentLocation]}
           existingCloudDraft={todayLiveDrafts[currentLocation]}
           previousReport={previousReportForCurrentLoc}
@@ -2246,10 +2704,11 @@ export default function App() {
 
       {view === "adminEditReport" && adminEditingReport && (
         <EmployeeForm
-          key={`admin_${adminEditingReport.location}_${adminEditingReport.date}`}
+          key={`admin_${adminEditingReport.location}_${adminEditingReport.date}_${adminEditingReport.formMode || "all"}`}
           db={db}
           appId={appId}
           location={adminEditingReport.location}
+          formMode={adminEditingReport.formMode || "all"}
           existingData={adminEditingReport.existingData}
           existingCloudDraft={allLiveDrafts.find((d) => d?.date === adminEditingReport.date && d?.location === adminEditingReport.location)}
           previousReport={previousReportForAdminEdit}
@@ -2306,8 +2765,8 @@ export default function App() {
           catalog={catalog}
           onSaveCatalog={handleSaveCatalog}
           todayStr={activeGastroDate}
-          onEditHistoricalReport={(loc, dateStr, existingReportObj) => {
-            setAdminEditingReport({ location: loc, date: dateStr, existingData: existingReportObj || null });
+          onEditHistoricalReport={(loc, dateStr, existingReportObj, mode = "all") => {
+            setAdminEditingReport({ location: loc, date: dateStr, existingData: existingReportObj || null, formMode: mode });
             setView("adminEditReport");
           }}
           onShowModal={setModalMsg}
@@ -2315,17 +2774,17 @@ export default function App() {
       )}
     </div>
   );
-}
-
-function EmployeeForm({
+}function EmployeeForm({
   db,
   appId,
   location,
+  formMode = "all",
   existingData,
   existingCloudDraft,
   previousReport,
   catalog,
   tasks = [],
+  activeShifts = [],
   todayCompletedShifts = [],
   onCompleteTask,
   onBack,
@@ -2333,7 +2792,9 @@ function EmployeeForm({
   onShowModal,
   isAdminEdit = false,
 }) {
-  const isEdit = !!existingData;
+  const isCashOnly = formMode === "cash";
+  const isInventoryOnly = formMode === "inventory";
+
   const [loading, setLoading] = useState(false);
 
   const draftStorageKey = `kebab_draft_${appId}_${location}_${todayStr}`;
@@ -2349,30 +2810,59 @@ function EmployeeForm({
   const effectiveExistingSource = useMemo(() => {
     if (isAdminEdit) return existingData || existingCloudDraft || null;
     if (existingData && existingCloudDraft) {
-      return (existingCloudDraft.updatedAt || "") > (existingData.updatedAt || "")
-        ? existingCloudDraft
-        : existingData;
+      const isDraftNewer = (existingCloudDraft.updatedAt || "") >= (existingData.updatedAt || "");
+      const winner = isDraftNewer ? existingCloudDraft : existingData;
+      const loser = isDraftNewer ? existingData : existingCloudDraft;
+      const merged = { ...loser, ...winner };
+      ["vegetables", "freezer", "farutex", "meat1", "meat2", "otherItems"].forEach((sec) => {
+        merged[sec] = { ...(loser[sec] || {}), ...(winner[sec] || {}) };
+      });
+      merged.customSections = { ...(loser.customSections || {}), ...(winner.customSections || {}) };
+      merged.confirmedSections = { ...(loser.confirmedSections || {}), ...(winner.confirmedSections || {}) };
+      if (!Array.isArray(winner.sauces) && Array.isArray(loser.sauces)) merged.sauces = loser.sauces;
+      if (winner.saucesNote === undefined && loser.saucesNote !== undefined) merged.saucesNote = loser.saucesNote;
+      if (winner.notes === undefined && loser.notes !== undefined) merged.notes = loser.notes;
+      return merged;
     }
-    return existingData || existingCloudDraft || null;
+    return existingCloudDraft || existingData || null;
   }, [isAdminEdit, existingData, existingCloudDraft]);
 
   const [isDirty, setIsDirty] = useState(false);
   const [showExitConfirm, setShowExitConfirm] = useState(false);
   const [showAllDaysCategories, setShowAllDaysCategories] = useState(false);
 
-  const [activeFormTab, setActiveFormTab] = useState("general");
+  const [activeFormTab, setActiveFormTab] = useState(() =>
+    isInventoryOnly ? "veg_freezer" : "general"
+  );
   const [itemSearchQuery, setItemSearchQuery] = useState("");
 
   const [reporter, setReporter] = useState(
-    savedDraft?.reporter || effectiveExistingSource?.reporter || existingData?.reporter || ""
+    savedDraft?.reporter ||
+      effectiveExistingSource?.cashSubmittedBy ||
+      effectiveExistingSource?.reporter ||
+      existingData?.reporter ||
+      ""
   );
+
+  const [inventoryReporter, setInventoryReporter] = useState(
+    savedDraft?.inventorySubmittedBy ||
+      effectiveExistingSource?.inventorySubmittedBy ||
+      effectiveExistingSource?.reporter ||
+      existingData?.reporter ||
+      ""
+  );
+
   const [ordersCount, setOrdersCount] = useState(() => {
     const val = savedDraft?.ordersCount ?? effectiveExistingSource?.ordersCount ?? existingData?.ordersCount;
     return val !== undefined && val !== null && Number(val) > 0 ? String(val) : "";
   });
 
   const [confirmedSections, setConfirmedSections] = useState(
-    () => savedDraft?.confirmedSections || effectiveExistingSource?.confirmedSections || existingData?.confirmedSections || {}
+    () => ({
+      ...(existingData?.confirmedSections || {}),
+      ...(effectiveExistingSource?.confirmedSections || {}),
+      ...(savedDraft?.confirmedSections || {}),
+    })
   );
 
   const [revenue, setRevenue] = useState(() => {
@@ -2381,7 +2871,7 @@ function EmployeeForm({
       const dVal = savedDraft?.revenue?.[k];
       const eVal = effectiveExistingSource?.revenue?.[k] ?? existingData?.revenue?.[k];
       const val = dVal !== undefined && dVal !== "" ? dVal : eVal;
-      rev[k] = val !== undefined ? String(val) : "";
+      rev[k] = val !== undefined && val !== 0 && val !== "0" ? String(val) : val === 0 ? "" : val ? String(val) : "";
     });
     return rev;
   });
@@ -2389,7 +2879,7 @@ function EmployeeForm({
   const [expenses, setExpenses] = useState(() =>
     Array.isArray(savedDraft?.expenses) && savedDraft.expenses.length > 0
       ? savedDraft.expenses
-      : Array.isArray(effectiveExistingSource?.expenses)
+      : Array.isArray(effectiveExistingSource?.expenses) && effectiveExistingSource.expenses.length > 0
       ? effectiveExistingSource.expenses
       : Array.isArray(existingData?.expenses)
       ? existingData.expenses
@@ -2398,14 +2888,33 @@ function EmployeeForm({
 
   const [employees, setEmployees] = useState(() => {
     const src =
-      Array.isArray(savedDraft?.employees) && savedDraft.employees.some((e) => e?.name || e?.hours)
+      Array.isArray(savedDraft?.employees) && savedDraft.employees.some((e) => e?.name || e?.hours !== undefined)
         ? savedDraft.employees
         : Array.isArray(effectiveExistingSource?.employees) && effectiveExistingSource.employees.length > 0
         ? effectiveExistingSource.employees
         : Array.isArray(existingData?.employees) && existingData.employees.length > 0
         ? existingData.employees
         : [];
-    return [0, 1, 2].map((i) => ({ name: src[i]?.name || "", hours: src[i]?.hours || "" }));
+    return [0, 1, 2].map((i) => ({
+      name: src[i]?.name || "",
+      hours: src[i]?.hours !== undefined && src[i]?.hours !== null ? String(src[i].hours) : "",
+    }));
+  });
+
+  const [manuallyEditedEmpRows, setManuallyEditedEmpRows] = useState(() => {
+    const initialMap = {};
+    const src =
+      Array.isArray(savedDraft?.employees) && savedDraft.employees.some((e) => e?.name || e?.hours !== undefined)
+        ? savedDraft.employees
+        : Array.isArray(effectiveExistingSource?.employees)
+        ? effectiveExistingSource.employees
+        : [];
+    [0, 1, 2].forEach((i) => {
+      if (isZeroHoursValue(src[i]?.hours)) {
+        initialMap[i] = true;
+      }
+    });
+    return initialMap;
   });
 
   const [vegetables, setVegetables] = useState(() =>
@@ -2444,7 +2953,7 @@ function EmployeeForm({
   const [notes, setNotes] = useState(savedDraft?.notes ?? effectiveExistingSource?.notes ?? "");
 
   const applyCompletedShiftsToForm = useCallback(
-    (shiftsList) => {
+    (shiftsList, forceOverwrite = false) => {
       const locShifts = (shiftsList || []).filter(
         (s) => s?.location === location && s?.status === "completed" && s?.startHM && s?.endHM
       );
@@ -2453,11 +2962,19 @@ function EmployeeForm({
         const next = prev.map((e) => ({ ...e }));
         locShifts.forEach((sh) => {
           const range = `${sh.startHM}-${sh.endHM}`;
-          const existingIdx = next.findIndex((e) => (e.name || "").toLowerCase() === (sh.employeeName || "").toLowerCase());
+          const existingIdx = next.findIndex(
+            (e) => (e.name || "").trim().toLowerCase() === (sh.employeeName || "").trim().toLowerCase()
+          );
           if (existingIdx !== -1) {
-            if (!next[existingIdx].hours) next[existingIdx].hours = range;
+            if (!forceOverwrite && manuallyEditedEmpRows[existingIdx]) return;
+            if (!forceOverwrite && isZeroHoursValue(next[existingIdx].hours)) return;
+            if (forceOverwrite || !next[existingIdx].hours) {
+              next[existingIdx].hours = range;
+            }
           } else {
-            const emptyIdx = next.findIndex((e) => !e.name && !e.hours);
+            const emptyIdx = next.findIndex(
+              (e, idx) => !e.name && !e.hours && (forceOverwrite || !manuallyEditedEmpRows[idx])
+            );
             if (emptyIdx !== -1) {
               next[emptyIdx] = { name: sh.employeeName, hours: range };
             }
@@ -2466,12 +2983,12 @@ function EmployeeForm({
         return next;
       });
     },
-    [location]
+    [location, manuallyEditedEmpRows]
   );
 
   useEffect(() => {
     if (todayCompletedShifts.length > 0) {
-      applyCompletedShiftsToForm(todayCompletedShifts);
+      applyCompletedShiftsToForm(todayCompletedShifts, false);
     }
   }, [todayCompletedShifts, applyCompletedShiftsToForm]);
 
@@ -2485,26 +3002,22 @@ function EmployeeForm({
     setOtherItems((prev) => ({ ...prev, ...(existingData.otherItems || {}) }));
 
     if (existingData.reporter) setReporter((r) => r || existingData.reporter);
+    if (existingData.inventorySubmittedBy) setInventoryReporter((r) => r || existingData.inventorySubmittedBy);
     if (existingData.ordersCount) setOrdersCount((o) => o || String(existingData.ordersCount));
     if (existingData.confirmedSections) setConfirmedSections((c) => ({ ...existingData.confirmedSections, ...c }));
+    if (Array.isArray(existingData.sauces)) setSauces((prev) => (prev.length > 0 ? prev : existingData.sauces));
+    if (existingData.saucesNote) setSaucesNote((prev) => prev || existingData.saucesNote);
+    if (existingData.notes) setNotes((prev) => prev || existingData.notes);
     if (existingData.revenue) {
       setRevenue((prev) => {
         const next = { ...prev };
         ["gotowka", "karta", "aplikacje", "raportFiskalny", "roznica"].forEach((k) => {
-          if (!next[k] && existingData.revenue[k] !== undefined) next[k] = String(existingData.revenue[k]);
+          if (!next[k] && existingData.revenue[k] !== undefined && existingData.revenue[k] !== 0) {
+            next[k] = String(existingData.revenue[k]);
+          }
         });
         return next;
       });
-    }
-    if (Array.isArray(existingData.employees) && existingData.employees.length > 0) {
-      setEmployees((prev) =>
-        prev.some((e) => e.name || e.hours)
-          ? prev
-          : [0, 1, 2].map((i) => ({
-              name: existingData.employees[i]?.name || "",
-              hours: existingData.employees[i]?.hours || "",
-            }))
-      );
     }
   }, [existingData, isDirty, savedDraft]);
 
@@ -2531,38 +3044,99 @@ function EmployeeForm({
     return totalRev > 0 ? Math.max(1, Math.round(totalRev / DEFAULT_AVG_ORDER_VALUE)) : 0;
   }, [revenue]);
 
+  const isInventorySubmittedFinal = Boolean(
+    existingData?.inventorySubmitted || existingCloudDraft?.inventorySubmitted
+  );
+  const inventorySubmittedHM =
+    existingData?.inventorySubmittedHM || existingCloudDraft?.inventorySubmittedHM || "";
+  const inventorySubmittedBy =
+    existingData?.inventorySubmittedBy || existingCloudDraft?.inventorySubmittedBy || "";
+
+  const isCashSubmittedFinal = Boolean(
+    existingData?.cashSubmitted || hasAnyReportCashData(existingData)
+  );
+
   const syncDraftToCloud = useCallback(
-    async (customConfirmedSections = null) => {
+    async (overrides = {}) => {
       if (isAdminEdit) return;
-      const activeConfirmed = customConfirmedSections || confirmedSections;
       const draftId = `${todayStr}_${location}`;
+      const nowIso = new Date().toISOString();
+
+      const nextConfirmed = overrides.confirmedSections ?? confirmedSections;
+      const nextSauces = overrides.sauces ?? sauces;
+      const nextSaucesNote = overrides.saucesNote ?? saucesNote;
+      const nextNotes = overrides.notes ?? notes;
+      const nextVeg = overrides.vegetables ?? vegetables;
+      const nextFarutex = overrides.farutex ?? farutex;
+      const nextFreezer = overrides.freezer ?? freezer;
+      const nextMeat1 = overrides.meat1 ?? meat1;
+      const nextMeat2 = overrides.meat2 ?? meat2;
+      const nextOther = overrides.otherItems ?? otherItems;
+      const nextCustom = overrides.customSections ?? customSections;
+
       const payload = {
+        ...(existingCloudDraft || {}),
         id: draftId,
         date: todayStr,
         location,
-        reporter: reporter || "",
-        ordersCount: parseSafeNumber(ordersCount) || estimatedOrdersFromRevenue,
-        revenue: {
-          gotowka: parseSafeNumber(revenue.gotowka),
-          karta: parseSafeNumber(revenue.karta),
-          aplikacje: parseSafeNumber(revenue.aplikacje),
-          raportFiskalny: parseSafeNumber(revenue.raportFiskalny),
-          roznica: parseSafeNumber(revenue.roznica),
-        },
-        expenses,
-        employees,
-        vegetables: sanitizeRecord(vegetables),
-        farutex: sanitizeRecord(farutex),
-        freezer: sanitizeRecord(freezer),
-        meat1: sanitizeRecord(meat1),
-        meat2: sanitizeRecord(meat2),
-        otherItems: sanitizeRecord(otherItems),
-        customSections,
-        sauces,
-        saucesNote,
-        notes,
-        confirmedSections: activeConfirmed,
-        updatedAt: new Date().toISOString(),
+        reporter: reporter || existingCloudDraft?.reporter || existingData?.reporter || inventoryReporter || "",
+        ordersCount:
+          parseSafeNumber(ordersCount) ||
+          estimatedOrdersFromRevenue ||
+          parseSafeNumber(existingCloudDraft?.ordersCount) ||
+          parseSafeNumber(existingData?.ordersCount),
+        revenue: isInventoryOnly
+          ? existingCloudDraft?.revenue ||
+            existingData?.revenue || {
+              gotowka: 0,
+              karta: 0,
+              aplikacje: 0,
+              raportFiskalny: 0,
+              roznica: 0,
+            }
+          : {
+              gotowka: parseSafeNumber(revenue.gotowka),
+              karta: parseSafeNumber(revenue.karta),
+              aplikacje: parseSafeNumber(revenue.aplikacje),
+              raportFiskalny: parseSafeNumber(revenue.raportFiskalny),
+              roznica: parseSafeNumber(revenue.roznica),
+            },
+        expenses: isInventoryOnly
+          ? existingCloudDraft?.expenses || existingData?.expenses || []
+          : expenses,
+        employees: isInventoryOnly
+          ? existingCloudDraft?.employees || existingData?.employees || employees
+          : employees,
+        vegetables: sanitizeRecord(nextVeg),
+        farutex: sanitizeRecord(nextFarutex),
+        freezer: sanitizeRecord(nextFreezer),
+        meat1: sanitizeRecord(nextMeat1),
+        meat2: sanitizeRecord(nextMeat2),
+        otherItems: sanitizeRecord(nextOther),
+        customSections: nextCustom,
+        sauces: Array.isArray(nextSauces) ? nextSauces.map(String) : [],
+        saucesNote: String(nextSaucesNote || ""),
+        notes: String(nextNotes || ""),
+        confirmedSections: nextConfirmed,
+        inventorySubmitted:
+          overrides.inventorySubmitted !== undefined
+            ? overrides.inventorySubmitted
+            : Boolean(existingData?.inventorySubmitted || existingCloudDraft?.inventorySubmitted),
+        inventorySubmittedHM:
+          overrides.inventorySubmittedHM ||
+          existingData?.inventorySubmittedHM ||
+          existingCloudDraft?.inventorySubmittedHM ||
+          "",
+        inventorySubmittedBy:
+          overrides.inventorySubmittedBy ||
+          inventoryReporter ||
+          existingData?.inventorySubmittedBy ||
+          existingCloudDraft?.inventorySubmittedBy ||
+          "",
+        cashSubmitted: Boolean(existingData?.cashSubmitted || existingCloudDraft?.cashSubmitted),
+        cashSubmittedHM: existingData?.cashSubmittedHM || existingCloudDraft?.cashSubmittedHM || "",
+        cashSubmittedBy: existingData?.cashSubmittedBy || existingCloudDraft?.cashSubmittedBy || "",
+        updatedAt: nowIso,
       };
 
       try {
@@ -2576,20 +3150,17 @@ function EmployeeForm({
           await setDoc(doc(db, "artifacts", appId, "public", "data", "live_drafts", draftId), payload);
         }
       } catch (err) {
-        console.error("Błąd synchronizacji szkicu w chmurze:", err);
+        console.error("Błąd synchronizacji na żywo w chmurze:", err);
       }
     },
     [
       isAdminEdit,
-      confirmedSections,
       todayStr,
       location,
-      reporter,
-      ordersCount,
-      estimatedOrdersFromRevenue,
-      revenue,
-      expenses,
-      employees,
+      confirmedSections,
+      sauces,
+      saucesNote,
+      notes,
       vegetables,
       farutex,
       freezer,
@@ -2597,9 +3168,16 @@ function EmployeeForm({
       meat2,
       otherItems,
       customSections,
-      sauces,
-      saucesNote,
-      notes,
+      existingCloudDraft,
+      existingData,
+      reporter,
+      inventoryReporter,
+      ordersCount,
+      estimatedOrdersFromRevenue,
+      isInventoryOnly,
+      revenue,
+      expenses,
+      employees,
       draftStorageKey,
       db,
       appId,
@@ -2610,25 +3188,51 @@ function EmployeeForm({
     if (isAdminEdit || !isDirty) return;
     const timer = setTimeout(() => {
       syncDraftToCloud();
-    }, 900);
+    }, 150);
     return () => clearTimeout(timer);
-  }, [isDirty, isAdminEdit, syncDraftToCloud]);
+  }, [
+    isDirty,
+    isAdminEdit,
+    vegetables,
+    farutex,
+    freezer,
+    meat1,
+    meat2,
+    otherItems,
+    customSections,
+    sauces,
+    saucesNote,
+    notes,
+    confirmedSections,
+    revenue,
+    expenses,
+    employees,
+    reporter,
+    inventoryReporter,
+    ordersCount,
+    syncDraftToCloud,
+  ]);
 
   const handleConfirmSection = async (sectionKey, sectionLabel) => {
     const timeStr = formatTimeHM(new Date());
+    const activeBy =
+      inventoryReporter ||
+      reporter ||
+      activeShifts.find((s) => s?.location === location)?.employeeName ||
+      "Pracownik";
     const nextConfirmed = {
       ...confirmedSections,
       [sectionKey]: {
         label: sectionLabel,
         time: timeStr,
-        by: reporter || "Pracownik",
+        by: activeBy,
         confirmedAt: new Date().toISOString(),
       },
     };
     setConfirmedSections(nextConfirmed);
     setIsDirty(true);
-    await syncDraftToCloud(nextConfirmed);
-    onShowModal(`Sekcja "${sectionLabel}" została zatwierdzona (${timeStr}) i jest już widoczna w podglądzie u managera!`);
+    await syncDraftToCloud({ confirmedSections: nextConfirmed });
+    onShowModal(`Sekcja "${sectionLabel}" została zatwierdzona na żywo (${timeStr}) i jest widoczna u managera!`);
   };
 
   const renderSectionConfirmFooter = (sectionKey, sectionLabel) => {
@@ -2642,7 +3246,7 @@ function EmployeeForm({
           </div>
         ) : (
           <span className="text-xs font-semibold text-gray-500">
-            Po przeliczeniu towaru kliknij przycisk obok, aby manager widział gotowe stany bez wysyłania całego raportu.
+            Wszystkie zmiany zapisują się na żywo. Kliknij przycisk obok, aby oznaczyć tę sekcję jako przeliczoną.
           </span>
         )}
         <button
@@ -2655,7 +3259,7 @@ function EmployeeForm({
           }`}
         >
           <CheckCircle2 className="w-4 h-4 mr-1.5" />
-          {conf ? `Zaktualizuj zatwierdzenie: ${sectionLabel}` : `Zatwierdź stany: ${sectionLabel}`}
+          {conf ? `Zaktualizuj zatwierdzenie: ${sectionLabel}` : `Zatwierdź sekcję: ${sectionLabel}`}
         </button>
       </div>
     );
@@ -2750,14 +3354,23 @@ function EmployeeForm({
 
   const updateEmployee = (index, field, value) => {
     setIsDirty(true);
+    setManuallyEditedEmpRows((prev) => ({ ...prev, [index]: true }));
     setEmployees((prev) => prev.map((emp, i) => (i === index ? { ...emp, [field]: value } : emp)));
+  };
+
+  const handleSetZeroHoursForEmployee = (index) => {
+    setIsDirty(true);
+    setManuallyEditedEmpRows((prev) => ({ ...prev, [index]: true }));
+    setEmployees((prev) => prev.map((emp, i) => (i === index ? { ...emp, hours: "0" } : emp)));
   };
 
   const handleSauceToggle = (s) => {
     setIsDirty(true);
     setSauces((prev) => {
       const curr = Array.isArray(prev) ? prev : [];
-      return curr.includes(s) ? curr.filter((x) => x !== s) : [...curr, s];
+      const next = curr.includes(s) ? curr.filter((x) => x !== s) : [...curr, s];
+      syncDraftToCloud({ sauces: next });
+      return next;
     });
   };
 
@@ -2773,78 +3386,207 @@ function EmployeeForm({
     setIsDirty(true);
     setCustomSections((prev) => {
       const curr = Array.isArray(prev[catId]) ? prev[catId] : [];
-      return { ...prev, [catId]: curr.includes(item) ? curr.filter((x) => x !== item) : [...curr, item] };
+      const nextCat = curr.includes(item) ? curr.filter((x) => x !== item) : [...curr, item];
+      const nextAll = { ...prev, [catId]: nextCat };
+      syncDraftToCloud({ customSections: nextAll });
+      return nextAll;
     });
   };
 
   const handleSubmit = async (e) => {
     e.preventDefault();
     if (loading) return;
+
     const cleanReporter = (reporter || "").trim();
-    if (!cleanReporter) {
+    const cleanInvReporter = (
+      inventoryReporter ||
+      reporter ||
+      activeShifts.find((s) => s?.location === location)?.employeeName ||
+      "Pracownik"
+    ).trim();
+
+    if (!isInventoryOnly && !cleanReporter) {
       setActiveFormTab("general");
-      onShowModal("Wybierz swoje imię w polu 'Osoba wypełniająca raport' (zakładka 1. Kasa & Obsada).");
+      onShowModal("Wybierz swoje imię w polu 'Osoba raportująca kasę'.");
       return;
     }
 
     setLoading(true);
     try {
+      const targetDate = String(todayStr || getGastroTodayString());
+      const targetLoc = String(location || "");
+      const deterministicId = `${targetDate}_${targetLoc}`;
+      const now = new Date();
+      const nowIso = now.toISOString();
+      const nowHM = formatTimeHM(now);
+
       const sanitizedEmployees = (employees || []).map((emp) => ({
         name: String(emp?.name || "").trim(),
-        hours: String(emp?.hours || "").trim(),
+        hours: String(emp?.hours ?? "").trim(),
       }));
+
+      // Jeśli dla pracownika wpisano 0 lub 0h w raporcie kasowym, usuwamy/zerujemy przypadkową zmianę RCP z tego dnia
+      if (!isInventoryOnly) {
+        const zeroedEmployeeNames = new Set(
+          sanitizedEmployees
+            .filter((emp) => emp.name && isZeroHoursValue(emp.hours))
+            .map((emp) => emp.name.toLowerCase())
+        );
+
+        if (zeroedEmployeeNames.size > 0) {
+          const shiftsToRemove = (todayCompletedShifts || []).filter(
+            (sh) =>
+              sh?.location === targetLoc &&
+              sh?.date === targetDate &&
+              zeroedEmployeeNames.has(String(sh?.employeeName || "").trim().toLowerCase())
+          );
+
+          for (const sh of shiftsToRemove) {
+            if (sh?.id) {
+              if (db) {
+                await ensureAuth();
+                await deleteDoc(doc(db, "artifacts", appId, "public", "data", "work_shifts", sh.id));
+              }
+            }
+          }
+
+          const currentLocalShifts = getLocalData(LS_SHIFTS_KEY, []);
+          const filteredLocalShifts = currentLocalShifts.filter(
+            (sh) =>
+              !(
+                sh?.location === targetLoc &&
+                sh?.date === targetDate &&
+                zeroedEmployeeNames.has(String(sh?.employeeName || "").trim().toLowerCase())
+              )
+          );
+          setLocalData(LS_SHIFTS_KEY, filteredLocalShifts);
+        }
+      }
 
       const sanitizedExpenses = (expenses || [])
         .map((exp) => ({ description: String(exp?.description || "").trim(), amount: parseSafeNumber(exp?.amount) }))
         .filter((exp) => exp.description !== "" || exp.amount > 0);
 
       const sanitizedCustomSections = {};
-      Object.entries(customSections || {}).forEach(([catId, val]) => {
+      const sourceCustom = isCashOnly
+        ? effectiveExistingSource?.customSections || existingData?.customSections || {}
+        : customSections || {};
+      Object.entries(sourceCustom).forEach(([catId, val]) => {
         if (Array.isArray(val)) sanitizedCustomSections[catId] = val.map(String);
         else if (val && typeof val === "object") {
           sanitizedCustomSections[catId] = mergeInventorySectionForSave(existingData?.customSections?.[catId], val);
         }
       });
 
-      const targetDate = String(todayStr || getGastroTodayString());
-      const targetLoc = String(location || "");
-      const deterministicId = `${targetDate}_${targetLoc}`;
-
       const manualOrdersNum = Math.round(parseSafeNumber(ordersCount));
-      const finalOrdersCount =
-        manualOrdersNum > 0
-          ? manualOrdersNum
-          : estimatedOrdersFromRevenue > 0
-          ? estimatedOrdersFromRevenue
-          : parseSafeNumber(existingData?.ordersCount);
+      const finalOrdersCount = isInventoryOnly
+        ? parseSafeNumber(existingData?.ordersCount) || parseSafeNumber(effectiveExistingSource?.ordersCount)
+        : manualOrdersNum > 0
+        ? manualOrdersNum
+        : estimatedOrdersFromRevenue > 0
+        ? estimatedOrdersFromRevenue
+        : parseSafeNumber(existingData?.ordersCount);
 
-      const nowIso = new Date().toISOString();
+      const finalRevenue = isInventoryOnly
+        ? existingData?.revenue ||
+          effectiveExistingSource?.revenue || {
+            gotowka: 0,
+            karta: 0,
+            aplikacje: 0,
+            raportFiskalny: 0,
+            roznica: 0,
+          }
+        : {
+            gotowka: parseSafeNumber(revenue.gotowka),
+            karta: parseSafeNumber(revenue.karta),
+            aplikacje: parseSafeNumber(revenue.aplikacje),
+            raportFiskalny: parseSafeNumber(revenue.raportFiskalny),
+            roznica: parseSafeNumber(revenue.roznica),
+          };
+
+      const finalExpenses = isInventoryOnly
+        ? existingData?.expenses || effectiveExistingSource?.expenses || []
+        : sanitizedExpenses;
+
+      const finalEmployees = isInventoryOnly
+        ? existingData?.employees || effectiveExistingSource?.employees || sanitizedEmployees
+        : sanitizedEmployees;
+
+      const finalVeg = isCashOnly
+        ? sanitizeRecord(effectiveExistingSource?.vegetables || existingData?.vegetables)
+        : mergeInventorySectionForSave(existingData?.vegetables, vegetables);
+      const finalFarutex = isCashOnly
+        ? sanitizeRecord(effectiveExistingSource?.farutex || existingData?.farutex)
+        : mergeInventorySectionForSave(existingData?.farutex, farutex);
+      const finalFreezer = isCashOnly
+        ? sanitizeRecord(effectiveExistingSource?.freezer || existingData?.freezer)
+        : mergeInventorySectionForSave(existingData?.freezer, freezer);
+      const finalMeat1 = isCashOnly
+        ? sanitizeRecord(effectiveExistingSource?.meat1 || existingData?.meat1)
+        : mergeInventorySectionForSave(existingData?.meat1, meat1);
+      const finalMeat2 = isCashOnly
+        ? sanitizeRecord(effectiveExistingSource?.meat2 || existingData?.meat2)
+        : mergeInventorySectionForSave(existingData?.meat2, meat2);
+      const finalOther = isCashOnly
+        ? sanitizeRecord(effectiveExistingSource?.otherItems || existingData?.otherItems)
+        : mergeInventorySectionForSave(existingData?.otherItems, otherItems);
+
+      const finalSauces = isCashOnly
+        ? Array.isArray(effectiveExistingSource?.sauces)
+          ? effectiveExistingSource.sauces
+          : Array.isArray(existingData?.sauces)
+          ? existingData.sauces
+          : []
+        : Array.isArray(sauces)
+        ? sauces.map(String)
+        : [];
+
+      const finalSaucesNote = isCashOnly
+        ? String(effectiveExistingSource?.saucesNote ?? existingData?.saucesNote ?? "").trim()
+        : String(saucesNote || "").trim();
+
+      const finalNotes = isCashOnly
+        ? String(effectiveExistingSource?.notes ?? existingData?.notes ?? "").trim()
+        : String(notes || "").trim();
 
       const data = {
+        ...(existingData || {}),
         date: targetDate,
         location: targetLoc,
-        reporter: cleanReporter,
+        reporter: isInventoryOnly
+          ? existingData?.reporter || effectiveExistingSource?.reporter || cleanInvReporter
+          : cleanReporter,
         ordersCount: finalOrdersCount,
-        employees: sanitizedEmployees,
-        revenue: {
-          gotowka: parseSafeNumber(revenue.gotowka),
-          karta: parseSafeNumber(revenue.karta),
-          aplikacje: parseSafeNumber(revenue.aplikacje),
-          raportFiskalny: parseSafeNumber(revenue.raportFiskalny),
-          roznica: parseSafeNumber(revenue.roznica),
-        },
-        expenses: sanitizedExpenses,
-        vegetables: mergeInventorySectionForSave(existingData?.vegetables, vegetables),
-        farutex: mergeInventorySectionForSave(existingData?.farutex, farutex),
-        freezer: mergeInventorySectionForSave(existingData?.freezer, freezer),
-        meat1: mergeInventorySectionForSave(existingData?.meat1, meat1),
-        meat2: mergeInventorySectionForSave(existingData?.meat2, meat2),
-        otherItems: mergeInventorySectionForSave(existingData?.otherItems, otherItems),
+        employees: finalEmployees,
+        revenue: finalRevenue,
+        expenses: finalExpenses,
+        vegetables: finalVeg,
+        farutex: finalFarutex,
+        freezer: finalFreezer,
+        meat1: finalMeat1,
+        meat2: finalMeat2,
+        otherItems: finalOther,
         customSections: sanitizedCustomSections,
-        sauces: Array.isArray(sauces) ? sauces.map(String) : [],
-        saucesNote: String(saucesNote || "").trim(),
-        notes: String(notes || "").trim(),
+        sauces: finalSauces,
+        saucesNote: finalSaucesNote,
+        notes: finalNotes,
         confirmedSections,
+        cashSubmitted: isInventoryOnly ? Boolean(existingData?.cashSubmitted) : true,
+        cashSubmittedAt: isInventoryOnly ? existingData?.cashSubmittedAt || null : nowIso,
+        cashSubmittedHM: isInventoryOnly ? existingData?.cashSubmittedHM || "" : nowHM,
+        cashSubmittedBy: isInventoryOnly ? existingData?.cashSubmittedBy || "" : cleanReporter,
+        inventorySubmitted: isCashOnly
+          ? Boolean(existingData?.inventorySubmitted || existingCloudDraft?.inventorySubmitted)
+          : true,
+        inventorySubmittedAt: isCashOnly
+          ? existingData?.inventorySubmittedAt || existingCloudDraft?.inventorySubmittedAt || null
+          : nowIso,
+        inventorySubmittedHM: isCashOnly
+          ? existingData?.inventorySubmittedHM || existingCloudDraft?.inventorySubmittedHM || ""
+          : nowHM,
+        inventorySubmittedBy: isCashOnly
+          ? existingData?.inventorySubmittedBy || existingCloudDraft?.inventorySubmittedBy || ""
+          : cleanInvReporter,
         issueStatuses: existingData?.issueStatuses || {},
         updatedAt: nowIso,
       };
@@ -2862,7 +3604,9 @@ function EmployeeForm({
         });
       } else {
         const currentReports = getLocalData(LS_REPORTS_KEY, []);
-        const filtered = currentReports.filter((r) => r.id !== deterministicId && !(r.date === data.date && r.location === data.location));
+        const filtered = currentReports.filter(
+          (r) => r.id !== deterministicId && !(r.date === data.date && r.location === data.location)
+        );
         setLocalData(LS_REPORTS_KEY, [...filtered, { ...data, id: deterministicId }]);
       }
 
@@ -2871,13 +3615,17 @@ function EmployeeForm({
 
       onShowModal(
         isAdminEdit
-          ? `Raport z dnia ${data.date} (${data.location}) został pomyślnie zaktualizowany!`
+          ? `Dane z dnia ${data.date} (${data.location}) zostały zaktualizowane!`
+          : isCashOnly
+          ? `Utarg Dobowy i Obsada (${targetLoc}) zostały zapisane!`
+          : isInventoryOnly
+          ? `Stany Magazynowe i Braki (${targetLoc}) zostały ZATWIERDZONE FINALNIE (godz. ${nowHM})!`
           : "Raport Dzienny został pomyślnie zapisany w bazie danych!"
       );
       onBack();
     } catch (err) {
       console.error("Błąd zapisu raportu:", err);
-      onShowModal("Wystąpił błąd podczas zapisywania raportu. Sprawdź połączenie z internetem.");
+      onShowModal("Wystąpił błąd podczas zapisywania danych. Sprawdź połączenie z internetem.");
     } finally {
       setLoading(false);
     }
@@ -2907,13 +3655,49 @@ function EmployeeForm({
   const isOtherDay = isDeliveryDayFor("otherItems", DEFAULT_DELIVERY_DAYS.otherItems);
   const isSaucesDay = isDeliveryDayFor("sauces", DEFAULT_DELIVERY_DAYS.sauces);
 
-  const showGeneral = activeFormTab === "general";
-  const showVegFreezer = activeFormTab === "veg_freezer";
-  const showDeliveries = activeFormTab === "deliveries";
-  const showSaucesOther = activeFormTab === "sauces_other";
+  const showGeneral = isCashOnly || (!isInventoryOnly && activeFormTab === "general");
+  const showVegFreezer = !isCashOnly && activeFormTab === "veg_freezer";
+  const showDeliveries = !isCashOnly && activeFormTab === "deliveries";
+  const showSaucesOther = !isCashOnly && activeFormTab === "sauces_other";
   const showInventorySearchBar = showVegFreezer || showDeliveries || showSaucesOther;
 
   const totalShiftExpenses = useMemo(() => calculateTotalExpenses(expenses), [expenses]);
+
+  const availableTabs = useMemo(() => {
+    const invTabs = [
+      {
+        id: "veg_freezer",
+        label: `1. Warzywa & Mroźnia (${countFilledInRecord(vegetables, vegList) + countFilledInRecord(freezer, freezerList)})`,
+      },
+      {
+        id: "deliveries",
+        label: `2. Dostawy (${countFilledInRecord(farutex, farutexList) + countFilledInRecord(meat1, meat1List) + countFilledInRecord(meat2, meat2List)})`,
+      },
+      {
+        id: "sauces_other",
+        label: `3. Sosy & Inne (${sauces.length + countFilledInRecord(otherItems, otherItemsList)})`,
+      },
+    ];
+    if (isInventoryOnly) return invTabs;
+    if (isCashOnly) return [];
+    return [{ id: "general", label: "Kasa & Obsada" }, ...invTabs];
+  }, [
+    isInventoryOnly,
+    isCashOnly,
+    vegetables,
+    vegList,
+    freezer,
+    freezerList,
+    farutex,
+    farutexList,
+    meat1,
+    meat1List,
+    meat2,
+    meat2List,
+    sauces.length,
+    otherItems,
+    otherItemsList,
+  ]);
 
   const renderDeliveryBadge = (sectionKey, filled, total, isToday, activeColorClass = "bg-blue-600") => {
     const isConfirmed = !!confirmedSections?.[sectionKey];
@@ -2945,7 +3729,8 @@ function EmployeeForm({
       <ConfirmExitModal
         isOpen={showExitConfirm}
         onCancel={() => setShowExitConfirm(false)}
-        onConfirm={() => {
+        onConfirm={async () => {
+          await syncDraftToCloud();
           setShowExitConfirm(false);
           onBack();
         }}
@@ -2956,70 +3741,122 @@ function EmployeeForm({
           <div className="flex items-center min-w-0">
             <button
               type="button"
-              onClick={() => (isDirty ? setShowExitConfirm(true) : onBack())}
+              onClick={async () => {
+                if (!isAdminEdit) await syncDraftToCloud();
+                onBack();
+              }}
               className="shrink-0 w-10 h-10 flex items-center justify-center bg-gray-100 hover:bg-gray-200 text-gray-700 rounded-full mr-3 transition-colors"
             >
               <ArrowLeft className="w-5 h-5" />
             </button>
             <div className="min-w-0 truncate">
               <h1 className="font-extrabold text-gray-900 text-base sm:text-xl truncate">
-                {isAdminEdit ? `Edycja Archiwum: ${location}` : `Raport Dzienny: ${location}`}
+                {isAdminEdit
+                  ? `Edycja Archiwum: ${location}`
+                  : isCashOnly
+                  ? `Utarg Dobowy i Obsada: ${location}`
+                  : isInventoryOnly
+                  ? `Stany Magazynowe i Braki: ${location}`
+                  : `Raport Dzienny: ${location}`}
               </h1>
-              <p className="text-xs font-semibold text-gray-500 truncate flex items-center gap-2">
+              <div className="text-xs font-semibold text-gray-500 truncate flex items-center gap-2 flex-wrap mt-0.5">
                 <span>Data: {todayStr}</span>
-                {isDirty && !isAdminEdit && (
-                  <span className="inline-flex items-center text-[10px] font-black text-emerald-700 bg-emerald-100 px-2 py-0.5 rounded-full">
-                    <Save className="w-3 h-3 mr-1" /> Szkic w chmurze aktywny
-                  </span>
+                {!isCashOnly && !isAdminEdit && (
+                  isInventorySubmittedFinal ? (
+                    <span className="inline-flex items-center text-[10px] font-black text-white bg-green-600 px-2.5 py-0.5 rounded-full">
+                      <CheckCircle2 className="w-3 h-3 mr-1" /> ZATWIERDZONE FINALNIE (godz. {inventorySubmittedHM || "-"})
+                    </span>
+                  ) : (
+                    <span className="inline-flex items-center text-[10px] font-black text-blue-800 bg-blue-100 border border-blue-200 px-2.5 py-0.5 rounded-full">
+                      <span className="w-1.5 h-1.5 rounded-full bg-blue-600 animate-ping mr-1.5" />
+                      W trakcie wpisywania (Podgląd na żywo)
+                    </span>
+                  )
                 )}
-              </p>
+              </div>
             </div>
           </div>
-          <div className={`shrink-0 px-3 py-1.5 rounded-full text-xs font-black shadow-inner ml-2 ${isAdminEdit ? "bg-purple-100 text-purple-700" : isEdit ? "bg-green-100 text-green-700" : "bg-blue-100 text-blue-700"}`}>
+          <div
+            className={`shrink-0 px-3 py-1.5 rounded-full text-xs font-black shadow-inner ml-2 ${
+              isAdminEdit
+                ? "bg-purple-100 text-purple-700"
+                : isCashOnly
+                ? "bg-emerald-100 text-emerald-800"
+                : "bg-blue-100 text-blue-700"
+            }`}
+          >
             {todayStr}
           </div>
         </div>
 
-        <div className="max-w-4xl mx-auto mt-3 pt-2 border-t border-gray-100 grid grid-cols-2 sm:grid-cols-4 gap-1.5">
-          {[
-            { id: "general", label: "1. Kasa & Obsada" },
-            {
-              id: "veg_freezer",
-              label: `2. Warzywa & Mroźnia (${countFilledInRecord(vegetables, vegList) + countFilledInRecord(freezer, freezerList)})`,
-            },
-            {
-              id: "deliveries",
-              label: `3. Dostawy (${countFilledInRecord(farutex, farutexList) + countFilledInRecord(meat1, meat1List) + countFilledInRecord(meat2, meat2List)})`,
-            },
-            {
-              id: "sauces_other",
-              label: `4. Sosy & Inne (${sauces.length + countFilledInRecord(otherItems, otherItemsList)})`,
-            },
-          ].map((t) => (
-            <button
-              key={t.id}
-              type="button"
-              onClick={() => setActiveFormTab(t.id)}
-              className={`px-3 py-2.5 rounded-xl font-extrabold text-xs text-center transition-all ${
-                activeFormTab === t.id
-                  ? "bg-blue-600 text-white shadow-sm"
-                  : "bg-gray-100 text-gray-600 hover:bg-gray-200"
-              }`}
-            >
-              {t.label}
-            </button>
-          ))}
-        </div>
+        {availableTabs.length > 0 && (
+          <div
+            className={`max-w-4xl mx-auto mt-3 pt-2 border-t border-gray-100 grid grid-cols-1 ${
+              availableTabs.length === 3 ? "sm:grid-cols-3" : "sm:grid-cols-4"
+            } gap-1.5`}
+          >
+            {availableTabs.map((t) => (
+              <button
+                key={t.id}
+                type="button"
+                onClick={() => setActiveFormTab(t.id)}
+                className={`px-3 py-2.5 rounded-xl font-extrabold text-xs text-center transition-all ${
+                  activeFormTab === t.id
+                    ? "bg-blue-600 text-white shadow-sm"
+                    : "bg-gray-100 text-gray-600 hover:bg-gray-200"
+                }`}
+              >
+                {t.label}
+              </button>
+            ))}
+          </div>
+        )}
       </div>
 
       <form onSubmit={handleSubmit} noValidate className="p-4 sm:p-6 max-w-4xl mx-auto space-y-6 overflow-x-hidden">
-        <UrgentTasksBanner
-          tasks={tasks}
-          location={location}
-          todayStr={todayStr}
-          employeesList={locationEmployeesList}
-          onCompleteTask={onCompleteTask}
-        />
+        {isInventoryOnly && (
+          <div className="bg-white p-4 sm:p-5 rounded-[2rem] border border-blue-200 shadow-sm flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+            <div className="flex-1">
+              <label className="block text-xs font-black uppercase text-blue-900 mb-1">
+                Osoba sprawdzająca stany magazynowe ({location}):
+              </label>
+              <select
+                value={inventoryReporter}
+                onChange={(e) => {
+                  setIsDirty(true);
+                  setInventoryReporter(e.target.value);
+                }}
+                className="w-full p-3 bg-blue-50/40 border border-blue-200 rounded-xl font-bold text-sm text-gray-900 outline-none focus:bg-white focus:ring-2 focus:ring-blue-500"
+              >
+                <option value="">— Wybierz swoje imię z listy ({location}) —</option>
+                {inventoryReporter && !locationEmployeesList.includes(inventoryReporter) && (
+                  <option value={inventoryReporter}>{inventoryReporter}</option>
+                )}
+                {locationEmployeesList.map((empName) => (
+                  <option key={empName} value={empName}>
+                    {empName}
+                  </option>
+                ))}
+              </select>
+            </div>
+            <div className="shrink-0">
+              {isInventorySubmittedFinal ? (
+                <div className="px-4 py-3 rounded-2xl bg-green-100 border border-green-300 text-green-900 text-xs font-black flex items-center">
+                  <CheckCircle2 className="w-4 h-4 mr-1.5 text-green-700 shrink-0" />
+                  <span>
+                    ZATWIERDZONE FINALNIE ({inventorySubmittedHM || "-"})
+                    {inventorySubmittedBy ? ` • ${inventorySubmittedBy}` : ""}
+                  </span>
+                </div>
+              ) : (
+                <div className="px-4 py-3 rounded-2xl bg-blue-50 border border-blue-200 text-blue-900 text-xs font-black flex items-center">
+                  <span className="w-2 h-2 rounded-full bg-blue-600 animate-ping mr-2 shrink-0" />
+                  <span>W trakcie wpisywania (Live Sync aktywny)</span>
+                </div>
+              )}
+            </div>
+          </div>
+        )}
 
         {showGeneral && (
           <>
@@ -3027,7 +3864,7 @@ function EmployeeForm({
               <div className="space-y-5">
                 <div>
                   <label className="text-xs font-black text-gray-500 uppercase ml-2 block mb-1.5">
-                    Osoba wypełniająca raport (Punkt: {location})
+                    Osoba raportująca kasę (Punkt: {location})
                   </label>
                   <select
                     required
@@ -3050,17 +3887,23 @@ function EmployeeForm({
 
                 <div className="pt-4 border-t border-gray-100">
                   <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 mb-3">
-                    <label className="text-xs font-black text-gray-500 uppercase ml-2 block">
-                      Godziny pracy personelu (automatycznie z czytnika RCP lub ręcznie)
-                    </label>
+                    <div>
+                      <label className="text-xs font-black text-gray-500 uppercase ml-2 block">
+                        Godziny pracy personelu (automatycznie z czytnika RCP lub ręcznie)
+                      </label>
+                      <p className="text-[11px] font-semibold text-gray-400 ml-2 mt-0.5">
+                        W przypadku omyłkowego odbicia na czytniku RCP kliknij przycisk „0h” lub wpisz 0 — błędne odbicie zostanie wyzerowane.
+                      </p>
+                    </div>
                     {todayCompletedShifts.filter((s) => s?.location === location).length > 0 && (
                       <button
                         type="button"
                         onClick={() => {
                           setIsDirty(true);
-                          applyCompletedShiftsToForm(todayCompletedShifts);
+                          setManuallyEditedEmpRows({});
+                          applyCompletedShiftsToForm(todayCompletedShifts, true);
                         }}
-                        className="text-[11px] font-black text-indigo-700 bg-indigo-50 hover:bg-indigo-100 border border-indigo-200 px-3 py-1 rounded-lg self-start sm:self-center transition-colors"
+                        className="text-[11px] font-black text-indigo-700 bg-indigo-50 hover:bg-indigo-100 border border-indigo-200 px-3 py-1.5 rounded-lg self-start sm:self-center transition-colors shrink-0"
                       >
                         Pobierz ponownie z czytnika RCP
                       </button>
@@ -3069,8 +3912,10 @@ function EmployeeForm({
                   <div className="space-y-3">
                     {[0, 1, 2].map((i) => {
                       const currentEmpName = employees[i]?.name || "";
+                      const currentEmpHours = employees[i]?.hours ?? "";
+                      const isZeroed = isZeroHoursValue(currentEmpHours);
                       return (
-                        <div key={i} className="flex gap-2 flex-wrap sm:flex-nowrap">
+                        <div key={i} className="flex gap-2 flex-wrap sm:flex-nowrap items-center">
                           <select
                             value={currentEmpName}
                             onChange={(e) => updateEmployee(i, "name", e.target.value)}
@@ -3086,13 +3931,31 @@ function EmployeeForm({
                               </option>
                             ))}
                           </select>
-                          <input
-                            type="text"
-                            value={employees[i]?.hours || ""}
-                            onChange={(e) => updateEmployee(i, "hours", e.target.value)}
-                            className="flex-1 min-w-[110px] p-4 bg-gray-50 border border-gray-200 focus:bg-white rounded-xl outline-none focus:ring-2 focus:ring-blue-500 font-semibold text-sm text-center shadow-inner"
-                            placeholder="np. 10:00-22:00"
-                          />
+                          <div className="flex-1 min-w-[150px] flex items-center gap-1.5">
+                            <input
+                              type="text"
+                              value={currentEmpHours}
+                              onChange={(e) => updateEmployee(i, "hours", e.target.value)}
+                              className={`flex-1 p-4 border rounded-xl outline-none focus:ring-2 focus:ring-blue-500 font-semibold text-sm text-center shadow-inner transition-colors ${
+                                isZeroed
+                                  ? "bg-red-50 border-red-300 text-red-700 font-black"
+                                  : "bg-gray-50 border-gray-200 focus:bg-white text-gray-900"
+                              }`}
+                              placeholder="np. 10:00-22:00 lub 0"
+                            />
+                            <button
+                              type="button"
+                              onClick={() => handleSetZeroHoursForEmployee(i)}
+                              title="Wpisz 0 godzin (anuluj przypadkowe odbicie RCP)"
+                              className={`px-3.5 py-4 rounded-xl font-black text-xs border transition-colors shrink-0 ${
+                                isZeroed
+                                  ? "bg-red-600 text-white border-red-600 shadow-sm"
+                                  : "bg-gray-100 hover:bg-red-50 text-gray-700 hover:text-red-700 border-gray-200"
+                              }`}
+                            >
+                              0h
+                            </button>
+                          </div>
                         </div>
                       );
                     })}
@@ -3485,8 +4348,9 @@ function EmployeeForm({
                   type="text"
                   value={saucesNote}
                   onChange={(e) => {
+                    const val = e.target.value;
                     setIsDirty(true);
-                    setSaucesNote(e.target.value);
+                    setSaucesNote(val);
                   }}
                   className="w-full p-4 bg-gray-50 focus:bg-white border border-gray-200 rounded-xl outline-none focus:ring-2 focus:ring-blue-500 transition-colors font-medium text-gray-900 shadow-inner text-sm"
                   placeholder="Np. zostało pół wiadra czosnkowego, trzeba dorobić ostry rano..."
@@ -3612,12 +4476,13 @@ function EmployeeForm({
               );
             })}
 
-            <Section title="Uwagi końcowe do raportu" icon={Beaker} bgClass="bg-white border-gray-200">
+            <Section title="Uwagi magazynowe / informacje dla managera" icon={Beaker} bgClass="bg-white border-gray-200">
               <textarea
                 value={notes}
                 onChange={(e) => {
+                  const val = e.target.value;
                   setIsDirty(true);
-                  setNotes(e.target.value);
+                  setNotes(val);
                 }}
                 rows="4"
                 className="w-full p-4 bg-gray-50 focus:bg-white border border-gray-200 rounded-xl outline-none focus:ring-2 focus:ring-blue-500 transition-colors font-medium text-gray-900 shadow-inner"
@@ -3630,19 +4495,14 @@ function EmployeeForm({
         <div className="fixed bottom-0 left-0 right-0 p-3.5 bg-white/95 backdrop-blur-md border-t border-gray-200 z-50">
           <div className="max-w-4xl mx-auto flex gap-2.5">
             <button
-              type="button"
-              onClick={() => syncDraftToCloud().then(() => onShowModal("Szkic roboczy został zapisany w chmurze dla managera!"))}
-              className="px-4 py-4 bg-gray-100 hover:bg-gray-200 text-gray-800 font-extrabold text-xs sm:text-sm rounded-2xl flex items-center justify-center transition-colors shrink-0 border border-gray-300"
-            >
-              <Save className="w-4 h-4 mr-1.5" /> Zapisz szkic
-            </button>
-            <button
               type="submit"
               disabled={loading}
-              className={`flex-1 py-4 text-white font-black text-base sm:text-xl rounded-2xl shadow-xl flex justify-center items-center active:scale-[0.98] transition-transform disabled:opacity-70 ${
+              className={`w-full py-4 text-white font-black text-base sm:text-xl rounded-2xl shadow-xl flex justify-center items-center active:scale-[0.98] transition-transform disabled:opacity-70 ${
                 isAdminEdit
                   ? "bg-purple-600 hover:bg-purple-700 shadow-purple-600/30"
-                  : isEdit
+                  : isCashOnly
+                  ? "bg-emerald-600 hover:bg-emerald-700 shadow-emerald-600/30"
+                  : isInventorySubmittedFinal
                   ? "bg-green-600 hover:bg-green-700 shadow-green-600/30"
                   : "bg-blue-600 hover:bg-blue-700 shadow-blue-600/30"
               }`}
@@ -3653,9 +4513,17 @@ function EmployeeForm({
                 <>
                   <CheckCircle2 className="w-6 h-6 mr-2" /> Zapisz Zmiany w Archiwum ({todayStr})
                 </>
-              ) : isEdit ? (
+              ) : isCashOnly ? (
                 <>
-                  <CheckCircle2 className="w-6 h-6 mr-2" /> Zaktualizuj Raport
+                  <Send className="w-6 h-6 mr-2" />{" "}
+                  {isCashSubmittedFinal ? "Zaktualizuj Utarg i Obsadę" : "Zatwierdź i Wyślij Utarg Dobowy"}
+                </>
+              ) : isInventoryOnly ? (
+                <>
+                  <CheckCircle2 className="w-6 h-6 mr-2" />{" "}
+                  {isInventorySubmittedFinal
+                    ? "Zaktualizuj Zatwierdzone Stany Magazynowe"
+                    : "Zatwierdź Finalnie Stany Magazynowe"}
                 </>
               ) : (
                 <>
@@ -3712,7 +4580,7 @@ function NysaWarehouseForm({
       } catch (e) {
         console.error(e);
       }
-    }, 350);
+    }, 250);
     return () => clearTimeout(timer);
   }, [food, pack, isDirty, draftKey]);
 
@@ -3986,35 +4854,109 @@ function NysaWarehouseForm({
     (loc) => {
       const finalRep = reportsForSelectedDate.find((r) => r?.location === loc) || null;
       const liveDraft = draftsForSelectedDate.find((d) => d?.location === loc) || null;
+
       if (finalRep && liveDraft) {
-        const isDraftNewer = (liveDraft.updatedAt || "") > (finalRep.updatedAt || "");
-        const pickSection = (secKey) => {
-          if (!isDraftNewer) return finalRep[secKey];
-          const draftSec = liveDraft[secKey];
-          if (draftSec && typeof draftSec === "object" && Object.keys(draftSec).length > 0) {
-            return { ...(finalRep[secKey] || {}), ...draftSec };
-          }
-          return finalRep[secKey];
+        const isDraftNewer = (liveDraft.updatedAt || "") >= (finalRep.updatedAt || "");
+        const winner = isDraftNewer ? liveDraft : finalRep;
+        const loser = isDraftNewer ? finalRep : liveDraft;
+
+        const mergeSection = (secKey) => ({
+          ...(loser[secKey] || {}),
+          ...(winner[secKey] || {}),
+        });
+
+        const mergedCustom = {
+          ...(loser.customSections || {}),
+          ...(winner.customSections || {}),
         };
+
+        const mergedSauces = isDraftNewer
+          ? Array.isArray(liveDraft.sauces)
+            ? liveDraft.sauces
+            : Array.isArray(finalRep.sauces)
+            ? finalRep.sauces
+            : []
+          : Array.isArray(finalRep.sauces) && finalRep.sauces.length > 0
+          ? finalRep.sauces
+          : Array.isArray(liveDraft.sauces)
+          ? liveDraft.sauces
+          : [];
+
+        const mergedSaucesNote = isDraftNewer
+          ? liveDraft.saucesNote !== undefined
+            ? liveDraft.saucesNote
+            : finalRep.saucesNote || ""
+          : finalRep.saucesNote || liveDraft.saucesNote || "";
+
+        const mergedNotes = isDraftNewer
+          ? liveDraft.notes !== undefined
+            ? liveDraft.notes
+            : finalRep.notes || ""
+          : finalRep.notes || liveDraft.notes || "";
+
+        const isInvSubmitted = Boolean(finalRep.inventorySubmitted || liveDraft.inventorySubmitted);
+        const invSubmittedHM = finalRep.inventorySubmittedHM || liveDraft.inventorySubmittedHM || "";
+        const invSubmittedBy =
+          finalRep.inventorySubmittedBy ||
+          liveDraft.inventorySubmittedBy ||
+          finalRep.reporter ||
+          liveDraft.reporter ||
+          "";
+
         return {
-          ...finalRep,
-          vegetables: pickSection("vegetables"),
-          freezer: pickSection("freezer"),
-          farutex: pickSection("farutex"),
-          meat1: pickSection("meat1"),
-          meat2: pickSection("meat2"),
-          otherItems: pickSection("otherItems"),
-          confirmedSections: { ...(finalRep.confirmedSections || {}), ...(liveDraft.confirmedSections || {}) },
-          isLiveDraftOnly: false,
+          ...loser,
+          ...winner,
+          id: finalRep.id || liveDraft.id,
+          vegetables: mergeSection("vegetables"),
+          freezer: mergeSection("freezer"),
+          farutex: mergeSection("farutex"),
+          meat1: mergeSection("meat1"),
+          meat2: mergeSection("meat2"),
+          otherItems: mergeSection("otherItems"),
+          customSections: mergedCustom,
+          sauces: mergedSauces,
+          saucesNote: mergedSaucesNote,
+          notes: mergedNotes,
+          confirmedSections: {
+            ...(loser.confirmedSections || {}),
+            ...(winner.confirmedSections || {}),
+          },
+          issueStatuses: {
+            ...(liveDraft.issueStatuses || {}),
+            ...(finalRep.issueStatuses || {}),
+          },
+          inventorySubmitted: isInvSubmitted,
+          inventorySubmittedHM: invSubmittedHM,
+          inventorySubmittedBy: invSubmittedBy,
+          isLiveDraftOnly: !isInvSubmitted,
           hasFinalReport: true,
         };
       }
+
       if (finalRep) {
-        return { ...finalRep, isLiveDraftOnly: false, hasFinalReport: true };
+        const isInvSubmitted = Boolean(finalRep.inventorySubmitted);
+        return {
+          ...finalRep,
+          inventorySubmitted: isInvSubmitted,
+          inventorySubmittedHM: finalRep.inventorySubmittedHM || "",
+          inventorySubmittedBy: finalRep.inventorySubmittedBy || finalRep.reporter || "",
+          isLiveDraftOnly: !isInvSubmitted,
+          hasFinalReport: true,
+        };
       }
+
       if (liveDraft) {
-        return { ...liveDraft, isLiveDraftOnly: true, hasFinalReport: false };
+        const isInvSubmitted = Boolean(liveDraft.inventorySubmitted);
+        return {
+          ...liveDraft,
+          inventorySubmitted: isInvSubmitted,
+          inventorySubmittedHM: liveDraft.inventorySubmittedHM || "",
+          inventorySubmittedBy: liveDraft.inventorySubmittedBy || liveDraft.reporter || "",
+          isLiveDraftOnly: !isInvSubmitted,
+          hasFinalReport: false,
+        };
       }
+
       return null;
     },
     [reportsForSelectedDate, draftsForSelectedDate]
@@ -4125,7 +5067,8 @@ function NysaWarehouseForm({
   };
 
   const handleUpdateIssueStatus = async (reportObj, issueKey, nextStatus) => {
-    if (!reportObj?.id || reportObj.isLiveDraftOnly) return;
+    const docId = reportObj?.id || `${selectedReportDate}_${reportObj?.location}`;
+    if (!docId) return;
     const updatedStatuses = {
       ...(reportObj.issueStatuses && typeof reportObj.issueStatuses === "object" ? reportObj.issueStatuses : {}),
       [issueKey]: nextStatus,
@@ -4133,16 +5076,30 @@ function NysaWarehouseForm({
     try {
       if (db) {
         await ensureAuth();
-        await updateDoc(doc(db, "artifacts", appId, "public", "data", "daily_reports", reportObj.id), {
-          issueStatuses: updatedStatuses,
-          updatedAt: new Date().toISOString(),
-        });
+        await setDoc(
+          doc(db, "artifacts", appId, "public", "data", "daily_reports", docId),
+          {
+            date: reportObj.date || selectedReportDate,
+            location: reportObj.location,
+            issueStatuses: updatedStatuses,
+            updatedAt: new Date().toISOString(),
+          },
+          { merge: true }
+        );
       } else {
         const currentReports = getLocalData(LS_REPORTS_KEY, []);
-        setLocalData(
-          LS_REPORTS_KEY,
-          currentReports.map((r) => (r.id === reportObj.id ? { ...r, issueStatuses: updatedStatuses } : r))
-        );
+        const exists = currentReports.some((r) => r.id === docId);
+        if (exists) {
+          setLocalData(
+            LS_REPORTS_KEY,
+            currentReports.map((r) => (r.id === docId ? { ...r, issueStatuses: updatedStatuses } : r))
+          );
+        } else {
+          setLocalData(LS_REPORTS_KEY, [
+            ...currentReports,
+            { ...reportObj, id: docId, issueStatuses: updatedStatuses },
+          ]);
+        }
       }
     } catch (err) {
       console.error("Błąd aktualizacji statusu uwagi/braku:", err);
@@ -4151,7 +5108,7 @@ function NysaWarehouseForm({
   };
 
   const renderIssueStatusSwitcher = (reportObj, issueKey) => {
-    if (reportObj?.isLiveDraftOnly) return null;
+    if (!reportObj) return null;
     const currentStatus = reportObj?.issueStatuses?.[issueKey] || "Do załatwienia";
     const statuses = [
       {
@@ -4484,7 +5441,7 @@ function NysaWarehouseForm({
 
       if (r?.location && perLocationMap[r.location]) {
         const cur = perLocationMap[r.location];
-        cur.hasReport = true;
+        cur.hasReport = Boolean(r.cashSubmitted || hasAnyReportCashData(r));
         cur.gotowka += g;
         cur.karta += k;
         cur.aplikacje += a;
@@ -4526,7 +5483,7 @@ function NysaWarehouseForm({
       pctGotowka,
       pctKarta,
       pctAplikacje,
-      reportedCount: reportsForSummaryPeriod.length,
+      reportedCount: reportsForSummaryPeriod.filter((r) => r?.cashSubmitted || hasAnyReportCashData(r)).length,
       locationShares,
       perLocationMap,
     };
@@ -4680,11 +5637,35 @@ function NysaWarehouseForm({
     const entries = [];
     const summaryByPerson = {};
     const recordedKeys = new Set();
+    const zeroedByReportKeys = new Set();
+
+    const matchingReports = roleFilteredAllReports
+      .filter((r) => {
+        if (!r?.date) return false;
+        if (effectiveLoc !== "All" && r.location !== effectiveLoc) return false;
+        if (hoursStartDate && r.date < hoursStartDate) return false;
+        if (hoursEndDate && r.date > hoursEndDate) return false;
+        return true;
+      })
+      .sort((a, b) => (a.date < b.date ? 1 : -1));
+
+    // Jeśli w raporcie dobowym wpisano 0 (lub 0h), ma to priorytet i blokuje doliczenie anulowanego odbicia RCP
+    matchingReports.forEach((r) => {
+      if (Array.isArray(r.employees)) {
+        r.employees.forEach((emp) => {
+          const empName = String(emp?.name || "").trim();
+          const empHoursRaw = String(emp?.hours ?? "").trim();
+          if (empName && isZeroHoursValue(empHoursRaw)) {
+            zeroedByReportKeys.add(`${r.date}_${r.location}_${empName.toLowerCase()}`);
+          }
+        });
+      }
+    });
 
     const addEntryToSummary = (entryObj) => {
       entries.push(entryObj);
       const empName = entryObj.name;
-      if (empName && empName !== "(Nie wpisano imienia)") {
+      if (empName && empName !== "(Nie wpisano imienia)" && entryObj.calculatedHours > 0) {
         const normKey = empName.toLowerCase();
         if (!summaryByPerson[normKey]) {
           summaryByPerson[normKey] = { displayName: empName, totalHours: 0, shiftsCount: 0, locations: new Set() };
@@ -4709,9 +5690,12 @@ function NysaWarehouseForm({
 
       matchingShifts.forEach((s) => {
         const empName = String(s.employeeName || "").trim();
+        const dedupKey = `${s.date}_${s.location}_${empName.toLowerCase()}`;
+        if (hoursSourceMode === "combined" && zeroedByReportKeys.has(dedupKey)) {
+          return;
+        }
         const rawRange = `${s.startHM || ""}-${s.endHM || ""}`;
         const hrs = parseSafeNumber(s.totalHours) || calculateWorkedHours(rawRange);
-        const dedupKey = `${s.date}_${s.location}_${empName.toLowerCase()}`;
         recordedKeys.add(dedupKey);
         addEntryToSummary({
           id: `rcp_${s.id}`,
@@ -4728,21 +5712,11 @@ function NysaWarehouseForm({
     }
 
     if (hoursSourceMode === "combined" || hoursSourceMode === "reports") {
-      const matchingReports = roleFilteredAllReports
-        .filter((r) => {
-          if (!r?.date) return false;
-          if (effectiveLoc !== "All" && r.location !== effectiveLoc) return false;
-          if (hoursStartDate && r.date < hoursStartDate) return false;
-          if (hoursEndDate && r.date > hoursEndDate) return false;
-          return true;
-        })
-        .sort((a, b) => (a.date < b.date ? 1 : -1));
-
       matchingReports.forEach((r) => {
         if (Array.isArray(r.employees)) {
           r.employees.forEach((emp) => {
             const empName = String(emp?.name || "").trim();
-            const empHoursRaw = String(emp?.hours || "").trim();
+            const empHoursRaw = String(emp?.hours ?? "").trim();
             if (empName || empHoursRaw) {
               const dedupKey = `${r.date}_${r.location}_${empName.toLowerCase()}`;
               if (hoursSourceMode === "combined" && recordedKeys.has(dedupKey)) {
@@ -4755,7 +5729,7 @@ function NysaWarehouseForm({
                 date: r.date,
                 location: r.location,
                 name: empName || "(Nie wpisano imienia)",
-                rawHours: empHoursRaw || "-",
+                rawHours: isZeroHoursValue(empHoursRaw) ? "0h (Wyzerowano)" : empHoursRaw || "-",
                 calculatedHours: parsedHrs,
               });
             }
@@ -4864,7 +5838,7 @@ function NysaWarehouseForm({
               <Users className="w-6 h-6 mr-2.5 text-blue-600" /> Zarządzanie Pracownikami Punktów
             </h3>
             <p className="text-xs font-semibold text-gray-500 mt-1">
-              Dodawaj i usuwaj imiona pracowników przypisanych do konkretnych lokali. Lista wyświetla się w czytniku RCP oraz w raporcie dziennym.
+              Dodawaj i usuwaj imiona pracowników przypisanych do konkretnych lokali. Lista wyświetla się w czytniku RCP oraz w formularzach.
             </p>
           </div>
           {!isKlodzkoAdmin && (
@@ -5228,7 +6202,7 @@ function NysaWarehouseForm({
                   {isKlodzkoAdmin ? "(Punkt Kłodzko)" : "i Historia"}
                 </h2>
                 <p className="text-xs font-semibold text-gray-500 mt-1">
-                  Wybierz datę lub okres do podsumowania sieci. Poniżej możesz przeglądać i edytować raporty poszczególnych dni.
+                  Wybierz datę lub okres do podsumowania sieci. Poniżej możesz przeglądać i edytować raporty kasowe poszczególnych dni.
                 </p>
               </div>
               <div className="flex flex-wrap items-center gap-2">
@@ -5276,7 +6250,7 @@ function NysaWarehouseForm({
                       {isKlodzkoAdmin ? "Podsumowanie Finansowe: Punkt Kłodzko" : "Karta Podsumowania Sieci"}
                     </span>
                     <span className="text-xs font-bold text-gray-400">
-                      Liczba zliczonych raportów: {dailyNetworkSummary.reportedCount} • Zamówienia: {dailyNetworkSummary.sumOrders}
+                      Liczba raportów kasowych: {dailyNetworkSummary.reportedCount} • Zamówienia: {dailyNetworkSummary.sumOrders}
                     </span>
                   </div>
 
@@ -5547,16 +6521,17 @@ function NysaWarehouseForm({
 
             <div className="pt-2">
               <h3 className="text-lg font-black text-gray-900 mb-4">
-                Szczegółowe raporty dzienne punktów z dnia:{" "}
+                Szczegółowe raporty kasowe (Utarg Dobowy i Obsada) z dnia:{" "}
                 <span className="text-blue-600 underline">{selectedReportDate}</span>
               </h3>
               <div className={`grid grid-cols-1 ${allowedLocations.length > 1 ? "lg:grid-cols-2" : ""} gap-6`}>
                 {allowedLocations.map((loc) => {
                   const report = reportsForSelectedDate.find((r) => r?.location === loc);
-                  const draft = draftsForSelectedDate.find((d) => d?.location === loc);
-                  const confirmedList = draft?.confirmedSections ? Object.values(draft.confirmedSections) : [];
+                  const invRec = getEffectiveInventoryRecordForLocation(loc);
+                  const isCashSubmitted = Boolean(report?.cashSubmitted || hasAnyReportCashData(report));
+                  const isInvSubmitted = Boolean(invRec?.inventorySubmitted);
 
-                  if (!report) {
+                  if (!report || !isCashSubmitted) {
                     return (
                       <div
                         key={loc}
@@ -5565,26 +6540,19 @@ function NysaWarehouseForm({
                         <XCircle className="w-10 h-10 text-gray-300 mb-3" />
                         <h3 className="text-xl font-black text-gray-800">{loc}</h3>
                         <p className="text-gray-400 font-bold text-xs mt-1 mb-3">
-                          Brak wysłanego raportu końcowego na dzień {selectedReportDate}
+                          Brak wysłanego raportu kasowego (Utarg Dobowy) na dzień {selectedReportDate}
                         </p>
-                        {confirmedList.length > 0 && (
-                          <div className="mb-4 flex flex-wrap justify-center gap-1.5">
-                            {confirmedList.map((c, idx) => (
-                              <span
-                                key={idx}
-                                className="text-[10px] font-black bg-emerald-50 text-emerald-700 border border-emerald-200 px-2.5 py-1 rounded-lg"
-                              >
-                                ✓ Zatwierdzono: {c.label} ({c.time})
-                              </span>
-                            ))}
-                          </div>
+                        {isInvSubmitted && (
+                          <span className="mb-3 text-[10px] font-black bg-green-100 text-green-800 border border-green-300 px-3 py-1 rounded-full uppercase">
+                            ✓ Stany magazynowe zatwierdzone ({invRec?.inventorySubmittedHM || "-"})
+                          </span>
                         )}
                         <button
                           type="button"
-                          onClick={() => onEditHistoricalReport(loc, selectedReportDate, null)}
+                          onClick={() => onEditHistoricalReport(loc, selectedReportDate, report || null, "cash")}
                           className="px-4 py-2.5 bg-gray-900 hover:bg-gray-800 text-white text-xs font-black rounded-xl flex items-center transition-colors shadow-sm"
                         >
-                          <PlusCircle className="w-4 h-4 mr-1.5" /> Utwórz raport za ten dzień
+                          <PlusCircle className="w-4 h-4 mr-1.5" /> Utwórz / uzupełnij raport kasowy
                         </button>
                       </div>
                     );
@@ -5611,17 +6579,22 @@ function NysaWarehouseForm({
                     >
                       <div className="bg-emerald-50 border-b border-emerald-100 p-5 flex justify-between items-center gap-2">
                         <div>
-                          <h3 className="text-2xl font-black text-emerald-900">{loc}</h3>
+                          <div className="flex items-center gap-2 flex-wrap">
+                            <h3 className="text-2xl font-black text-emerald-900">{loc}</h3>
+                            <span className="text-[10px] font-black uppercase bg-emerald-600 text-white px-2.5 py-0.5 rounded-full">
+                              Utarg zatwierdzony {report.cashSubmittedHM ? `(${report.cashSubmittedHM})` : ""}
+                            </span>
+                          </div>
                           <span className="text-xs font-bold text-emerald-700">
-                            Zgłosił(a): {report.reporter} • Zamówienia: {effOrders}
+                            Zgłosił(a): {report.cashSubmittedBy || report.reporter} • Zamówienia: {effOrders}
                           </span>
                         </div>
                         <button
                           type="button"
-                          onClick={() => onEditHistoricalReport(loc, selectedReportDate, report)}
+                          onClick={() => onEditHistoricalReport(loc, selectedReportDate, report, "cash")}
                           className="bg-white hover:bg-emerald-100 text-emerald-900 border border-emerald-300 px-3.5 py-2 rounded-xl text-xs font-black flex items-center transition-colors shadow-sm"
                         >
-                          <Edit3 className="w-4 h-4 mr-1.5 text-emerald-700" /> Edytuj raport
+                          <Edit3 className="w-4 h-4 mr-1.5 text-emerald-700" /> Edytuj kasę
                         </button>
                       </div>
                       <div className="p-5 flex-1 flex flex-col">
@@ -5724,7 +6697,10 @@ function NysaWarehouseForm({
                                     key={idx}
                                     className="bg-white border border-gray-200 px-2.5 py-1 rounded-lg font-bold text-gray-800"
                                   >
-                                    {emp.name || "Pracownik"}: <span className="text-blue-600">{emp.hours || "-"}</span>
+                                    {emp.name || "Pracownik"}:{" "}
+                                    <span className={isZeroHoursValue(emp.hours) ? "text-red-600 font-black" : "text-blue-600"}>
+                                      {isZeroHoursValue(emp.hours) ? "0h (Anulowane)" : emp.hours || "-"}
+                                    </span>
                                   </span>
                                 ))}
                             </div>
@@ -5756,7 +6732,7 @@ function NysaWarehouseForm({
                   <Warehouse className="w-7 h-7 mr-3 text-purple-600" /> Magazyn, Szkice Na Żywo i Braki
                 </h2>
                 <p className="text-xs font-semibold text-gray-500 mt-1">
-                  Podgląd stanów z wysłanych raportów ORAZ szkiców roboczych na żywo (gdy pracownik zatwierdzi np. Farutex w ciągu dnia).
+                  Podgląd na żywo wszystkich liczników, braków sosów i notatek w trakcie wpisywania przez pracownika oraz statusów finalnego zatwierdzenia.
                 </p>
               </div>
               <div className="flex flex-wrap items-center gap-3">
@@ -5895,11 +6871,11 @@ function NysaWarehouseForm({
             <div className="bg-amber-50/70 p-6 rounded-[2rem] border-2 border-amber-200 shadow-sm">
               <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 mb-4">
                 <h3 className="text-lg font-black text-amber-950 flex items-center">
-                  <MessageSquare className="w-5 h-5 mr-2 text-amber-600" /> Braki sosów, notatki i uwagi końcowe (
+                  <MessageSquare className="w-5 h-5 mr-2 text-amber-600" /> Braki sosów, notatki i uwagi magazynowe na żywo (
                   {selectedReportDate})
                 </h3>
                 <span className="text-xs font-bold text-amber-800 bg-amber-200/70 px-3 py-1 rounded-full">
-                  Interaktywne statusy realizacji
+                  Synchronizacja Live + Interaktywne statusy realizacji
                 </span>
               </div>
 
@@ -5922,7 +6898,7 @@ function NysaWarehouseForm({
                         className="bg-white p-4 rounded-2xl border border-amber-200/80 shadow-sm flex flex-col justify-between"
                       >
                         <div>
-                          <div className="flex items-center justify-between border-b border-gray-100 pb-2.5 mb-3">
+                          <div className="flex items-center justify-between border-b border-gray-100 pb-2.5 mb-2">
                             <span className="font-black text-gray-900">{loc}</span>
                             <span
                               className={`text-[10px] font-black px-2 py-0.5 rounded-full uppercase ${
@@ -5940,6 +6916,22 @@ function NysaWarehouseForm({
                                 : "Sosy OK"}
                             </span>
                           </div>
+
+                          {rep && (
+                            <div className="mb-3">
+                              {rep.inventorySubmitted ? (
+                                <span className="inline-flex items-center text-[10px] font-black bg-green-600 text-white px-2.5 py-0.5 rounded-md uppercase">
+                                  ✓ ZATWIERDZONE FINALNIE (godz. {rep.inventorySubmittedHM || "-"})
+                                </span>
+                              ) : (
+                                <span className="inline-flex items-center text-[10px] font-black bg-blue-100 text-blue-800 border border-blue-200 px-2.5 py-0.5 rounded-md">
+                                  <span className="w-1.5 h-1.5 rounded-full bg-blue-600 animate-ping mr-1.5" />
+                                  W trakcie wpisywania (Podgląd na żywo)
+                                </span>
+                              )}
+                            </div>
+                          )}
+
                           {!rep ? (
                             <p className="text-xs text-gray-400 italic">
                               Brak raportu ani szkicu na dzień {selectedReportDate}.
@@ -5978,13 +6970,13 @@ function NysaWarehouseForm({
                               {hasFinalNote ? (
                                 <div className="p-2.5 bg-amber-50/80 rounded-xl border border-amber-200">
                                   <span className="font-black text-[10px] uppercase text-amber-800 block mb-0.5">
-                                    Uwagi końcowe (Magazyn / Braki):
+                                    Uwagi magazynowe / końcowe:
                                   </span>
                                   <p className="font-bold text-gray-900 whitespace-pre-wrap">{rep.notes}</p>
                                   {renderIssueStatusSwitcher(rep, "notes")}
                                 </div>
                               ) : (
-                                <p className="text-[11px] text-gray-400 italic pt-1">Brak dodatkowych uwag końcowych.</p>
+                                <p className="text-[11px] text-gray-400 italic pt-1">Brak dodatkowych uwag magazynowych.</p>
                               )}
                             </div>
                           )}
@@ -6014,22 +7006,24 @@ function NysaWarehouseForm({
                               <Store className="w-5 h-5 mr-2 text-purple-400" /> Punkt: {loc}
                             </h3>
                             {rep && (
-                              <span
-                                className={`text-[10px] font-black uppercase px-2.5 py-1 rounded-full ${
-                                  rep.isLiveDraftOnly
-                                    ? "bg-blue-500/20 text-blue-300 border border-blue-400/30"
-                                    : "bg-emerald-500/20 text-emerald-300 border border-emerald-400/30"
-                                }`}
-                              >
-                                {rep.isLiveDraftOnly
-                                  ? "Szkic roboczy na żywo (W trakcie zmiany)"
-                                  : "Raport końcowy wysłany"}
-                              </span>
+                              rep.inventorySubmitted ? (
+                                <span className="text-[11px] font-black uppercase px-3 py-1 rounded-full bg-green-500 text-gray-950 shadow-sm flex items-center">
+                                  <CheckCircle2 className="w-3.5 h-3.5 mr-1.5" />
+                                  ZATWIERDZONE FINALNIE (godz. {rep.inventorySubmittedHM || "-"})
+                                </span>
+                              ) : (
+                                <span className="text-[11px] font-black px-3 py-1 rounded-full bg-blue-500/20 text-blue-300 border border-blue-400/30 flex items-center">
+                                  <span className="w-2 h-2 rounded-full bg-blue-400 animate-ping mr-1.5" />
+                                  W trakcie wpisywania (Podgląd na żywo)
+                                </span>
+                              )
                             )}
                           </div>
                           <p className="text-xs text-gray-400 font-semibold mt-1">
                             Data: {selectedReportDate}{" "}
-                            {rep ? `• Osoba: ${rep.reporter || "W trakcie wpisywania"} • Zamówienia: ${repOrders}` : ""}
+                            {rep
+                              ? `• Osoba: ${rep.inventorySubmittedBy || rep.reporter || "W trakcie wpisywania"} • Zamówienia: ${repOrders}`
+                              : ""}
                           </p>
                           {confirmedEntries.length > 0 && (
                             <div className="flex flex-wrap gap-1.5 mt-2">
@@ -6044,15 +7038,13 @@ function NysaWarehouseForm({
                             </div>
                           )}
                         </div>
-                        {rep && (
-                          <button
-                            type="button"
-                            onClick={() => onEditHistoricalReport(loc, selectedReportDate, rep)}
-                            className="bg-white/10 hover:bg-white/20 text-white px-3.5 py-2 rounded-xl text-xs font-bold flex items-center transition-colors"
-                          >
-                            <Edit3 className="w-4 h-4 mr-1.5" /> Edytuj stany w raporcie
-                          </button>
-                        )}
+                        <button
+                          type="button"
+                          onClick={() => onEditHistoricalReport(loc, selectedReportDate, rep, "inventory")}
+                          className="bg-white/10 hover:bg-white/20 text-white px-3.5 py-2 rounded-xl text-xs font-bold flex items-center transition-colors"
+                        >
+                          <Edit3 className="w-4 h-4 mr-1.5" /> {rep ? "Edytuj stany magazynowe" : "Uzupełnij stany magazynowe"}
+                        </button>
                       </div>
                       {!rep ? (
                         <div className="p-8 text-center">
@@ -6547,7 +7539,7 @@ function NysaWarehouseForm({
                     {isKlodzkoAdmin ? "(Punkt Kłodzko)" : ""}
                   </h2>
                   <p className="text-xs font-semibold text-gray-500 mt-1">
-                    Automatycznie łączy odbicia z czytnika RCP oraz wpisy z raportów dobowych.
+                    Automatycznie łączy odbicia z czytnika RCP oraz wpisy z raportów dobowych (wpis 0h w raporcie anuluje omyłkowe odbicie RCP).
                   </p>
                 </div>
                 {!isKlodzkoAdmin && (
@@ -6686,14 +7678,21 @@ function NysaWarehouseForm({
                       </div>
                       <div className="flex items-center justify-between sm:justify-end gap-3 border-t sm:border-t-0 pt-2 sm:pt-0 border-gray-200">
                         <span className="text-xs font-bold text-gray-500">
-                          Godziny: <strong className="text-gray-900">{entry.rawHours}</strong>
+                          Godziny:{" "}
+                          <strong className={entry.calculatedHours === 0 ? "text-red-600" : "text-gray-900"}>
+                            {entry.rawHours}
+                          </strong>
                           {entry.closedBy && entry.closedBy !== entry.name && (
                             <span className="text-[10px] text-amber-700 ml-1.5">(zamknął: {entry.closedBy})</span>
                           )}
                         </span>
-                        {entry.calculatedHours > 0 && (
+                        {entry.calculatedHours > 0 ? (
                           <span className="bg-emerald-100 text-emerald-800 font-black text-xs px-3 py-1 rounded-full">
                             {entry.calculatedHours} godz.
+                          </span>
+                        ) : (
+                          <span className="bg-red-100 text-red-700 font-black text-xs px-3 py-1 rounded-full">
+                            0 godz.
                           </span>
                         )}
                         {entry.shiftId && isOwner && (
