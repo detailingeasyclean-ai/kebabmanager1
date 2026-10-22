@@ -1506,7 +1506,7 @@ export default function App() {
       const permission = await Notification.requestPermission();
       if (permission === "granted" && messaging && db) {
         const token = await getToken(messaging, { 
-          vapidKey: BBzMq3ZdYRR_vOcZNiHw7dV4q_cwwZqtxN892acs3RLpKPBQ23mKIWNkMnyEEn1CsKdASuKiO95ty1bOtjk-s00
+          vapidKey: "BBzMq3ZdYRR_vOcZNiHw7dV4q_cwwZqtxN892acs3RLpKPBQ23mKIWNkMnyEEn1CsKdASuKiO95ty1bOtjk-s00" 
         });
         if (token) {
           await setDoc(doc(db, "artifacts", appId, "public", "data", "fcm_tokens", token), {
