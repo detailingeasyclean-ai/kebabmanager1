@@ -3,6 +3,7 @@ import { initializeApp } from "firebase/app";
 import { getAuth, signInAnonymously, onAuthStateChanged } from "firebase/auth";
 import { getFirestore, collection, addDoc, onSnapshot, doc, setDoc, updateDoc, deleteDoc, arrayUnion } from "firebase/firestore";
 import { Store, ChefHat, CheckCircle2, XCircle, Send, ArrowLeft, ShieldAlert, Package, Beaker, Banknote, Snowflake, Leaf, Truck, StickyNote, PlusCircle, Users, BarChart3, TrendingUp, TrendingDown, Calendar, Clock, MessageSquare, ClipboardList, Edit3, Lock, Warehouse, AlertTriangle, Settings, Trash2, FolderPlus, KeyRound, Search, ChevronDown, ChevronUp, Receipt, PieChart, Save, Download, FileSpreadsheet, Wallet, Moon, Play, Square, Timer, UserCheck, Camera, Image as ImageIcon, Eye, RotateCcw } from "lucide-react";
+import { getMessaging, getToken } from "firebase/messaging";
 
 const firebaseConfig = {
   apiKey: "AIzaSyDX0CRqfd5qQx0-mkRsELcHFOjRJ4MMzps",
@@ -16,12 +17,14 @@ const firebaseConfig = {
 let app = null;
 let auth = null;
 let db = null;
+let messaging = null;
 
 try {
   if (firebaseConfig.apiKey) {
     app = initializeApp(firebaseConfig);
     auth = getAuth(app);
     db = getFirestore(app);
+    messaging = getMessaging(app);
   }
 } catch (err) {
   console.error("Błąd inicjalizacji Firebase, tryb lokalny:", err);
@@ -1498,6 +1501,25 @@ const LocationDashboard = memo(({
 });
 
 export default function App() {
+  const requestNotificationPermission = async (locationName) => {
+    try {
+      const permission = await Notification.requestPermission();
+      if (permission === "granted" && messaging && db) {
+        const token = await getToken(messaging, { 
+          vapidKey: BBzMq3ZdYRR_vOcZNiHw7dV4q_cwwZqtxN892acs3RLpKPBQ23mKIWNkMnyEEn1CsKdASuKiO95ty1bOtjk-s00
+        });
+        if (token) {
+          await setDoc(doc(db, "artifacts", appId, "public", "data", "fcm_tokens", token), {
+            token: token,
+            location: locationName,
+            updatedAt: new Date().toISOString()
+          });
+        }
+      }
+    } catch (error) {
+      console.error("Błąd pobierania zgody na powiadomienia:", error);
+    }
+  };
   const [user, setUser] = useState(null);
   const [view, setView] = useState("select");
   const [currentLocation, setCurrentLocation] = useState("");
