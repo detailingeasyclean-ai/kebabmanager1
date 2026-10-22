@@ -2,7 +2,7 @@ import React, { useState, useEffect, useMemo, useCallback, memo } from "react";
 import { initializeApp } from "firebase/app";
 import { getAuth, signInAnonymously, onAuthStateChanged } from "firebase/auth";
 import { getFirestore, collection, addDoc, onSnapshot, doc, setDoc, updateDoc, deleteDoc, arrayUnion } from "firebase/firestore";
-import { Store, ChefHat, CheckCircle2, XCircle, Send, ArrowLeft, ShieldAlert, Package, Beaker, Banknote, Snowflake, Leaf, Truck, StickyNote, PlusCircle, Users, BarChart3, TrendingUp, TrendingDown, Calendar, Clock, MessageSquare, ClipboardList, Edit3, Lock, Warehouse, AlertTriangle, Settings, Trash2, FolderPlus, KeyRound, Search, ChevronDown, ChevronUp, Receipt, PieChart, Save, Download, FileSpreadsheet, Wallet, Moon, Play, Square, Timer, UserCheck } from "lucide-react";
+import { Store, ChefHat, CheckCircle2, XCircle, Send, ArrowLeft, ShieldAlert, Package, Beaker, Banknote, Snowflake, Leaf, Truck, StickyNote, PlusCircle, Users, BarChart3, TrendingUp, TrendingDown, Calendar, Clock, MessageSquare, ClipboardList, Edit3, Lock, Warehouse, AlertTriangle, Settings, Trash2, FolderPlus, KeyRound, Search, ChevronDown, ChevronUp, Receipt, PieChart, Save, Download, FileSpreadsheet, Wallet, Moon, Play, Square, Timer, UserCheck, Camera, Image as ImageIcon, Eye, RotateCcw } from "lucide-react";
 
 const firebaseConfig = {
   apiKey: "AIzaSyDX0CRqfd5qQx0-mkRsELcHFOjRJ4MMzps",
@@ -209,6 +209,46 @@ const setLocalData = (key, data) => {
   }
 };
 
+const compressImageFileToDataUrl = (file, maxDim = 960, quality = 0.72) =>
+  new Promise((resolve, reject) => {
+    if (!file) {
+      reject(new Error("Brak pliku obrazu"));
+      return;
+    }
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      const img = new window.Image();
+      img.onload = () => {
+        try {
+          let width = img.width;
+          let height = img.height;
+          if (width > maxDim || height > maxDim) {
+            if (width > height) {
+              height = Math.round((height * maxDim) / width);
+              width = maxDim;
+            } else {
+              width = Math.round((width * maxDim) / height);
+              height = maxDim;
+            }
+          }
+          const canvas = document.createElement("canvas");
+          canvas.width = width;
+          canvas.height = height;
+          const ctx = canvas.getContext("2d");
+          ctx.drawImage(img, 0, 0, width, height);
+          const dataUrl = canvas.toDataURL("image/jpeg", quality);
+          resolve(dataUrl);
+        } catch (err) {
+          reject(err);
+        }
+      };
+      img.onerror = (err) => reject(err);
+      img.src = e.target.result;
+    };
+    reader.onerror = (err) => reject(err);
+    reader.readAsDataURL(file);
+  });
+
 const normalizeCatalog = (raw) => {
   if (!raw || typeof raw !== "object") return DEFAULT_CATALOG;
   const res = { ...DEFAULT_CATALOG };
@@ -285,9 +325,17 @@ const parseDateStr = (dateStr) => {
 };
 const getDayOfWeekFromDateStr = (dateStr) => parseDateStr(dateStr).getDay();
 
+const getTaskCompletionKey = (task, loc, dateStr) =>
+  task?.type === "recurring" ? `${dateStr}_${loc}` : loc;
+
 const isTaskCompletedByLocation = (task, loc, dateStr) => {
   const completedBy = Array.isArray(task?.completedBy) ? task.completedBy : [];
-  return completedBy.includes(task?.type === "recurring" ? `${dateStr}_${loc}` : loc);
+  return completedBy.includes(getTaskCompletionKey(task, loc, dateStr));
+};
+
+const getTaskProofForLocation = (task, loc, dateStr) => {
+  const key = getTaskCompletionKey(task, loc, dateStr);
+  return task?.completionProofs?.[key] || null;
 };
 
 const isTaskRelevantForLocationAndDate = (task, loc, dateStr) => {
@@ -327,7 +375,10 @@ const sanitizeRecord = (obj) => {
   if (!obj || typeof obj !== "object") return {};
   const clean = {};
   Object.entries(obj).forEach(([k, v]) => {
-    if (v !== undefined && v !== null && v !== "") clean[k] = String(v);
+    if (v !== undefined && v !== null && v !== "") {
+      const parsed = parseSafeNumber(v);
+      clean[k] = String(parsed);
+    }
   });
   return clean;
 };
@@ -339,7 +390,7 @@ const buildInitialSectionState = (prevSec, existingSec, draftSec) => {
       if (v !== undefined && v !== null && v !== "") base[k] = String(v);
     });
   }
-  if (draftSec && typeof draftSec === "object" && hasAnyPositiveValue(draftSec)) {
+  if (draftSec && typeof draftSec === "object" && Object.keys(draftSec).length > 0) {
     Object.entries(draftSec).forEach(([k, v]) => {
       if (v !== undefined && v !== null && v !== "") base[k] = String(v);
     });
@@ -350,19 +401,7 @@ const buildInitialSectionState = (prevSec, existingSec, draftSec) => {
 const mergeInventorySectionForSave = (existingSec, currentSec) => {
   const existingClean = sanitizeRecord(existingSec);
   const currentClean = sanitizeRecord(currentSec);
-
-  if (!hasAnyPositiveValue(currentClean) && hasAnyPositiveValue(existingClean)) {
-    return existingClean;
-  }
-
-  const merged = { ...existingClean };
-  Object.entries(currentClean).forEach(([k, v]) => {
-    const num = parseSafeNumber(v);
-    if (num > 0 || !(k in existingClean)) {
-      merged[k] = String(v);
-    }
-  });
-  return merged;
+  return { ...existingClean, ...currentClean };
 };
 
 const getEffectiveOrdersCount = (report, fallbackAvgOrderVal = DEFAULT_AVG_ORDER_VALUE) => {
@@ -524,7 +563,10 @@ const Counter = memo(({ itemKey, label, unit = "szt.", value, onChange, onItemCh
   const commitManualEdit = () => {
     setIsEditingInput(false);
     const trimmed = tempInput.trim().replace(",", ".");
-    if (trimmed === "") return;
+    if (trimmed === "") {
+      emitChange("0");
+      return;
+    }
     const parsed = parseFloat(trimmed);
     if (!isNaN(parsed) && parsed >= 0) {
       emitChange(parseFloat(parsed.toFixed(2)).toString());
@@ -600,7 +642,7 @@ const Counter = memo(({ itemKey, label, unit = "szt.", value, onChange, onItemCh
                 : "bg-gray-50 hover:bg-blue-50/40 border-gray-200 text-gray-600"
             }`}
           >
-            <span>{value || "0"}</span>
+            <span>{value !== undefined && value !== null && value !== "" ? value : "0"}</span>
             <span className="text-xs font-extrabold text-blue-600 uppercase">{unit}</span>
           </div>
         )}
@@ -668,6 +710,282 @@ const ConfirmExitModal = memo(({ isOpen, onConfirm, onCancel }) => {
   );
 });
 
+const TaskPhotoModal = memo(({ task, location, todayStr, employeesList = [], onConfirm, onClose }) => {
+  const [photoDataUrl, setPhotoDataUrl] = useState("");
+  const [employeeName, setEmployeeName] = useState("");
+  const [note, setNote] = useState("");
+  const [compressing, setCompressing] = useState(false);
+  const [submitting, setSubmitting] = useState(false);
+  const [errorMsg, setErrorMsg] = useState("");
+
+  if (!task) return null;
+  const isPhotoRequired = task.requirePhoto !== false;
+
+  const handleFileChange = async (e) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setCompressing(true);
+    setErrorMsg("");
+    try {
+      const compressed = await compressImageFileToDataUrl(file, 960, 0.72);
+      setPhotoDataUrl(compressed);
+    } catch (err) {
+      console.error("Błąd przetwarzania zdjęcia:", err);
+      setErrorMsg("Nie udało się przetworzyć zdjęcia. Spróbuj ponownie.");
+    } finally {
+      setCompressing(false);
+    }
+  };
+
+  const handleConfirm = async (e) => {
+    e.preventDefault();
+    if (isPhotoRequired && !photoDataUrl) {
+      setErrorMsg("To zadanie wymaga zrobienia zdjęcia potwierdzającego wykonanie!");
+      return;
+    }
+    setSubmitting(true);
+    try {
+      await onConfirm(task, {
+        photoDataUrl,
+        employeeName: employeeName.trim(),
+        note: note.trim(),
+      });
+      onClose();
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/70 backdrop-blur-sm overflow-y-auto">
+      <div className="bg-white p-6 rounded-[2rem] shadow-2xl border border-gray-100 w-full max-w-md my-auto">
+        <div className="flex items-center justify-between gap-2 pb-4 border-b border-gray-100">
+          <div className="flex items-center gap-2.5">
+            <div className="w-10 h-10 rounded-2xl bg-emerald-100 text-emerald-700 flex items-center justify-center shrink-0">
+              <Camera className="w-5 h-5" />
+            </div>
+            <div>
+              <h4 className="font-black text-gray-900 text-base">Potwierdzenie Wykonania Zadania</h4>
+              <p className="text-xs font-bold text-gray-500">
+                Punkt: {location} • Data: {todayStr}
+              </p>
+            </div>
+          </div>
+          <button
+            type="button"
+            onClick={onClose}
+            className="p-2 text-gray-400 hover:text-gray-700 rounded-xl hover:bg-gray-100"
+          >
+            <XCircle className="w-5 h-5" />
+          </button>
+        </div>
+
+        <form onSubmit={handleConfirm} className="mt-4 space-y-4">
+          <div className="p-3.5 bg-amber-50 border border-amber-200 rounded-2xl">
+            <span className="text-[10px] font-black uppercase text-amber-800 block mb-1">
+              Treść zadania (do godz. {task.deadlineTime || "22:00"}):
+            </span>
+            <p className="font-extrabold text-gray-900 text-sm">{task.text}</p>
+          </div>
+
+          <div>
+            <label className="block text-xs font-black uppercase text-gray-500 mb-1.5 ml-1">
+              Osoba wykonująca zadanie ({location}):
+            </label>
+            <select
+              value={employeeName}
+              onChange={(e) => setEmployeeName(e.target.value)}
+              className="w-full p-3.5 bg-gray-50 border border-gray-200 rounded-xl font-bold text-sm text-gray-900 outline-none focus:bg-white focus:ring-2 focus:ring-emerald-500"
+            >
+              <option value="">— Wybierz imię z listy (opcjonalnie) —</option>
+              {employeesList.map((emp) => (
+                <option key={emp} value={emp}>
+                  {emp}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          <div>
+            <div className="flex items-center justify-between mb-1.5 ml-1">
+              <label className="text-xs font-black uppercase text-gray-500">
+                Zdjęcie potwierdzające (Fotokontrola):
+              </label>
+              <span
+                className={`text-[10px] font-black uppercase px-2 py-0.5 rounded-md ${
+                  isPhotoRequired ? "bg-red-100 text-red-700" : "bg-gray-100 text-gray-600"
+                }`}
+              >
+                {isPhotoRequired ? "Wymagane" : "Opcjonalne"}
+              </span>
+            </div>
+
+            {!photoDataUrl ? (
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                <label className="cursor-pointer flex flex-col items-center justify-center p-5 border-2 border-dashed border-emerald-400 bg-emerald-50/50 hover:bg-emerald-50 rounded-2xl transition-colors text-center">
+                  <Camera className="w-8 h-8 text-emerald-600 mb-1.5" />
+                  <span className="font-black text-xs text-emerald-950">
+                    {compressing ? "Przetwarzanie..." : "Zrób zdjęcie aparatem"}
+                  </span>
+                  <span className="text-[10px] font-semibold text-emerald-700 mt-0.5">
+                    Otwiera aparat w telefonie
+                  </span>
+                  <input
+                    type="file"
+                    accept="image/*"
+                    capture="environment"
+                    onChange={handleFileChange}
+                    className="hidden"
+                    disabled={compressing}
+                  />
+                </label>
+
+                <label className="cursor-pointer flex flex-col items-center justify-center p-5 border-2 border-dashed border-blue-300 bg-blue-50/40 hover:bg-blue-50 rounded-2xl transition-colors text-center">
+                  <ImageIcon className="w-8 h-8 text-blue-600 mb-1.5" />
+                  <span className="font-black text-xs text-blue-950">
+                    {compressing ? "Przetwarzanie..." : "Wybierz z galerii"}
+                  </span>
+                  <span className="text-[10px] font-semibold text-blue-700 mt-0.5">
+                    Dodaj gotowe zdjęcie
+                  </span>
+                  <input
+                    type="file"
+                    accept="image/*"
+                    onChange={handleFileChange}
+                    className="hidden"
+                    disabled={compressing}
+                  />
+                </label>
+              </div>
+            ) : (
+              <div className="space-y-2">
+                <div className="relative rounded-2xl overflow-hidden border-2 border-emerald-400 bg-black max-h-64 flex items-center justify-center">
+                  <img
+                    src={photoDataUrl}
+                    alt="Podgląd wykonania zadania"
+                    className="max-h-64 w-auto object-contain"
+                  />
+                </div>
+                <div className="flex justify-end">
+                  <button
+                    type="button"
+                    onClick={() => setPhotoDataUrl("")}
+                    className="text-xs font-black text-red-600 bg-red-50 hover:bg-red-100 px-3 py-1.5 rounded-xl flex items-center transition-colors"
+                  >
+                    <RotateCcw className="w-3.5 h-3.5 mr-1" /> Zmień / zrób nowe zdjęcie
+                  </button>
+                </div>
+              </div>
+            )}
+          </div>
+
+          <div>
+            <label className="block text-xs font-black uppercase text-gray-500 mb-1.5 ml-1">
+              Krótka notatka / uwaga do zadania (opcjonalnie):
+            </label>
+            <input
+              type="text"
+              value={note}
+              onChange={(e) => setNote(e.target.value)}
+              placeholder="Np. Frytownica umyta i zalana świeżą fryturą..."
+              className="w-full p-3.5 bg-gray-50 border border-gray-200 rounded-xl font-semibold text-sm text-gray-900 outline-none focus:bg-white focus:ring-2 focus:ring-emerald-500"
+            />
+          </div>
+
+          {errorMsg && (
+            <div className="p-3 bg-red-50 border border-red-200 text-red-700 text-xs font-bold rounded-xl text-center">
+              {errorMsg}
+            </div>
+          )}
+
+          <div className="flex gap-2.5 pt-2">
+            <button
+              type="button"
+              onClick={onClose}
+              className="flex-1 py-3.5 bg-gray-100 hover:bg-gray-200 text-gray-700 font-bold text-sm rounded-xl transition-colors"
+            >
+              Anuluj
+            </button>
+            <button
+              type="submit"
+              disabled={compressing || submitting}
+              className="flex-[2] py-3.5 bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white font-black text-sm rounded-xl shadow-lg shadow-emerald-600/20 flex items-center justify-center transition-colors"
+            >
+              <CheckCircle2 className="w-4 h-4 mr-1.5" />
+              {submitting ? "Zapisywanie..." : "Zatwierdź wykonanie"}
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+  );
+});
+
+const PhotoPreviewModal = memo(({ proof, taskText, onClose }) => {
+  if (!proof || !proof.photoDataUrl) return null;
+  return (
+    <div
+      onClick={onClose}
+      className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm"
+    >
+      <div
+        onClick={(e) => e.stopPropagation()}
+        className="bg-white p-5 rounded-[2rem] shadow-2xl max-w-2xl w-full space-y-4 overflow-hidden"
+      >
+        <div className="flex items-start justify-between gap-3 border-b border-gray-100 pb-3">
+          <div>
+            <span className="text-[10px] font-black uppercase bg-emerald-100 text-emerald-800 px-2.5 py-0.5 rounded-full">
+              Fotokontrola Zadania • {proof.location} ({proof.date})
+            </span>
+            <h4 className="font-black text-gray-900 text-base mt-1">{taskText}</h4>
+            <p className="text-xs font-bold text-gray-500 mt-0.5">
+              Wykonał(a): <strong className="text-gray-800">{proof.completedByEmployee || "Pracownik"}</strong> • Godz.:{" "}
+              <strong className="text-emerald-700">{proof.completedHM || "-"}</strong>
+            </p>
+            {proof.note && (
+              <p className="text-xs font-semibold text-indigo-800 bg-indigo-50 px-3 py-1.5 rounded-xl mt-2">
+                Notatka: {proof.note}
+              </p>
+            )}
+          </div>
+          <button
+            type="button"
+            onClick={onClose}
+            className="p-2 text-gray-400 hover:text-gray-700 rounded-xl hover:bg-gray-100 shrink-0"
+          >
+            <XCircle className="w-6 h-6" />
+          </button>
+        </div>
+
+        <div className="bg-gray-950 rounded-2xl overflow-hidden flex items-center justify-center max-h-[65vh]">
+          <img
+            src={proof.photoDataUrl}
+            alt="Dowód wykonania zadania"
+            className="max-h-[65vh] w-auto object-contain"
+          />
+        </div>
+
+        <div className="flex justify-between items-center pt-1">
+          <a
+            href={proof.photoDataUrl}
+            download={`Zadanie_${proof.location}_${proof.date}_${proof.completedHM || "foto"}.jpg`}
+            className="px-4 py-2.5 bg-gray-100 hover:bg-gray-200 text-gray-800 font-black text-xs rounded-xl flex items-center transition-colors"
+          >
+            <Download className="w-4 h-4 mr-1.5" /> Pobierz zdjęcie
+          </a>
+          <button
+            type="button"
+            onClick={onClose}
+            className="px-6 py-2.5 bg-blue-600 hover:bg-blue-700 text-white font-black text-xs rounded-xl transition-colors"
+          >
+            Zamknij podgląd
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+});
+
 const PinLoginScreen = memo(({ icon: Icon, iconBgClass, title, subtitle, submitLabel, submitBtnClass, onSubmitPin, onBack }) => (
   <div className="flex flex-col items-center justify-center p-6 min-h-screen max-w-sm mx-auto">
     <div className="bg-white p-8 rounded-[2rem] shadow-xl border border-gray-100 w-full">
@@ -712,7 +1030,9 @@ const PinLoginScreen = memo(({ icon: Icon, iconBgClass, title, subtitle, submitL
   </div>
 ));
 
-const UrgentTasksBanner = memo(({ tasks, location, todayStr, onCompleteTask }) => {
+const UrgentTasksBanner = memo(({ tasks, location, todayStr, employeesList = [], onCompleteTask }) => {
+  const [activePhotoTask, setActivePhotoTask] = useState(null);
+
   if (!Array.isArray(tasks) || tasks.length === 0) {
     return (
       <div className="w-full bg-emerald-50 border-2 border-emerald-200 px-4 py-3 rounded-2xl flex items-center justify-between text-xs font-bold text-emerald-900 mb-5 shadow-sm">
@@ -725,63 +1045,81 @@ const UrgentTasksBanner = memo(({ tasks, location, todayStr, onCompleteTask }) =
   }
 
   return (
-    <div className="w-full bg-gradient-to-r from-red-600 via-rose-600 to-amber-600 text-white p-4 sm:p-5 rounded-[2rem] shadow-xl border-2 border-red-300 mb-6">
-      <div className="flex items-start gap-3">
-        <div className="w-10 h-10 rounded-xl bg-white/20 flex items-center justify-center shrink-0 mt-0.5">
-          <AlertTriangle className="w-6 h-6 text-white" />
-        </div>
-        <div className="flex-1 min-w-0">
-          <div className="flex items-center justify-between gap-2 flex-wrap mb-3">
-            <span className="text-xs font-black uppercase tracking-wider bg-black/25 px-3 py-1 rounded-full flex items-center">
-              <ClipboardList className="w-3.5 h-3.5 mr-1.5" /> Pilne zadania dnia — Punkt: {location}
-            </span>
-            <span className="text-xs font-black bg-white text-red-700 px-3 py-1 rounded-full shadow-sm">
-              Do wykonania dziś: {tasks.length}
-            </span>
+    <>
+      <TaskPhotoModal
+        task={activePhotoTask}
+        location={location}
+        todayStr={todayStr}
+        employeesList={employeesList}
+        onConfirm={(taskObj, photoPayload) => onCompleteTask && onCompleteTask(taskObj, photoPayload)}
+        onClose={() => setActivePhotoTask(null)}
+      />
+
+      <div className="w-full bg-gradient-to-r from-red-600 via-rose-600 to-amber-600 text-white p-4 sm:p-5 rounded-[2rem] shadow-xl border-2 border-red-300 mb-6">
+        <div className="flex items-start gap-3">
+          <div className="w-10 h-10 rounded-xl bg-white/20 flex items-center justify-center shrink-0 mt-0.5">
+            <AlertTriangle className="w-6 h-6 text-white" />
           </div>
-          <div className="space-y-2.5">
-            {tasks.map((t) => {
-              const isRecurring = t.type === "recurring";
-              const scheduledDaysText =
-                isRecurring && Array.isArray(t.daysOfWeek)
-                  ? DAYS_OF_WEEK.filter((d) => t.daysOfWeek.map(Number).includes(d.id))
-                      .map((d) => d.short)
-                      .join(", ")
-                  : "";
-              return (
-                <div
-                  key={t.id}
-                  className="bg-black/25 p-3.5 rounded-2xl border border-white/20 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3"
-                >
-                  <div className="space-y-1 min-w-0">
-                    <div className="flex flex-wrap items-center gap-1.5">
-                      <span className="text-[10px] font-black uppercase bg-white/20 text-white px-2 py-0.5 rounded-md">
-                        {isRecurring ? `Cykliczne (${scheduledDaysText})` : "Zadanie doraźne"}
-                      </span>
-                      <span className="inline-flex items-center text-[11px] font-black bg-amber-300 text-gray-950 px-2.5 py-0.5 rounded-md shadow-sm">
-                        <Clock className="w-3 h-3 mr-1" />
-                        Do wykonania do godziny: {t.deadlineTime || "22:00"}
-                      </span>
-                      {t.createdBy && <span className="text-[10px] font-semibold text-white/85">• Zlecił(a): {t.createdBy}</span>}
+          <div className="flex-1 min-w-0">
+            <div className="flex items-center justify-between gap-2 flex-wrap mb-3">
+              <span className="text-xs font-black uppercase tracking-wider bg-black/25 px-3 py-1 rounded-full flex items-center">
+                <ClipboardList className="w-3.5 h-3.5 mr-1.5" /> Pilne zadania dnia — Punkt: {location}
+              </span>
+              <span className="text-xs font-black bg-white text-red-700 px-3 py-1 rounded-full shadow-sm">
+                Do wykonania dziś: {tasks.length}
+              </span>
+            </div>
+            <div className="space-y-2.5">
+              {tasks.map((t) => {
+                const isRecurring = t.type === "recurring";
+                const requiresPhoto = t.requirePhoto !== false;
+                const scheduledDaysText =
+                  isRecurring && Array.isArray(t.daysOfWeek)
+                    ? DAYS_OF_WEEK.filter((d) => t.daysOfWeek.map(Number).includes(d.id))
+                        .map((d) => d.short)
+                        .join(", ")
+                    : "";
+                return (
+                  <div
+                    key={t.id}
+                    className="bg-black/25 p-3.5 rounded-2xl border border-white/20 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3"
+                  >
+                    <div className="space-y-1 min-w-0">
+                      <div className="flex flex-wrap items-center gap-1.5">
+                        <span className="text-[10px] font-black uppercase bg-white/20 text-white px-2 py-0.5 rounded-md">
+                          {isRecurring ? `Cykliczne (${scheduledDaysText})` : "Zadanie doraźne"}
+                        </span>
+                        <span className="inline-flex items-center text-[11px] font-black bg-amber-300 text-gray-950 px-2.5 py-0.5 rounded-md shadow-sm">
+                          <Clock className="w-3 h-3 mr-1" />
+                          Do wykonania do godziny: {t.deadlineTime || "22:00"}
+                        </span>
+                        {requiresPhoto && (
+                          <span className="inline-flex items-center text-[10px] font-black bg-emerald-300 text-gray-950 px-2 py-0.5 rounded-md">
+                            <Camera className="w-3 h-3 mr-1" /> Wymagane zdjęcie
+                          </span>
+                        )}
+                        {t.createdBy && <span className="text-[10px] font-semibold text-white/85">• Zlecił(a): {t.createdBy}</span>}
+                      </div>
+                      <p className="font-extrabold text-sm sm:text-base text-white break-words pt-0.5">{t.text}</p>
                     </div>
-                    <p className="font-extrabold text-sm sm:text-base text-white break-words pt-0.5">{t.text}</p>
+                    {onCompleteTask && (
+                      <button
+                        type="button"
+                        onClick={() => setActivePhotoTask(t)}
+                        className="shrink-0 bg-emerald-500 hover:bg-emerald-400 text-gray-950 font-black text-xs px-4 py-2.5 rounded-xl flex items-center justify-center transition-colors shadow-md"
+                      >
+                        <Camera className="w-4 h-4 mr-1.5" />
+                        {requiresPhoto ? "Zrób zdjęcie i wykonaj" : "Wykonane"}
+                      </button>
+                    )}
                   </div>
-                  {onCompleteTask && (
-                    <button
-                      type="button"
-                      onClick={() => onCompleteTask(t)}
-                      className="shrink-0 bg-emerald-500 hover:bg-emerald-400 text-gray-950 font-black text-xs px-4 py-2.5 rounded-xl flex items-center justify-center transition-colors shadow-md"
-                    >
-                      <CheckCircle2 className="w-4 h-4 mr-1.5" /> Wykonane
-                    </button>
-                  )}
-                </div>
-              );
-            })}
+                );
+              })}
+            </div>
           </div>
         </div>
       </div>
-    </div>
+    </>
   );
 });
 
@@ -1042,6 +1380,7 @@ const LocationDashboard = memo(({
           tasks={tasks}
           location={location}
           todayStr={todayStr}
+          employeesList={employeesList}
           onCompleteTask={onCompleteTask}
         />
 
@@ -1294,7 +1633,8 @@ export default function App() {
             const loser = isNewer ? prev : fullRecord;
             const merged = { ...loser, ...winner };
             ["vegetables", "freezer", "farutex", "meat1", "meat2", "otherItems"].forEach((sec) => {
-              if (!hasAnyPositiveValue(winner[sec]) && hasAnyPositiveValue(loser[sec])) {
+              const winnerHasKeys = winner[sec] && typeof winner[sec] === "object" && Object.keys(winner[sec]).length > 0;
+              if (!winnerHasKeys && hasAnyPositiveValue(loser[sec])) {
                 merged[sec] = loser[sec];
               }
             });
@@ -1505,7 +1845,11 @@ export default function App() {
             const currentReps = getLocalData(LS_REPORTS_KEY, []);
             setLocalData(
               LS_REPORTS_KEY,
-              currentReps.map((r) => (r.id === reportId ? { ...r, employees: prevEmps, updatedAt: now.toISOString() } : r))
+              currentReps.map((r) =>
+                r.id === reportId || (r.date === shiftObj.date && r.location === shiftObj.location)
+                  ? { ...r, employees: prevEmps, updatedAt: now.toISOString() }
+                  : r
+              )
             );
           }
         }
@@ -1542,30 +1886,54 @@ export default function App() {
   }, []);
 
   const handleCompleteTaskGlobal = useCallback(
-    async (taskObj, targetLoc, targetDateStr) => {
+    async (taskObj, targetLoc, targetDateStr, photoPayload = null) => {
       if (!taskObj?.id) return;
       const loc = targetLoc || currentLocation;
       const dStr = targetDateStr || activeGastroDate;
+      const now = new Date();
       try {
-        const completionEntry = taskObj.type === "recurring" ? `${dStr}_${loc}` : loc;
+        const completionEntry = getTaskCompletionKey(taskObj, loc, dStr);
+        const proofRecord = {
+          photoDataUrl: photoPayload?.photoDataUrl || "",
+          completedByEmployee: photoPayload?.employeeName || "",
+          note: photoPayload?.note || "",
+          completedAt: now.toISOString(),
+          completedHM: formatTimeHM(now),
+          location: loc,
+          date: dStr,
+        };
+        const nextProofs = {
+          ...(taskObj.completionProofs && typeof taskObj.completionProofs === "object" ? taskObj.completionProofs : {}),
+          [completionEntry]: proofRecord,
+        };
+
         if (db) {
           await ensureAuth();
           await updateDoc(doc(db, "artifacts", appId, "public", "data", "tasks", taskObj.id), {
             completedBy: arrayUnion(completionEntry),
-            updatedAt: new Date().toISOString(),
+            completionProofs: nextProofs,
+            updatedAt: now.toISOString(),
           });
         } else {
           const currentTasks = getLocalData(LS_TASKS_KEY, []);
           const nextTasks = currentTasks.map((t) => {
             if (t.id !== taskObj.id) return t;
             const prevArr = Array.isArray(t.completedBy) ? t.completedBy : [];
-            return prevArr.includes(completionEntry)
-              ? t
-              : { ...t, completedBy: [...prevArr, completionEntry], updatedAt: new Date().toISOString() };
+            const updatedCompletedBy = prevArr.includes(completionEntry) ? prevArr : [...prevArr, completionEntry];
+            return {
+              ...t,
+              completedBy: updatedCompletedBy,
+              completionProofs: nextProofs,
+              updatedAt: now.toISOString(),
+            };
           });
           setLocalData(LS_TASKS_KEY, nextTasks);
         }
-        setModalMsg(`Zadanie dnia zostało oznaczone jako wykonane dla punktu ${loc}!`);
+        setModalMsg(
+          proofRecord.photoDataUrl
+            ? `Zadanie oraz zdjęcie potwierdzające zostały zapisane dla punktu ${loc}!`
+            : `Zadanie dnia zostało oznaczone jako wykonane dla punktu ${loc}!`
+        );
       } catch (err) {
         console.error("Błąd odhaczania zadania:", err);
         setModalMsg("Wystąpił błąd podczas zapisywania wykonania zadania.");
@@ -1573,6 +1941,41 @@ export default function App() {
     },
     [currentLocation, activeGastroDate]
   );
+
+  const handleResetTaskCompletion = useCallback(async (taskObj, targetLoc, targetDateStr) => {
+    if (!taskObj?.id) return;
+    const completionEntry = getTaskCompletionKey(taskObj, targetLoc, targetDateStr);
+    const nextCompletedBy = (Array.isArray(taskObj.completedBy) ? taskObj.completedBy : []).filter(
+      (entry) => entry !== completionEntry
+    );
+    const nextProofs = { ...(taskObj.completionProofs || {}) };
+    delete nextProofs[completionEntry];
+
+    try {
+      if (db) {
+        await ensureAuth();
+        await updateDoc(doc(db, "artifacts", appId, "public", "data", "tasks", taskObj.id), {
+          completedBy: nextCompletedBy,
+          completionProofs: nextProofs,
+          updatedAt: new Date().toISOString(),
+        });
+      } else {
+        const currentTasks = getLocalData(LS_TASKS_KEY, []);
+        setLocalData(
+          LS_TASKS_KEY,
+          currentTasks.map((t) =>
+            t.id === taskObj.id
+              ? { ...t, completedBy: nextCompletedBy, completionProofs: nextProofs, updatedAt: new Date().toISOString() }
+              : t
+          )
+        );
+      }
+      setModalMsg(`Cofnięto wykonanie zadania dla punktu ${targetLoc} — zadanie wróciło na ekran pracowników.`);
+    } catch (err) {
+      console.error("Błąd cofania zadania:", err);
+      setModalMsg("Nie udało się cofnąć statusu zadania.");
+    }
+  }, []);
 
   const handleNav = (loc) => {
     setCurrentLocation(loc);
@@ -1773,7 +2176,7 @@ export default function App() {
           liveDraft={todayLiveDrafts[currentLocation]}
           todayNysaWarehouse={todayNysaWarehouse}
           tasks={currentEmployeeTasks}
-          onCompleteTask={(t) => handleCompleteTaskGlobal(t, currentLocation, activeGastroDate)}
+          onCompleteTask={(t, photoPayload) => handleCompleteTaskGlobal(t, currentLocation, activeGastroDate, photoPayload)}
           employeesList={catalog?.employeesByLocation?.[currentLocation] || DEFAULT_EMPLOYEES_BY_LOCATION[currentLocation] || []}
           activeShifts={activeShifts}
           todayCompletedShifts={todayCompletedShifts}
@@ -1811,7 +2214,7 @@ export default function App() {
           tasks={currentEmployeeTasks}
           activeShifts={activeShifts}
           todayCompletedShifts={todayCompletedShifts}
-          onCompleteTask={(t) => handleCompleteTaskGlobal(t, currentLocation, activeGastroDate)}
+          onCompleteTask={(t, photoPayload) => handleCompleteTaskGlobal(t, currentLocation, activeGastroDate, photoPayload)}
           onBack={() => setView("locationDashboard")}
           todayStr={activeGastroDate}
           onShowModal={setModalMsg}
@@ -1825,12 +2228,13 @@ export default function App() {
           appId={appId}
           location={adminEditingReport.location}
           existingData={adminEditingReport.existingData}
+          existingCloudDraft={allLiveDrafts.find((d) => d?.date === adminEditingReport.date && d?.location === adminEditingReport.location)}
           previousReport={previousReportForAdminEdit}
           catalog={catalog}
           tasks={adminEditTasks}
           activeShifts={activeShifts}
           todayCompletedShifts={shifts.filter((s) => s?.status === "completed" && s?.date === adminEditingReport.date)}
-          onCompleteTask={(t) => handleCompleteTaskGlobal(t, adminEditingReport.location, adminEditingReport.date)}
+          onCompleteTask={(t, photoPayload) => handleCompleteTaskGlobal(t, adminEditingReport.location, adminEditingReport.date, photoPayload)}
           onBack={() => {
             setAdminEditingReport(null);
             setView("admin");
@@ -1871,6 +2275,7 @@ export default function App() {
           todayNysaWarehouse={todayNysaWarehouse}
           allNysaWarehouse={allNysaWarehouse}
           tasks={tasks}
+          onResetTaskCompletion={handleResetTaskCompletion}
           shifts={shifts}
           onClockIn={handleClockIn}
           onClockOut={handleClockOut}
@@ -1909,7 +2314,25 @@ function EmployeeForm({
   const [loading, setLoading] = useState(false);
 
   const draftStorageKey = `kebab_draft_${appId}_${location}_${todayStr}`;
-  const [savedDraft] = useState(() => (isAdminEdit ? null : getLocalData(draftStorageKey, null)));
+  const [savedDraft] = useState(() => {
+    if (isAdminEdit) return null;
+    const local = getLocalData(draftStorageKey, null);
+    if (local && existingData?.updatedAt && local?.updatedAt && local.updatedAt <= existingData.updatedAt) {
+      return null;
+    }
+    return local;
+  });
+
+  const effectiveExistingSource = useMemo(() => {
+    if (isAdminEdit) return existingData || existingCloudDraft || null;
+    if (existingData && existingCloudDraft) {
+      return (existingCloudDraft.updatedAt || "") > (existingData.updatedAt || "")
+        ? existingCloudDraft
+        : existingData;
+    }
+    return existingData || existingCloudDraft || null;
+  }, [isAdminEdit, existingData, existingCloudDraft]);
+
   const [isDirty, setIsDirty] = useState(false);
   const [showExitConfirm, setShowExitConfirm] = useState(false);
   const [showAllDaysCategories, setShowAllDaysCategories] = useState(false);
@@ -1918,22 +2341,22 @@ function EmployeeForm({
   const [itemSearchQuery, setItemSearchQuery] = useState("");
 
   const [reporter, setReporter] = useState(
-    savedDraft?.reporter || existingData?.reporter || existingCloudDraft?.reporter || ""
+    savedDraft?.reporter || effectiveExistingSource?.reporter || existingData?.reporter || ""
   );
   const [ordersCount, setOrdersCount] = useState(() => {
-    const val = savedDraft?.ordersCount ?? existingData?.ordersCount ?? existingCloudDraft?.ordersCount;
+    const val = savedDraft?.ordersCount ?? effectiveExistingSource?.ordersCount ?? existingData?.ordersCount;
     return val !== undefined && val !== null && Number(val) > 0 ? String(val) : "";
   });
 
   const [confirmedSections, setConfirmedSections] = useState(
-    () => savedDraft?.confirmedSections || existingData?.confirmedSections || existingCloudDraft?.confirmedSections || {}
+    () => savedDraft?.confirmedSections || effectiveExistingSource?.confirmedSections || existingData?.confirmedSections || {}
   );
 
   const [revenue, setRevenue] = useState(() => {
     const rev = {};
     ["gotowka", "karta", "aplikacje", "raportFiskalny", "roznica"].forEach((k) => {
       const dVal = savedDraft?.revenue?.[k];
-      const eVal = existingData?.revenue?.[k] ?? existingCloudDraft?.revenue?.[k];
+      const eVal = effectiveExistingSource?.revenue?.[k] ?? existingData?.revenue?.[k];
       const val = dVal !== undefined && dVal !== "" ? dVal : eVal;
       rev[k] = val !== undefined ? String(val) : "";
     });
@@ -1943,10 +2366,10 @@ function EmployeeForm({
   const [expenses, setExpenses] = useState(() =>
     Array.isArray(savedDraft?.expenses) && savedDraft.expenses.length > 0
       ? savedDraft.expenses
+      : Array.isArray(effectiveExistingSource?.expenses)
+      ? effectiveExistingSource.expenses
       : Array.isArray(existingData?.expenses)
       ? existingData.expenses
-      : Array.isArray(existingCloudDraft?.expenses)
-      ? existingCloudDraft.expenses
       : []
   );
 
@@ -1954,51 +2377,48 @@ function EmployeeForm({
     const src =
       Array.isArray(savedDraft?.employees) && savedDraft.employees.some((e) => e?.name || e?.hours)
         ? savedDraft.employees
+        : Array.isArray(effectiveExistingSource?.employees) && effectiveExistingSource.employees.length > 0
+        ? effectiveExistingSource.employees
         : Array.isArray(existingData?.employees) && existingData.employees.length > 0
         ? existingData.employees
-        : Array.isArray(existingCloudDraft?.employees) && existingCloudDraft.employees.length > 0
-        ? existingCloudDraft.employees
         : [];
     return [0, 1, 2].map((i) => ({ name: src[i]?.name || "", hours: src[i]?.hours || "" }));
   });
 
   const [vegetables, setVegetables] = useState(() =>
-    buildInitialSectionState(previousReport?.vegetables, existingData?.vegetables || existingCloudDraft?.vegetables, savedDraft?.vegetables)
+    buildInitialSectionState(previousReport?.vegetables, effectiveExistingSource?.vegetables, savedDraft?.vegetables)
   );
   const [farutex, setFarutex] = useState(() =>
-    buildInitialSectionState(previousReport?.farutex, existingData?.farutex || existingCloudDraft?.farutex, savedDraft?.farutex)
+    buildInitialSectionState(previousReport?.farutex, effectiveExistingSource?.farutex, savedDraft?.farutex)
   );
   const [freezer, setFreezer] = useState(() =>
-    buildInitialSectionState(previousReport?.freezer, existingData?.freezer || existingCloudDraft?.freezer, savedDraft?.freezer)
+    buildInitialSectionState(previousReport?.freezer, effectiveExistingSource?.freezer, savedDraft?.freezer)
   );
   const [meat1, setMeat1] = useState(() =>
-    buildInitialSectionState(previousReport?.meat1, existingData?.meat1 || existingCloudDraft?.meat1, savedDraft?.meat1)
+    buildInitialSectionState(previousReport?.meat1, effectiveExistingSource?.meat1, savedDraft?.meat1)
   );
   const [meat2, setMeat2] = useState(() =>
-    buildInitialSectionState(previousReport?.meat2, existingData?.meat2 || existingCloudDraft?.meat2, savedDraft?.meat2)
+    buildInitialSectionState(previousReport?.meat2, effectiveExistingSource?.meat2, savedDraft?.meat2)
   );
   const [otherItems, setOtherItems] = useState(() =>
-    buildInitialSectionState(previousReport?.otherItems, existingData?.otherItems || existingCloudDraft?.otherItems, savedDraft?.otherItems)
+    buildInitialSectionState(previousReport?.otherItems, effectiveExistingSource?.otherItems, savedDraft?.otherItems)
   );
   const [customSections, setCustomSections] = useState(() => ({
     ...(previousReport?.customSections || {}),
-    ...(existingCloudDraft?.customSections || {}),
-    ...(existingData?.customSections || {}),
+    ...(effectiveExistingSource?.customSections || {}),
     ...(savedDraft?.customSections || {}),
   }));
   const [sauces, setSauces] = useState(() =>
-    Array.isArray(savedDraft?.sauces) && savedDraft.sauces.length > 0
+    Array.isArray(savedDraft?.sauces)
       ? savedDraft.sauces
-      : Array.isArray(existingData?.sauces)
-      ? existingData.sauces
-      : Array.isArray(existingCloudDraft?.sauces)
-      ? existingCloudDraft.sauces
+      : Array.isArray(effectiveExistingSource?.sauces)
+      ? effectiveExistingSource.sauces
       : []
   );
   const [saucesNote, setSaucesNote] = useState(
-    savedDraft?.saucesNote || existingData?.saucesNote || existingCloudDraft?.saucesNote || ""
+    savedDraft?.saucesNote ?? effectiveExistingSource?.saucesNote ?? ""
   );
-  const [notes, setNotes] = useState(savedDraft?.notes || existingData?.notes || existingCloudDraft?.notes || "");
+  const [notes, setNotes] = useState(savedDraft?.notes ?? effectiveExistingSource?.notes ?? "");
 
   const applyCompletedShiftsToForm = useCallback(
     (shiftsList) => {
@@ -2033,48 +2453,47 @@ function EmployeeForm({
   }, [todayCompletedShifts, applyCompletedShiftsToForm]);
 
   useEffect(() => {
-    if (!existingData) return;
-    setVegetables((prev) => (hasAnyPositiveValue(prev) ? prev : { ...prev, ...(existingData.vegetables || {}) }));
-    setFreezer((prev) => (hasAnyPositiveValue(prev) ? prev : { ...prev, ...(existingData.freezer || {}) }));
-    setFarutex((prev) => (hasAnyPositiveValue(prev) ? prev : { ...prev, ...(existingData.farutex || {}) }));
-    setMeat1((prev) => (hasAnyPositiveValue(prev) ? prev : { ...prev, ...(existingData.meat1 || {}) }));
-    setMeat2((prev) => (hasAnyPositiveValue(prev) ? prev : { ...prev, ...(existingData.meat2 || {}) }));
-    setOtherItems((prev) => (hasAnyPositiveValue(prev) ? prev : { ...prev, ...(existingData.otherItems || {}) }));
-    if (!isDirty) {
-      if (existingData.reporter) setReporter((r) => r || existingData.reporter);
-      if (existingData.ordersCount) setOrdersCount((o) => o || String(existingData.ordersCount));
-      if (existingData.confirmedSections) setConfirmedSections((c) => ({ ...existingData.confirmedSections, ...c }));
-      if (existingData.revenue) {
-        setRevenue((prev) => {
-          const next = { ...prev };
-          ["gotowka", "karta", "aplikacje", "raportFiskalny", "roznica"].forEach((k) => {
-            if (!next[k] && existingData.revenue[k] !== undefined) next[k] = String(existingData.revenue[k]);
-          });
-          return next;
+    if (!existingData || isDirty || savedDraft) return;
+    setVegetables((prev) => ({ ...prev, ...(existingData.vegetables || {}) }));
+    setFreezer((prev) => ({ ...prev, ...(existingData.freezer || {}) }));
+    setFarutex((prev) => ({ ...prev, ...(existingData.farutex || {}) }));
+    setMeat1((prev) => ({ ...prev, ...(existingData.meat1 || {}) }));
+    setMeat2((prev) => ({ ...prev, ...(existingData.meat2 || {}) }));
+    setOtherItems((prev) => ({ ...prev, ...(existingData.otherItems || {}) }));
+
+    if (existingData.reporter) setReporter((r) => r || existingData.reporter);
+    if (existingData.ordersCount) setOrdersCount((o) => o || String(existingData.ordersCount));
+    if (existingData.confirmedSections) setConfirmedSections((c) => ({ ...existingData.confirmedSections, ...c }));
+    if (existingData.revenue) {
+      setRevenue((prev) => {
+        const next = { ...prev };
+        ["gotowka", "karta", "aplikacje", "raportFiskalny", "roznica"].forEach((k) => {
+          if (!next[k] && existingData.revenue[k] !== undefined) next[k] = String(existingData.revenue[k]);
         });
-      }
-      if (Array.isArray(existingData.employees) && existingData.employees.length > 0) {
-        setEmployees((prev) =>
-          prev.some((e) => e.name || e.hours)
-            ? prev
-            : [0, 1, 2].map((i) => ({
-                name: existingData.employees[i]?.name || "",
-                hours: existingData.employees[i]?.hours || "",
-              }))
-        );
-      }
+        return next;
+      });
     }
-  }, [existingData, isDirty]);
+    if (Array.isArray(existingData.employees) && existingData.employees.length > 0) {
+      setEmployees((prev) =>
+        prev.some((e) => e.name || e.hours)
+          ? prev
+          : [0, 1, 2].map((i) => ({
+              name: existingData.employees[i]?.name || "",
+              hours: existingData.employees[i]?.hours || "",
+            }))
+      );
+    }
+  }, [existingData, isDirty, savedDraft]);
 
   useEffect(() => {
-    if (existingData || !previousReport || isDirty) return;
-    setVegetables((prev) => (hasAnyPositiveValue(prev) ? prev : { ...(previousReport.vegetables || {}) }));
-    setFreezer((prev) => (hasAnyPositiveValue(prev) ? prev : { ...(previousReport.freezer || {}) }));
-    setFarutex((prev) => (hasAnyPositiveValue(prev) ? prev : { ...(previousReport.farutex || {}) }));
-    setMeat1((prev) => (hasAnyPositiveValue(prev) ? prev : { ...(previousReport.meat1 || {}) }));
-    setMeat2((prev) => (hasAnyPositiveValue(prev) ? prev : { ...(previousReport.meat2 || {}) }));
-    setOtherItems((prev) => (hasAnyPositiveValue(prev) ? prev : { ...(previousReport.otherItems || {}) }));
-  }, [previousReport, existingData, isDirty]);
+    if (existingData || !previousReport || isDirty || savedDraft) return;
+    setVegetables((prev) => (Object.keys(prev).length > 0 ? prev : { ...(previousReport.vegetables || {}) }));
+    setFreezer((prev) => (Object.keys(prev).length > 0 ? prev : { ...(previousReport.freezer || {}) }));
+    setFarutex((prev) => (Object.keys(prev).length > 0 ? prev : { ...(previousReport.farutex || {}) }));
+    setMeat1((prev) => (Object.keys(prev).length > 0 ? prev : { ...(previousReport.meat1 || {}) }));
+    setMeat2((prev) => (Object.keys(prev).length > 0 ? prev : { ...(previousReport.meat2 || {}) }));
+    setOtherItems((prev) => (Object.keys(prev).length > 0 ? prev : { ...(previousReport.otherItems || {}) }));
+  }, [previousReport, existingData, isDirty, savedDraft]);
 
   const locationEmployeesList = useMemo(
     () => catalog?.employeesByLocation?.[location] || DEFAULT_EMPLOYEES_BY_LOCATION[location] || [],
@@ -2131,7 +2550,7 @@ function EmployeeForm({
 
         if (db) {
           await ensureAuth();
-          await setDoc(doc(db, "artifacts", appId, "public", "data", "live_drafts", draftId), payload, { merge: true });
+          await setDoc(doc(db, "artifacts", appId, "public", "data", "live_drafts", draftId), payload);
         }
       } catch (err) {
         console.error("Błąd synchronizacji szkicu w chmurze:", err);
@@ -2376,6 +2795,8 @@ function EmployeeForm({
           ? estimatedOrdersFromRevenue
           : parseSafeNumber(existingData?.ordersCount);
 
+      const nowIso = new Date().toISOString();
+
       const data = {
         date: targetDate,
         location: targetLoc,
@@ -2402,12 +2823,20 @@ function EmployeeForm({
         notes: String(notes || "").trim(),
         confirmedSections,
         issueStatuses: existingData?.issueStatuses || {},
-        updatedAt: new Date().toISOString(),
+        updatedAt: nowIso,
       };
+
+      const localCloudList = getLocalData(LS_CLOUD_DRAFTS_KEY, []);
+      const filteredDrafts = localCloudList.filter((d) => d.id !== deterministicId);
+      setLocalData(LS_CLOUD_DRAFTS_KEY, [...filteredDrafts, { ...data, id: deterministicId }]);
 
       if (db) {
         await ensureAuth();
         await setDoc(doc(db, "artifacts", appId, "public", "data", "daily_reports", deterministicId), data);
+        await setDoc(doc(db, "artifacts", appId, "public", "data", "live_drafts", deterministicId), {
+          ...data,
+          id: deterministicId,
+        });
       } else {
         const currentReports = getLocalData(LS_REPORTS_KEY, []);
         const filtered = currentReports.filter((r) => r.id !== deterministicId && !(r.date === data.date && r.location === data.location));
@@ -2561,7 +2990,13 @@ function EmployeeForm({
       </div>
 
       <form onSubmit={handleSubmit} noValidate className="p-4 sm:p-6 max-w-4xl mx-auto space-y-6 overflow-x-hidden">
-        <UrgentTasksBanner tasks={tasks} location={location} todayStr={todayStr} onCompleteTask={onCompleteTask} />
+        <UrgentTasksBanner
+          tasks={tasks}
+          location={location}
+          todayStr={todayStr}
+          employeesList={locationEmployeesList}
+          onCompleteTask={onCompleteTask}
+        />
 
         {showGeneral && (
           <>
@@ -3226,7 +3661,13 @@ function NysaWarehouseForm({
   const [loading, setLoading] = useState(false);
 
   const draftKey = `kebab_nysa_draft_${appId}_${todayStr}`;
-  const [savedDraft] = useState(() => getLocalData(draftKey, null));
+  const [savedDraft] = useState(() => {
+    const local = getLocalData(draftKey, null);
+    if (local && existingData?.updatedAt && local?.updatedAt && local.updatedAt <= existingData.updatedAt) {
+      return null;
+    }
+    return local;
+  });
 
   const [food, setFood] = useState(() => buildInitialSectionState(previousWarehouseData?.food, existingData?.food, savedDraft?.food));
   const [pack, setPack] = useState(() => buildInitialSectionState(previousWarehouseData?.pack, existingData?.pack, savedDraft?.pack));
@@ -3235,16 +3676,16 @@ function NysaWarehouseForm({
   const [searchQuery, setSearchQuery] = useState("");
 
   useEffect(() => {
-    if (!existingData) return;
-    setFood((prev) => (hasAnyPositiveValue(prev) ? prev : { ...prev, ...(existingData.food || {}) }));
-    setPack((prev) => (hasAnyPositiveValue(prev) ? prev : { ...prev, ...(existingData.pack || {}) }));
-  }, [existingData]);
+    if (!existingData || isDirty || savedDraft) return;
+    setFood((prev) => ({ ...prev, ...(existingData.food || {}) }));
+    setPack((prev) => ({ ...prev, ...(existingData.pack || {}) }));
+  }, [existingData, isDirty, savedDraft]);
 
   useEffect(() => {
     if (!isDirty) return;
     const timer = setTimeout(() => {
       try {
-        localStorage.setItem(draftKey, JSON.stringify({ food, pack }));
+        localStorage.setItem(draftKey, JSON.stringify({ food, pack, updatedAt: new Date().toISOString() }));
       } catch (e) {
         console.error(e);
       }
@@ -3402,6 +3843,7 @@ function NysaWarehouseForm({
   allLiveDrafts = [],
   allNysaWarehouse = [],
   tasks = [],
+  onResetTaskCompletion,
   shifts = [],
   onClockIn,
   onClockOut,
@@ -3426,6 +3868,9 @@ function NysaWarehouseForm({
   const [newTaskType, setNewTaskType] = useState("adhoc");
   const [newTaskDays, setNewTaskDays] = useState([1, 3, 5]);
   const [newTaskDeadline, setNewTaskDeadline] = useState("18:00");
+  const [newTaskRequirePhoto, setNewTaskRequirePhoto] = useState(true);
+  const [taskCheckDate, setTaskCheckDate] = useState(todayStr);
+  const [previewProofData, setPreviewProofData] = useState(null);
 
   const [selectedReportDate, setSelectedReportDate] = useState(todayStr);
 
@@ -3520,14 +3965,22 @@ function NysaWarehouseForm({
       const liveDraft = draftsForSelectedDate.find((d) => d?.location === loc) || null;
       if (finalRep && liveDraft) {
         const isDraftNewer = (liveDraft.updatedAt || "") > (finalRep.updatedAt || "");
+        const pickSection = (secKey) => {
+          if (!isDraftNewer) return finalRep[secKey];
+          const draftSec = liveDraft[secKey];
+          if (draftSec && typeof draftSec === "object" && Object.keys(draftSec).length > 0) {
+            return { ...(finalRep[secKey] || {}), ...draftSec };
+          }
+          return finalRep[secKey];
+        };
         return {
           ...finalRep,
-          vegetables: isDraftNewer && hasAnyPositiveValue(liveDraft.vegetables) ? liveDraft.vegetables : finalRep.vegetables,
-          freezer: isDraftNewer && hasAnyPositiveValue(liveDraft.freezer) ? liveDraft.freezer : finalRep.freezer,
-          farutex: isDraftNewer && hasAnyPositiveValue(liveDraft.farutex) ? liveDraft.farutex : finalRep.farutex,
-          meat1: isDraftNewer && hasAnyPositiveValue(liveDraft.meat1) ? liveDraft.meat1 : finalRep.meat1,
-          meat2: isDraftNewer && hasAnyPositiveValue(liveDraft.meat2) ? liveDraft.meat2 : finalRep.meat2,
-          otherItems: isDraftNewer && hasAnyPositiveValue(liveDraft.otherItems) ? liveDraft.otherItems : finalRep.otherItems,
+          vegetables: pickSection("vegetables"),
+          freezer: pickSection("freezer"),
+          farutex: pickSection("farutex"),
+          meat1: pickSection("meat1"),
+          meat2: pickSection("meat2"),
+          otherItems: pickSection("otherItems"),
           confirmedSections: { ...(finalRep.confirmedSections || {}), ...(liveDraft.confirmedSections || {}) },
           isLiveDraftOnly: false,
           hasFinalReport: true,
@@ -3922,7 +4375,9 @@ function NysaWarehouseForm({
         type: newTaskType,
         daysOfWeek: newTaskType === "recurring" ? newTaskDays : [],
         deadlineTime: newTaskDeadline || "18:00",
+        requirePhoto: newTaskRequirePhoto,
         completedBy: [],
+        completionProofs: {},
         active: true,
         createdBy: name,
         createdAt: new Date().toISOString(),
@@ -4467,21 +4922,22 @@ function NysaWarehouseForm({
 
   const renderTaskCard = (t) => {
     const isRecurring = t.type === "recurring";
+    const requiresPhoto = t.requirePhoto !== false;
     const targetLocs = t.location === "All" ? (isKlodzkoAdmin ? ["Kłodzko"] : LOCATIONS) : [t.location];
     const scheduledDaysObjs =
       isRecurring && Array.isArray(t.daysOfWeek)
         ? DAYS_OF_WEEK.filter((d) => t.daysOfWeek.map(Number).includes(d.id))
         : [];
-    const todayDayIdx = getDayOfWeekFromDateStr(todayStr);
-    const isScheduledForToday =
-      !isRecurring || (Array.isArray(t.daysOfWeek) && t.daysOfWeek.map(Number).includes(todayDayIdx));
+    const checkDayIdx = getDayOfWeekFromDateStr(taskCheckDate);
+    const isScheduledForCheckDate =
+      !isRecurring || (Array.isArray(t.daysOfWeek) && t.daysOfWeek.map(Number).includes(checkDayIdx));
 
     return (
       <div
         key={t.id}
-        className="p-5 rounded-2xl border bg-white border-gray-200 shadow-sm flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4"
+        className="p-5 rounded-2xl border bg-white border-gray-200 shadow-sm flex flex-col lg:flex-row lg:items-start lg:justify-between gap-4"
       >
-        <div className="space-y-2.5 flex-1">
+        <div className="space-y-3 flex-1 min-w-0">
           <div className="flex flex-wrap items-center gap-2">
             <span className="text-[10px] font-black bg-amber-100 text-amber-800 px-3 py-1 rounded-full uppercase tracking-wider">
               {t.location === "All" ? "Wszystkie punkty (All)" : t.location}
@@ -4498,17 +4954,27 @@ function NysaWarehouseForm({
             <span className="text-[10px] font-black bg-red-100 text-red-700 px-3 py-1 rounded-full uppercase tracking-wider flex items-center">
               <Clock className="w-3.5 h-3.5 mr-1" /> Do wykonania do godziny: {t.deadlineTime || "22:00"}
             </span>
+            <span
+              className={`text-[10px] font-black px-3 py-1 rounded-full uppercase flex items-center ${
+                requiresPhoto ? "bg-emerald-100 text-emerald-800" : "bg-gray-100 text-gray-600"
+              }`}
+            >
+              <Camera className="w-3.5 h-3.5 mr-1" />
+              {requiresPhoto ? "Wymagana fotokontrola" : "Zdjęcie opcjonalne"}
+            </span>
             {isRecurring && (
               <span
                 className={`text-[10px] font-black px-2.5 py-1 rounded-full uppercase ${
-                  isScheduledForToday ? "bg-emerald-100 text-emerald-800" : "bg-gray-100 text-gray-500"
+                  isScheduledForCheckDate ? "bg-emerald-100 text-emerald-800" : "bg-gray-100 text-gray-500"
                 }`}
               >
-                {isScheduledForToday ? `Aktywne dziś (${todayStr})` : "Dziś poza harmonogramem"}
+                {isScheduledForCheckDate ? `Aktywne w dniu (${taskCheckDate})` : `Poza harmonogramem (${taskCheckDate})`}
               </span>
             )}
           </div>
-          <p className="font-bold text-gray-900 text-lg leading-tight">{t.text}</p>
+
+          <p className="font-bold text-gray-900 text-lg leading-tight break-words">{t.text}</p>
+
           {isRecurring && scheduledDaysObjs.length > 0 && (
             <div className="flex flex-wrap items-center gap-1.5 pt-0.5">
               <span className="text-xs font-bold text-gray-400 mr-1">Dni wykonywania:</span>
@@ -4522,41 +4988,115 @@ function NysaWarehouseForm({
               ))}
             </div>
           )}
-          <div className="pt-2 border-t border-gray-100">
-            <span className="block text-[11px] font-black uppercase text-gray-400 mb-1.5">
-              {isRecurring ? `Stan realizacji w dniu dzisiejszym (${todayStr}):` : "Stan realizacji w punktach:"}
+
+          <div className="pt-3 border-t border-gray-100">
+            <span className="block text-[11px] font-black uppercase text-gray-400 mb-2">
+              {isRecurring
+                ? `Stan realizacji i Fotokontrola w dniu (${taskCheckDate}):`
+                : "Stan realizacji i Fotokontrola w punktach:"}
             </span>
-            <div className="flex flex-wrap gap-2">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               {targetLocs.map((loc) => {
-                const done = isTaskCompletedByLocation(t, loc, todayStr);
+                const done = isTaskCompletedByLocation(t, loc, taskCheckDate);
+                const proof = getTaskProofForLocation(t, loc, taskCheckDate);
                 return (
-                  <span
+                  <div
                     key={loc}
-                    className={`inline-flex items-center px-3 py-1 rounded-xl text-xs font-black border transition-colors ${
+                    className={`p-3.5 rounded-2xl border flex flex-col justify-between gap-2.5 transition-colors ${
                       done
-                        ? "bg-emerald-50 border-emerald-300 text-emerald-800"
-                        : "bg-red-50/70 border-red-200 text-red-700"
+                        ? "bg-emerald-50/70 border-emerald-300 text-emerald-950"
+                        : "bg-red-50/60 border-red-200 text-red-900"
                     }`}
                   >
-                    {done ? (
-                      <CheckCircle2 className="w-3.5 h-3.5 mr-1.5 text-emerald-600 shrink-0" />
-                    ) : (
-                      <XCircle className="w-3.5 h-3.5 mr-1.5 text-red-500 shrink-0" />
+                    <div className="flex items-start justify-between gap-2">
+                      <div className="flex items-center gap-1.5">
+                        {done ? (
+                          <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
+                        ) : (
+                          <XCircle className="w-4 h-4 text-red-500 shrink-0" />
+                        )}
+                        <span className="font-black text-xs uppercase">{loc}:</span>
+                        <span className="font-extrabold text-xs">
+                          {done ? "Wykonane" : "Niewykonane"}
+                        </span>
+                      </div>
+                      {done && proof?.completedHM && (
+                        <span className="text-[10px] font-black bg-emerald-200/80 text-emerald-900 px-2 py-0.5 rounded-md">
+                          godz. {proof.completedHM}
+                        </span>
+                      )}
+                    </div>
+
+                    {done && proof && (
+                      <div className="space-y-2 pt-1 border-t border-emerald-200/60 text-xs">
+                        {proof.completedByEmployee && (
+                          <p className="font-bold text-emerald-900">
+                            Wykonał(a): <strong className="underline">{proof.completedByEmployee}</strong>
+                          </p>
+                        )}
+                        {proof.note && (
+                          <p className="font-semibold text-gray-700 bg-white/80 p-2 rounded-xl border border-emerald-200">
+                            „{proof.note}”
+                          </p>
+                        )}
+                        {proof.photoDataUrl ? (
+                          <div className="flex items-center gap-3 pt-1">
+                            <img
+                              src={proof.photoDataUrl}
+                              alt={`Zadanie ${loc}`}
+                              onClick={() => setPreviewProofData({ proof, taskText: t.text })}
+                              className="w-16 h-16 rounded-xl object-cover border-2 border-emerald-400 cursor-pointer hover:opacity-90 shrink-0 shadow-sm"
+                            />
+                            <div className="flex flex-col gap-1.5 flex-1">
+                              <button
+                                type="button"
+                                onClick={() => setPreviewProofData({ proof, taskText: t.text })}
+                                className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white font-black text-[11px] rounded-xl flex items-center justify-center transition-colors shadow-sm"
+                              >
+                                <Eye className="w-3.5 h-3.5 mr-1.5" /> Powiększ zdjęcie
+                              </button>
+                              {onResetTaskCompletion && (
+                                <button
+                                  type="button"
+                                  onClick={() => onResetTaskCompletion(t, loc, taskCheckDate)}
+                                  className="px-3 py-1 bg-white hover:bg-red-50 text-red-600 border border-red-200 font-bold text-[10px] rounded-xl flex items-center justify-center transition-colors"
+                                >
+                                  <RotateCcw className="w-3 h-3 mr-1" /> Cofnij (Do poprawy)
+                                </button>
+                              )}
+                            </div>
+                          </div>
+                        ) : (
+                          <div className="flex items-center justify-between gap-2 pt-1">
+                            <span className="text-[11px] text-gray-500 italic">Oznaczono bez zdjęcia</span>
+                            {onResetTaskCompletion && (
+                              <button
+                                type="button"
+                                onClick={() => onResetTaskCompletion(t, loc, taskCheckDate)}
+                                className="px-2.5 py-1 bg-white hover:bg-red-50 text-red-600 border border-red-200 font-bold text-[10px] rounded-lg flex items-center transition-colors"
+                              >
+                                <RotateCcw className="w-3 h-3 mr-1" /> Cofnij
+                              </button>
+                            )}
+                          </div>
+                        )}
+                      </div>
                     )}
-                    {loc}: {done ? "Wykonane" : "Niewykonane"}
-                  </span>
+                  </div>
                 );
               })}
             </div>
           </div>
+
           <p className="text-xs text-gray-400 font-semibold">Zlecone przez: {t.createdBy}</p>
         </div>
+
         <button
           type="button"
           onClick={() => handleDeleteTask(t.id)}
           className="shrink-0 w-full lg:w-auto px-4 py-3 lg:py-2.5 flex items-center justify-center rounded-xl bg-red-50 text-red-600 font-bold hover:bg-red-100 transition-colors"
         >
-          <Trash2 className="w-4 h-4 mr-2" /> Usuń
+          <Trash2 className="w-4 h-4 mr-2" /> Usuń zadanie
         </button>
       </div>
     );
@@ -4564,6 +5104,12 @@ function NysaWarehouseForm({
 
   return (
     <div className="flex flex-col min-h-screen bg-gray-50">
+      <PhotoPreviewModal
+        proof={previewProofData?.proof}
+        taskText={previewProofData?.taskText}
+        onClose={() => setPreviewProofData(null)}
+      />
+
       <div className="bg-gray-900 text-white px-5 py-4 sticky top-0 z-40 flex justify-between items-center shadow-lg w-full">
         <div>
           <h1 className="font-extrabold text-lg tracking-tight">
@@ -4619,10 +5165,10 @@ function NysaWarehouseForm({
           },
           {
             id: "tasks",
-            label: "Zadania Dnia",
+            label: "Zadania & Fotokontrola",
             icon: ClipboardList,
             activeClass: "border-blue-600 text-blue-600 bg-blue-50/30",
-            minW: "min-w-[150px]",
+            minW: "min-w-[175px]",
           },
           ...(isOwner
             ? [
@@ -6156,7 +6702,7 @@ function NysaWarehouseForm({
                     {isKlodzkoAdmin ? "dla punktu Kłodzko" : "dla punktu / sieci"}
                   </h2>
                   <p className="text-xs font-semibold text-gray-500 mt-1">
-                    Wybierz czy zadanie jest jednorazowe, czy cykliczne, oraz określ godzinę (deadline) wykonania.
+                    Wybierz czy zadanie jest jednorazowe, czy cykliczne, określ godzinę wykonania oraz czy wymaga zdjęcia potwierdzającego.
                   </p>
                 </div>
                 <div className="flex bg-gray-100 p-1 rounded-2xl border border-gray-200 self-start sm:self-center">
@@ -6230,6 +6776,42 @@ function NysaWarehouseForm({
                   </div>
                 </div>
 
+                <div
+                  onClick={() => setNewTaskRequirePhoto((prev) => !prev)}
+                  className={`p-4 rounded-2xl border-2 cursor-pointer transition-colors flex items-center justify-between gap-3 select-none ${
+                    newTaskRequirePhoto
+                      ? "bg-emerald-50/70 border-emerald-400"
+                      : "bg-gray-50 border-gray-200 hover:bg-gray-100"
+                  }`}
+                >
+                  <div className="flex items-center gap-3">
+                    <div
+                      className={`w-10 h-10 rounded-xl flex items-center justify-center shrink-0 ${
+                        newTaskRequirePhoto ? "bg-emerald-600 text-white" : "bg-gray-200 text-gray-600"
+                      }`}
+                    >
+                      <Camera className="w-5 h-5" />
+                    </div>
+                    <div>
+                      <span className="font-black text-sm text-gray-900 block">
+                        Wymagaj zdjęcia potwierdzającego wykonanie zadania (Fotokontrola)
+                      </span>
+                      <span className="text-xs font-semibold text-gray-500">
+                        {newTaskRequirePhoto
+                          ? "Pracownik musi zrobić zdjęcie aparatem w telefonie, aby odhaczyć zadanie jako wykonane."
+                          : "Zdjęcie będzie opcjonalne — pracownik może odhaczyć zadanie bez zdjęcia."}
+                      </span>
+                    </div>
+                  </div>
+                  <span
+                    className={`px-3 py-1 rounded-full text-xs font-black uppercase shrink-0 ${
+                      newTaskRequirePhoto ? "bg-emerald-600 text-white" : "bg-gray-200 text-gray-700"
+                    }`}
+                  >
+                    {newTaskRequirePhoto ? "Wymagane" : "Opcjonalne"}
+                  </span>
+                </div>
+
                 {newTaskType === "recurring" && (
                   <div className="p-4 bg-indigo-50/60 border border-indigo-200 rounded-2xl space-y-2.5">
                     <label className="block text-xs font-black uppercase text-indigo-900">
@@ -6272,8 +6854,39 @@ function NysaWarehouseForm({
               </form>
             </div>
 
+            <div className="bg-white p-4 sm:p-5 rounded-2xl border border-gray-200 shadow-sm flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+              <div>
+                <h3 className="font-extrabold text-gray-900 text-sm flex items-center">
+                  <Camera className="w-4 h-4 mr-2 text-emerald-600" /> Podgląd Fotokontroli i Realizacji Zadań
+                </h3>
+                <p className="text-xs font-semibold text-gray-500">
+                  Dla zadań cyklicznych możesz zmienić datę poniżej, aby przejrzeć zdjęcia z poprzednich dni.
+                </p>
+              </div>
+              <div className="flex items-center gap-2 self-start sm:self-center">
+                <div className="flex items-center bg-gray-50 border border-gray-200 rounded-xl px-3 py-2">
+                  <Calendar className="w-4 h-4 text-gray-500 mr-2" />
+                  <input
+                    type="date"
+                    value={taskCheckDate}
+                    onChange={(e) => setTaskCheckDate(e.target.value)}
+                    className="bg-transparent font-black text-xs text-gray-900 outline-none"
+                  />
+                </div>
+                {taskCheckDate !== todayStr && (
+                  <button
+                    type="button"
+                    onClick={() => setTaskCheckDate(todayStr)}
+                    className="px-3 py-2 bg-blue-600 text-white rounded-xl text-xs font-black hover:bg-blue-700 transition-colors"
+                  >
+                    Dziś ({todayStr})
+                  </button>
+                )}
+              </div>
+            </div>
+
             <div className="space-y-3">
-              <h3 className="font-bold text-gray-500 uppercase text-xs tracking-wider ml-2 mb-3 mt-6">
+              <h3 className="font-bold text-gray-500 uppercase text-xs tracking-wider ml-2 mb-3 mt-4">
                 Zadania doraźne / jednorazowe ({adhocVisibleTasks.length})
               </h3>
               {adhocVisibleTasks.length === 0 ? (
